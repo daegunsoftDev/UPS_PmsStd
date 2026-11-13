@@ -1,0 +1,64 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_LimitEval" Id="{1183d23e-b3f5-42ad-9583-5239ada39695}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_LimitEval		// 제한 모듈·보정 모듈을 그룹마다 한 번씩 평가 (Auto·Manual 성형이 같은 결과를 씀. 모듈 타이머가 두 번 돌지 않게)
+VAR_IN_OUT CONSTANT
+	iq_astView		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupView;
+	iq_astLimitReg	: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF ST_ModuleReg;
+	iq_astCompReg	: ARRAY[1..GVL_PARAM.COMP_COUNT] OF ST_ModuleReg;
+END_VAR
+VAR_IN_OUT
+	iq_aipLimit		: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF I_LimitRule;
+	iq_aipComp		: ARRAY[1..GVL_PARAM.COMP_COUNT] OF I_Compensator;
+END_VAR
+VAR_OUTPUT
+	q_aabOn			: ARRAY[1..GVL_PARAM.GROUP_COUNT, 1..GVL_PARAM.LIMIT_COUNT] OF BOOL;		// 이 그룹에 걸린 제한 모듈
+	q_aastLim		: ARRAY[1..GVL_PARAM.GROUP_COUNT, 1..GVL_PARAM.LIMIT_COUNT] OF ST_LimitOut;
+	q_aaeBasis		: ARRAY[1..GVL_PARAM.GROUP_COUNT, 1..GVL_PARAM.LIMIT_COUNT] OF E_LimitBasis;
+	q_aanModule		: ARRAY[1..GVL_PARAM.GROUP_COUNT, 1..GVL_PARAM.LIMIT_COUNT] OF UINT;
+	q_abPccManual	: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF BOOL;		// 모듈 등록 bManual: 접속점 기준 모듈을 Manual 경로에도 적용
+	q_abResume		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// 재개 중인 제한 모듈 있음 (재개 램프율)
+	q_afPComp		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;		// kW, 보정 합
+	q_afQComp		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;		// kvar
+END_VAR
+VAR_TEMP
+	g				: UINT;
+	i				: UINT;
+	stCompPQ		: ST_PQ;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR i := 1 TO GVL_PARAM.LIMIT_COUNT DO
+	q_abPccManual[i] := iq_astLimitReg[i].bManual;
+END_FOR
+FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	q_abResume[g] := FALSE;
+	FOR i := 1 TO GVL_PARAM.LIMIT_COUNT DO
+		q_aabOn[g, i] := FALSE;
+		IF iq_aipLimit[i] <> 0 AND_THEN (iq_astLimitReg[i].bEnable
+			AND (iq_astLimitReg[i].nGroup = 0 OR iq_astLimitReg[i].nGroup = g)) THEN
+			q_aastLim[g, i]		:= iq_aipLimit[i].M_Evaluate(iq_astView[g]);
+			// 제한은 줄이기만 함: 0은 항상 범위 안 (모듈이 출력을 강제하지 못함)
+			q_aastLim[g, i].stP	:= F_LimitKeepZero(q_aastLim[g, i].stP);
+			q_aastLim[g, i].stQ	:= F_LimitKeepZero(q_aastLim[g, i].stQ);
+			q_aaeBasis[g, i]	:= iq_aipLimit[i].Basis;
+			q_aanModule[g, i]	:= iq_aipLimit[i].ModuleId;
+			q_aabOn[g, i]		:= TRUE;
+			q_abResume[g]		:= q_abResume[g] OR q_aastLim[g, i].bResume;
+		END_IF
+	END_FOR
+
+	q_afPComp[g] := 0;
+	q_afQComp[g] := 0;
+	FOR i := 1 TO GVL_PARAM.COMP_COUNT DO
+		IF iq_aipComp[i] <> 0 AND_THEN (iq_astCompReg[i].bEnable
+			AND (iq_astCompReg[i].nGroup = 0 OR iq_astCompReg[i].nGroup = g)) THEN
+			stCompPQ		:= iq_aipComp[i].M_Calc(iq_astView[g]);
+			// NaN·무한대 보정값은 버림 (램프 기준·Q 필터에 들어가면 풀리지 않음)
+			IF F_CmdOk(stCompPQ.fP, 0) THEN q_afPComp[g] := q_afPComp[g] + stCompPQ.fP; END_IF
+			IF F_CmdOk(stCompPQ.fQ, 0) THEN q_afQComp[g] := q_afQComp[g] + stCompPQ.fQ; END_IF
+		END_IF
+	END_FOR
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

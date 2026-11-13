@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BatLimitOut" Id="{aaf112e9-24fe-4f52-9ba8-57070c31f454}">
+    <Declaration><![CDATA[TYPE ST_BatLimitOut :	// 버스 제한 모듈 결과
+STRUCT
+	stP	: ST_Limit;	// kW. fMax = 방전 상한(0 이상), fMin = 충전 하한(0 이하). bActive = FALSE면 제한 없음
+	bResume	: BOOL;	// 출력 재개 중: 코어 램프가 재개 램프율을 씀
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

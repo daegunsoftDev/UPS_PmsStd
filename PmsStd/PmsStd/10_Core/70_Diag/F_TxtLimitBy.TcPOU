@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtLimitBy" Id="{cc49cefe-4016-4691-95ce-1cbb68bc3f2b}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtLimitBy : WSTRING(31)		// 유닛 축소 이유 문구
+VAR_INPUT
+	i_e		: E_UnitLimitBy;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_e OF
+	E_UnitLimitBy.None:	F_TxtLimitBy := "없음";
+	E_UnitLimitBy.NotAvail:	F_TxtLimitBy := "가용 아님";
+	E_UnitLimitBy.NotRun:	F_TxtLimitBy := "활성 아님·정지 중";
+	E_UnitLimitBy.Rating:	F_TxtLimitBy := "정격";
+	E_UnitLimitBy.Derate:	F_TxtLimitBy := "Derate";
+	E_UnitLimitBy.Scaled:	F_TxtLimitBy := "유닛별 값 축소";
+	E_UnitLimitBy.BatDir:	F_TxtLimitBy := "배터리 방향";
+	E_UnitLimitBy.BatLimit:	F_TxtLimitBy := "배터리 한도";
+	E_UnitLimitBy.SLimit:	F_TxtLimitBy := "피상전력";
+	E_UnitLimitBy.ModeSwitch:	F_TxtLimitBy := "모드 전환 중";
+	E_UnitLimitBy.WaitManualCmd:	F_TxtLimitBy := "새 Manual 지령 대기";
+	E_UnitLimitBy.UnitRule:	F_TxtLimitBy := "유닛 제한 모듈";
+ELSE
+	F_TxtLimitBy := "?";
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

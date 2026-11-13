@@ -1,0 +1,6 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<POU Name="F_UpsNextSeq" Id="{0b6d9d2e-4db0-4b0d-9f26-7bb392415231}"><Declaration><![CDATA[FUNCTION F_UpsNextSeq : UDINT
+VAR_INPUT i_nSeq : UDINT; END_VAR]]></Declaration><Implementation><ST><![CDATA[IF i_nSeq = 16#FFFFFFFF THEN F_UpsNextSeq := 1;
+ELSE F_UpsNextSeq := i_nSeq + 1; END_IF]]></ST></Implementation></POU>
+</TcPlcObject>

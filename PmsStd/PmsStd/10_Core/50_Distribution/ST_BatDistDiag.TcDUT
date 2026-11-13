@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BatDistDiag" Id="{b2a463f1-87fc-40e6-82e7-d6d40e443d3e}">
+    <Declaration><![CDATA[TYPE ST_BatDistDiag :		// 배터리 그룹(DC 버스)별 분배 따라가기
+STRUCT
+	fNetIn		: REAL;		// kW, 그룹 분배 직후 이 버스 유닛 P 합
+	nDirZero	: UINT;		// 순 방향과 반대라 0으로 만든 유닛 수
+	fNetDir		: REAL;		// kW, 방향 맞춘 뒤 합
+	fLimit		: REAL;		// kW, 그 방향 한도 (방전 +, 충전 -)
+	fScale		: REAL;		// 한도 때문에 곱한 비율 (1 = 안 줄임)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

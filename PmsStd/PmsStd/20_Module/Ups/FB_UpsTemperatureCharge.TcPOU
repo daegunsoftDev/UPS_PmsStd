@@ -1,0 +1,85 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<POU Name="FB_UpsTemperatureCharge" Id="{7e0e052c-64ba-4eba-9f9b-104bbe14012b}" SpecialFunc="None"><Declaration><![CDATA[FUNCTION_BLOCK FB_UpsTemperatureCharge // 온도보상 전압 계산 및 적용 요청
+VAR_INPUT
+ i_bEnable : BOOL;
+ i_bSuspend : BOOL;
+ i_bReset : BOOL;
+ i_stUps : ST_UpsState;
+ i_stSet : ST_UpsChargeSet;
+ i_stTime : ST_LocalTime;
+ i_stFeedback : ST_UpsChargeFeedback;
+END_VAR
+VAR_OUTPUT
+ q_stRequest : ST_UpsChargeRequest;
+ q_fTargetVoltageV : REAL;
+ q_fAppliedVoltageV : REAL;
+ q_bSuspended : BOOL;
+ q_bApplied : BOOL;
+ q_nError : UINT; // 1: 설정/온도, 2: 통신/보호, 3: 적용 확인
+ q_stLastTime : ST_LocalTime;
+END_VAR
+VAR
+ _fbRequest : FB_UpsChargeRequest;
+ _eAction : E_UpsChargeAction;
+ _tonUpdate : TON;
+ _bUpdateDone : BOOL;
+ _bRestore : BOOL;
+ _bWasSuspended : BOOL;
+ _fPendingV : REAL;
+ _bPending : BOOL;
+END_VAR]]></Declaration>
+<Implementation><ST><![CDATA[_eAction:=E_UpsChargeAction.NoRequest;
+q_bSuspended:=i_bSuspend OR i_stUps.nBatMode = 3 OR i_stUps.nBatMode = 4;
+_tonUpdate(IN:=q_bApplied AND NOT _bUpdateDone, PT:=i_stSet.tTempUpdate);
+_bUpdateDone:=FALSE;
+IF i_bReset THEN q_nError:=0; END_IF
+IF q_nError = 2 THEN q_nError:=0; END_IF // 통신·보호 이상은 래치하지 않음: 매 스캔 다시 판정, 풀리면 이어서 (Disable이면 부동충전 전압 복귀)
+IF _fbRequest.q_bError THEN q_nError:=3; END_IF
+
+IF q_nError = 0 AND (i_bEnable OR q_bApplied OR _bPending) THEN
+ IF NOT i_stUps.bValid OR NOT i_stUps.bRectNormal OR NOT i_stUps.bBbcNormal
+  OR i_stUps.bEmergencyStop OR i_stUps.bBmsMinor OR i_stUps.bBmsMajor
+  OR (i_stUps.wStatus2 AND 16#7000) <> 0 OR (i_stUps.wBbcAlarm AND 16#0FA8) <> 0 THEN // RCD 1·2단계·화재, BBC 정지 알람 (동작시퀀스 7쪽)
+  q_nError:=2; _bPending:=FALSE;
+ ELSIF NOT (i_stSet.fBaseCellVoltageV > 0.0 AND i_stSet.nSeriesCells > 0
+  AND i_stSet.fMinChargeVoltageV > 0.0
+  AND i_stSet.fMaxChargeVoltageV >= i_stSet.fMinChargeVoltageV
+  AND i_stSet.fMaxChargeVoltageV <= 6553.5
+  AND i_stSet.fFloatVoltageV >= i_stSet.fMinChargeVoltageV
+  AND i_stSet.fFloatVoltageV <= i_stSet.fMaxChargeVoltageV
+  AND i_stSet.fMinTemperatureC < i_stSet.fMaxTemperatureC
+  AND i_stSet.tRequestTimeout > T#0MS AND i_stSet.tTempUpdate > T#0MS) THEN
+  q_nError:=1;
+ ELSIF NOT q_bSuspended THEN
+  IF NOT _bPending THEN
+   _bRestore:=NOT i_bEnable;
+   IF _bRestore THEN q_fTargetVoltageV:=i_stSet.fFloatVoltageV;
+   ELSE
+    IF i_stUps.fBatteryRoomTemperatureC < i_stSet.fMinTemperatureC
+     OR i_stUps.fBatteryRoomTemperatureC > i_stSet.fMaxTemperatureC THEN q_nError:=1;
+    ELSE q_fTargetVoltageV:=(i_stSet.fBaseCellVoltageV + i_stSet.fSlopeMvPerC*0.001
+     *(i_stUps.fBatteryRoomTemperatureC-25.0))*UINT_TO_REAL(i_stSet.nSeriesCells); END_IF
+   END_IF
+   IF NOT (q_fTargetVoltageV >= i_stSet.fMinChargeVoltageV AND q_fTargetVoltageV <= i_stSet.fMaxChargeVoltageV) THEN q_nError:=1; END_IF
+   // 주기 갱신은 전압이 레지스터 해상도(0.1 V) 이상 바뀔 때만 씀. 아니면 쓰지 않고 주기만 다시 시작
+   IF q_nError = 0 AND (NOT q_bApplied OR _bRestore OR _bWasSuspended
+    OR (_tonUpdate.Q AND ABS(q_fTargetVoltageV - q_fAppliedVoltageV) >= 0.1)) THEN
+    _fPendingV:=q_fTargetVoltageV; _bPending:=TRUE;
+   ELSIF _tonUpdate.Q THEN
+    _bUpdateDone:=TRUE;
+   END_IF
+  END_IF
+  IF _bPending AND q_nError = 0 THEN
+   IF _fbRequest.q_bDone THEN
+    q_fAppliedVoltageV:=_fPendingV; q_stLastTime:=i_stTime;
+    q_bApplied:=NOT _bRestore; _bPending:=FALSE; _bUpdateDone:=TRUE;
+   ELSE _eAction:=E_UpsChargeAction.ChargeVoltage; END_IF
+  END_IF
+ END_IF
+END_IF
+IF q_bSuspended THEN _bPending:=FALSE; END_IF
+_bWasSuspended:=q_bSuspended;
+_fbRequest(i_eAction:=_eAction, i_fValue:=_fPendingV, i_tTimeout:=i_stSet.tRequestTimeout, i_stFeedback:=i_stFeedback);
+q_stRequest:=_fbRequest.q_stRequest;]]></ST></Implementation></POU>
+</TcPlcObject>

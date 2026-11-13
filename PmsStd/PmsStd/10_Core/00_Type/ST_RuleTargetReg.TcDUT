@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_RuleTargetReg" Id="{3ded56bb-63ea-490e-a4f0-cfc131e846fe}">
+    <Declaration><![CDATA[TYPE ST_RuleTargetReg :	// 유닛 제한·버스 제한 모듈 등록 (칸 번호는 GVL_SITE 등록 배열과 같음)
+STRUCT
+	bEnable	: BOOL := TRUE;
+	nTarget	: UINT;	// 대상 번호 (유닛 제한 = 유닛, 버스 제한 = 배터리 그룹). 0 = 전체 (모듈이 대상별 상태를 따로 가짐)
+	bAuto	: BOOL := TRUE;	// Auto 유닛에 적용
+	bManual	: BOOL := TRUE;	// Manual 유닛에 적용. 버스 제한은 그 버스에 적용 대상 모드 유닛이 하나라도 있으면 버스 전체에 걸림 (버스에 유닛이 없으면 그대로 걸림)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

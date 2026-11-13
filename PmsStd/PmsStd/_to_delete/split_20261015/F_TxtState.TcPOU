@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtState" Id="{4498685b-9718-456d-9f03-3bb09b1717d1}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtState : WSTRING(31)		// 상태 명령 문구
+VAR_INPUT
+	i_e		: E_StateCmd;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_e OF
+	E_StateCmd.None:	F_TxtState := "없음";
+	E_StateCmd.Run:	F_TxtState := "Run";
+	E_StateCmd.Standby:	F_TxtState := "Standby";
+	E_StateCmd.Stop:	F_TxtState := "Stop";
+	E_StateCmd.Reset:	F_TxtState := "Reset";
+	E_StateCmd.EStop:	F_TxtState := "EStop";
+	E_StateCmd.BatClose:	F_TxtState := "배터리 투입";
+	E_StateCmd.BatOpen:	F_TxtState := "배터리 개방";
+ELSE
+	F_TxtState := "?";
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,57 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
+  <POU Name="FB_Snapshot" Id="{d02a9ab3-96f3-42df-abd5-45c4e6aa5900}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Snapshot		// 이번 스캔의 장비 상태를 한 번에 복사. 이후 단계는 이 사본만 읽는다
+VAR_IN_OUT
+	iq_aipPcs		: ARRAY[1..GVL_PARAM.PCS_COUNT] OF I_Pcs;
+	iq_aipBms		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF I_Bms;
+	iq_aipMeter		: ARRAY[1..GVL_PARAM.METER_COUNT] OF I_Meter;
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+END_VAR
+VAR_OUTPUT
+	q_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	q_astBms		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatState;
+	q_astMeter		: ARRAY[1..GVL_PARAM.METER_COUNT] OF ST_MeterState;
+END_VAR
+VAR_TEMP
+	i				: UINT;
+	nPcs			: UINT;
+	stNoUnit		: ST_UnitState;		// 빈 칸: 통신 없음, 상태 Unknown
+	stNoBms			: ST_BatState;
+	stNoMeter		: ST_MeterState;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// 유닛: 구성표의 PCS 번호·PCS 안 번호로 찾음
+FOR i := 1 TO GVL_PARAM.UNIT_COUNT DO
+	nPcs := iq_astUnitCfg[i].nPcs;
+	IF nPcs >= 1 AND nPcs <= GVL_PARAM.PCS_COUNT AND_THEN iq_aipPcs[nPcs] <> 0 THEN
+		q_astUnit[i] := iq_aipPcs[nPcs].M_GetUnitState(iq_astUnitCfg[i].nSub);
+	ELSE
+		q_astUnit[i] := stNoUnit;
+	END_IF
+END_FOR
+
+FOR i := 1 TO GVL_PARAM.BMS_COUNT DO
+	IF iq_aipBms[i] <> 0 THEN
+		q_astBms[i] := iq_aipBms[i].BatState;
+	ELSE
+		q_astBms[i] := stNoBms;
+	END_IF
+END_FOR
+
+FOR i := 1 TO GVL_PARAM.METER_COUNT DO
+	IF iq_aipMeter[i] <> 0 THEN
+		q_astMeter[i] := iq_aipMeter[i].MeterState;
+	ELSE
+		q_astMeter[i] := stNoMeter;
+	END_IF
+END_FOR]]></ST>
+    </Implementation>
+    <LineIds Name="FB_Snapshot">
+      <LineId Id="3" Count="23" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

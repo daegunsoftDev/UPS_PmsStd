@@ -1,0 +1,149 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_ItGuardIeSx" Id="{57268798-d330-48f3-b00f-e6a27a3ba05e}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ItGuardIeSx EXTENDS FB_DeviceBase IMPLEMENTS I_AuxDevice		// ITGuard(이노튜브) IE-SX 이더넷 온습도계 (Modbus TCP), 읽기 전용
+(* ---------------------------------------------------------------
+   기반: MESSIS TC3 FB_IE_SX (광주첨단공장). 동작만 옮기고 PmsStd 형식으로 다시 씀. 2026-11-09
+   읽기: Input Register(FC4) 0부터 5개 (MESSIS와 같음, Unit ID 1)
+     @MAP IR 0  U16  mode
+     @MAP IR 1  S16  센서1 = 온도 × 0.01 ℃
+     @MAP IR 2  S16  센서2 = 습도 × 0.01 %
+     @MAP IR 3·4 S16  센서3·4 (프로브 없으면 32767)
+   2026-11-09 PC에서 읽어 확인: [0, 2418, 3545, 32767, 32767] → 24.18 ℃, 35.45 %
+   센서 값 32767 = 프로브 없음으로 보고 무효 처리 (센서3·4가 비었을 때 이 값)
+   점 (I_AuxDevice): AI 1 온도, AI 2 습도, DI 1 값 이상(통신 정상인데 프로브 무효)
+   통신 이상: 응답 없이 i_tCommTimeout(기본 10초, MESSIS는 30초)
+   쓰기 없음
+   --------------------------------------------------------------- *)
+VAR_INPUT
+	i_bEnable		: BOOL;					// FALSE면 통신하지 않음 (장비 미설치)
+	i_sIpAddr		: STRING(15);
+	i_nPort			: UINT := 502;
+	i_nUnitId		: BYTE := 1;
+	i_tTimeout		: TIME := T#1S;
+END_VAR
+VAR_OUTPUT
+	q_stState		: ST_TempHumState;		// 읽은 값 (보고 매핑 FB_RptTempHum이 씀)
+END_VAR
+VAR
+	_fbIr			: FB_MBReadInputRegs;
+	_awIr			: ARRAY[0..4] OF WORD;	// IR 0..4
+	_bReadDue		: BOOL;
+	_bReading		: BOOL;
+	_bDataOk		: BOOL;					// 한 번이라도 읽음
+	_bProbeOk		: BOOL;					// 온도·습도 값이 32767이 아님
+END_VAR
+VAR CONSTANT
+	READ_QTY		: UINT := 5;
+	NO_PROBE		: WORD := 16#7FFF;		// 프로브 없음
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[
+]]></ST>
+    </Implementation>
+    <Action Name="A_Map" Id="{9b1f56c6-851a-479a-9aca-1f4fb48afa2b}">
+      <Implementation>
+        <ST><![CDATA[_bProbeOk		:= _awIr[1] <> NO_PROBE AND _awIr[2] <> NO_PROBE;
+q_stState.fTemp	:= INT_TO_REAL(WORD_TO_INT(_awIr[1])) * 0.01;	// @MAP IR 1 S16 ×0.01 ℃
+q_stState.fHum	:= INT_TO_REAL(WORD_TO_INT(_awIr[2])) * 0.01;	// @MAP IR 2 S16 ×0.01 %
+_bDataOk := TRUE;
+]]></ST>
+      </Implementation>
+    </Action>
+    <Method Name="M_Cycle" Id="{6460f7cd-ae43-4a3d-b72a-596fd17d0049}">
+      <Declaration><![CDATA[METHOD M_Cycle
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_bReadDue := M_IsReadTime();
+IF NOT _bReading THEN
+	IF i_bEnable AND i_sIpAddr <> '' AND _bReadDue THEN
+		_fbIr(sIPAddr := i_sIpAddr, nTCPPort := i_nPort, nUnitID := i_nUnitId,
+			nQuantity := READ_QTY, nMBAddr := 0, cbLength := SIZEOF(_awIr),
+			pDestAddr := ADR(_awIr), tTimeout := i_tTimeout, bExecute := TRUE);
+		_bReading := TRUE;
+	END_IF
+ELSE
+	_fbIr(bExecute := FALSE);
+	IF NOT _fbIr.bBusy THEN
+		IF NOT _fbIr.bError AND i_bEnable THEN
+			A_Map();
+			M_MarkAlive();
+		END_IF
+		_bReading := FALSE;
+	END_IF
+END_IF
+M_UpdateComm();
+q_stState.bValid := Comm AND _bDataOk AND _bProbeOk;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetBit" Id="{d8b31e61-41ee-45c8-9c48-71cbb6b5af26}">
+      <Declaration><![CDATA[METHOD M_GetBit : BOOL		// DI 1 값 이상 (통신은 정상인데 프로브 값 무효)
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nPoint = 1 THEN
+	M_GetBit := Comm AND _bDataOk AND NOT _bProbeOk;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetValue" Id="{71c1dd84-9336-42fe-a213-29eb74d4f508}">
+      <Declaration><![CDATA[METHOD M_GetValue : ST_Val		// AI 1 온도 ℃, AI 2 습도 %
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE i_nPoint OF
+	1:
+		M_GetValue.fValue := q_stState.fTemp;
+		M_GetValue.bValid := q_stState.bValid;
+	2:
+		M_GetValue.fValue := q_stState.fHum;
+		M_GetValue.bValid := q_stState.bValid;
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetBit" Id="{dc772583-90c7-44f6-8af6-c94e75c8e5d8}">
+      <Declaration><![CDATA[METHOD M_SetBit		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetValue" Id="{ab2602ce-ade0-40a5-9f37-b7a132716a79}">
+      <Declaration><![CDATA[METHOD M_SetValue		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_fValue	: REAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Comm" Id="{45ae2215-798f-44a7-bcd2-16f01e487d83}">
+      <Declaration><![CDATA[PROPERTY Comm : BOOL]]></Declaration>
+      <Get Name="Get" Id="{1a76b085-bb9e-4b91-9e40-9911bb69b76c}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Comm := _bComm AND i_bEnable;
+]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

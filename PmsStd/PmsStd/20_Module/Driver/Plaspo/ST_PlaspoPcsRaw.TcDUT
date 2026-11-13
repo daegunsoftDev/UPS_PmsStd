@@ -1,0 +1,34 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_PlaspoPcsRaw" Id="{92ff01f7-f9bd-4fa9-af57-751f1e1296bb}">
+    <Declaration><![CDATA[TYPE ST_PlaspoPcsRaw :		// 플라스포 PCS 읽기 맵: 홀딩 레지스터 1번부터 39개 (Helios FB_PlaspoPcs와 같음)
+STRUCT
+	nPcsStatus		: WORD;		// 1: bit0 운전, bit1 고장, bit2 경고, bit5 PCS 내부 통신 이상
+	nCdStatus		: UINT;		// 2: 0 대기, 1 충전, 2 방전
+	nRemoteMode		: UINT;		// 3: 1 = 리모트 (PMS 제어 가능)
+	nOpMode			: UINT;		// 4
+	nRefFeedback	: UINT;		// 5
+	nMmcStatus		: UINT;		// 6
+	anFault			: ARRAY[1..5] OF WORD;		// 7~11 (5번째는 경고)
+	anIgbtTemp		: ARRAY[1..4] OF INT;		// 12~15
+	anAcFilterTemp	: ARRAY[1..4] OF INT;		// 16~19
+	anAcVolt		: ARRAY[1..3] OF UINT;		// 20~22
+	anAcCurrent		: ARRAY[1..3] OF UINT;		// 23~25
+	nAcFreq			: UINT;		// 26: 0.1 Hz
+	nAcActive		: INT;		// 27: 0.1 kW (Helios는 부호를 뒤집어 씀)
+	nAcReactive		: INT;		// 28: 0.1 kvar
+	nAcPf			: INT;		// 29
+	nTodayDisEnergy	: UINT;		// 30
+	nTodayChgEnergy	: UINT;		// 31
+	nTotalDisH		: UINT;		// 32~35
+	nTotalDisL		: UINT;
+	nTotalChgH		: UINT;
+	nTotalChgL		: UINT;
+	nDcLinkVolt		: UINT;		// 36
+	nDcVolt			: UINT;		// 37
+	nDcCurrent		: INT;		// 38
+	nDcPower		: INT;		// 39
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

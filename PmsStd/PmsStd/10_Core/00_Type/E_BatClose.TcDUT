@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_BatClose" Id="{c82d5ed0-3a42-4c2f-9cd3-0ca5d7b6fab6}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_BatClose :
+(
+	OnStart		:= 0,	// 순서 기동(E_StartMode.Sequence)하는 유닛이 있을 때 투입 (기본)
+	OnRequest	:= 2	// 지령원의 BatClose 요청으로만 투입 (운전 모드 Manual과 별개)
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

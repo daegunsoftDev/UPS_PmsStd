@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_UnitAvail" Id="{7cf14451-8cc5-4e15-8f8d-2d2d36532e37}">
+    <Declaration><![CDATA[TYPE ST_UnitAvail :
+STRUCT
+	bAvail		: BOOL;		// 출력 가능 (아래 이유가 하나도 없음). Derate는 가용에 영향 없음
+	bNotInstalled	: BOOL;		// 미설치: 유닛의 PCS 칸이 비어 있음 (모니터링 전용 등). 통신·고장 판단·보호에서 뺌
+	bNoPcsComm	: BOOL;
+	bPcsFault	: BOOL;
+	bPcsLocal	: BOOL;		// PCS가 PMS 제어를 안 받는 상태
+	bNoBat		: BOOL;		// 연결 배터리 그룹에 쓸 수 있는 BMS가 없음 (그룹 번호 설정 오류 포함) → FB_BatGroup 결과에서 이유 확인
+	bProt		: BOOL;		// 유닛 보호 조치 중 (대기·정지·비상정지)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

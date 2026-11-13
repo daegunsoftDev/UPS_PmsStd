@@ -1,0 +1,102 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="PRG_Redundancy" Id="{4a212754-2d48-4123-8434-a986e5a378f0}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_Redundancy		// 이중화 태스크에서 부름 (높은 우선순위). 이 PLC의 역할(Primary/Secondary)과 지금 장비에 쓰는지(Active)를 GVL_IF에 씀
+VAR
+	fbGetNetId		: FB_GetLocalAmsNetID;	// 이 PLC의 AMS Net ID 읽기 (시작 때 한 번)
+	sMyNetId		: T_AmsNetId;			// 읽은 이 PLC의 Net ID (온라인 확인용: RED_SET에 적을 값)
+	bNetIdRead		: BOOL;					// Net ID를 읽었음
+	tLastScan		: TIME;				// 지난 스캔의 시스템 시각 (멈췄다 이어짐 감지)
+	bScanned		: BOOL;				// 첫 스캔을 지남 (시작 때는 이어짐으로 안 봄)
+	bResume			: BOOL;				// 이번 스캔이 멈췄다 이어진 첫 스캔
+	fbRedSync		: FB_RedSync;			// 운영 설정 동기화 (Active → Standby)
+	fbRedState		: FB_RedState;			// 역할 + 상대 상태 → Active 판단
+	fbRedLink		: FB_RedLink;			// 상대 PLC와 EAP 하트비트·접점 신호 (I/O는 이 인스턴스에 연결)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 0) 멈췄다 이어짐 감지: ADS·XAE의 Stop/Run은 변수를 초기화하지 않고 이어서 돎. 이전 스캔과 시스템 시각이 1 s 넘게 벌어지면 멈췄던 것으로 보고 상태를 Init부터 다시 정함 *)
+bResume := bScanned AND (TIME() - tLastScan) > T#1S;
+bScanned := TRUE;
+tLastScan := TIME();
+IF bResume AND GVL_SITE.RED_SET.bUse THEN
+	GVL_IF.g_nRedResumeCount	:= GVL_IF.g_nRedResumeCount + 1;
+	GVL_IF.g_bRedActive			:= FALSE;		// 옛 Active를 상대에게 알리거나 장비에 쓰지 않도록 이 스캔부터 내림
+	GVL_IF.g_bRedWrite			:= FALSE;
+	GVL_IF.g_eRedState			:= E_RedState.Init;
+END_IF
+
+(* 1) 역할: 이중화를 안 쓰면 Primary. 쓰면 이 PLC Net ID를 GVL_SITE.RED_SET과 비교 *)
+IF NOT GVL_SITE.RED_SET.bUse THEN
+	GVL_IF.g_eRedRole := E_RedRole.Primary;
+ELSIF NOT bNetIdRead THEN
+	GVL_IF.g_eRedRole := E_RedRole.Reading;
+	fbGetNetId(bExecute := TRUE);
+	IF NOT fbGetNetId.bBusy THEN
+		IF NOT fbGetNetId.bError THEN
+			sMyNetId	:= fbGetNetId.AddrString;
+			bNetIdRead	:= TRUE;
+		END_IF
+		fbGetNetId(bExecute := FALSE);		// 오류면 다음 스캔에 다시 읽음
+	END_IF
+ELSIF sMyNetId = GVL_SITE.RED_SET.sPrimaryNetId THEN
+	GVL_IF.g_eRedRole := E_RedRole.Primary;
+ELSIF sMyNetId = GVL_SITE.RED_SET.sSecondaryNetId THEN
+	GVL_IF.g_eRedRole := E_RedRole.Secondary;
+ELSE
+	GVL_IF.g_eRedRole := E_RedRole.NoMatch;		// 설정 오류 (FB_ConfigCheck)
+END_IF
+
+(* 2) 상대 PLC 상태: EAP 하트비트와 접점 신호를 보고 판정. 이중화를 안 쓰면 보내지도 않음. 내 Active는 지난 스캔 값을 보냄 *)
+IF GVL_SITE.RED_SET.bUse THEN
+	fbRedLink(	i_stSet	:= GVL_SITE.RED_SET,
+				i_eRole	:= GVL_IF.g_eRedRole,
+				i_bActive	:= GVL_IF.g_bRedActive,
+				i_eState	:= GVL_IF.g_eRedState);
+	GVL_IF.g_nRedSeq			:= fbRedLink.q_nTxCount;
+	GVL_IF.g_ePeerState		:= fbRedLink.q_ePeer;
+	GVL_IF.g_bPeerEapOk		:= fbRedLink.q_bEapOk;
+	GVL_IF.g_bPeerWireOk		:= fbRedLink.q_bWireOk;
+	GVL_IF.g_nPeerRole		:= fbRedLink.q_stPeer.nRole;
+	GVL_IF.g_bPeerActive		:= fbRedLink.q_stPeer.bActive;
+	GVL_IF.g_nPeerState		:= fbRedLink.q_stPeer.nState;
+	GVL_IF.g_bPeerWireActive	:= fbRedLink.q_bPeerWireActive;
+	GVL_IF.g_bRedRoleConflict	:= fbRedLink.q_bRoleConflict;
+ELSE
+	GVL_IF.g_ePeerState		:= E_RedPeer.Unknown;
+	GVL_IF.g_bPeerEapOk		:= FALSE;
+	GVL_IF.g_bPeerWireOk		:= FALSE;
+	GVL_IF.g_bRedRoleConflict	:= FALSE;
+	GVL_IF.g_nPeerState		:= 0;
+END_IF
+
+(* 3) 동기화: 운영 설정을 상대에게 보내고, 내가 Active가 아니고 상대가 Active이면 받은 값으로 맞춤
+   동기화 대상 = GVL_PERSIST의 운영 설정 (재기동 기록·모듈 설정 묶음 제외) + 제어 모드 요청. 대상을 늘리면 ST_RedSyncCfg와 FB_RedSync의 보내기·맞추기에 추가 *)
+IF GVL_SITE.RED_SET.bUse THEN
+	fbRedSync(	i_bUse		:= TRUE,
+				i_bApply	:= GVL_IF.g_eRedState <> E_RedState.Active AND GVL_IF.g_bPeerEapOk AND GVL_IF.g_bPeerActive);
+	GVL_IF.g_bSyncInSync	:= fbRedSync.q_bInSync;
+	GVL_IF.g_bSyncFresh		:= fbRedSync.q_bFresh;
+	GVL_IF.g_nSyncApplied	:= fbRedSync.q_nApplied;
+ELSE
+	GVL_IF.g_bSyncInSync	:= FALSE;
+	GVL_IF.g_bSyncFresh		:= FALSE;
+END_IF
+
+(* 4) Active: 역할과 상대 상태로 정함 (FB_RedState). 두 PLC가 동시에 Active가 되지 않음. Secondary 승격(절체)·Primary 복귀 포함 *)
+fbRedState(	i_bUse			:= GVL_SITE.RED_SET.bUse,
+			i_stSet			:= GVL_SITE.RED_SET,
+			i_eRole			:= GVL_IF.g_eRedRole,
+			i_ePeer			:= GVL_IF.g_ePeerState,
+			i_bPeerActive	:= (GVL_IF.g_bPeerEapOk AND GVL_IF.g_bPeerActive) OR (GVL_IF.g_bPeerWireOk AND GVL_IF.g_bPeerWireActive),
+			i_bPeerHandover	:= GVL_IF.g_bPeerEapOk AND GVL_IF.g_nPeerState = TO_INT(E_RedState.Handover),
+			i_bRoleConflict	:= GVL_IF.g_bRedRoleConflict,
+			i_bReset		:= bResume AND GVL_SITE.RED_SET.bUse,
+			i_bSyncDone		:= GVL_IF.g_bSyncInSync);
+GVL_IF.g_eRedState	:= fbRedState.q_eState;
+GVL_IF.g_bRedActive	:= fbRedState.q_bActive;
+GVL_IF.g_bRedWrite	:= fbRedState.q_bWrite;
+GVL_IF.g_nRedSwitchCount	:= fbRedState.q_nSwitchCount;
+GVL_IF.g_eRedSwitch	:= fbRedState.q_eLastSwitch;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

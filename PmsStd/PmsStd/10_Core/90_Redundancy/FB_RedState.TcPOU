@@ -1,0 +1,114 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_RedState" Id="{4225d594-13d1-4a3c-9416-5292275c49f1}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_RedState		// 이중화 상태 기계 (순수 로직). 역할 + 상대 상태 → 이 PLC가 Active인지, 장비에 써도 되는지. 두 PLC가 동시에 Active가 되지 않게 함
+(* 규칙
+   - 이중화를 안 쓰면 항상 Active이고 바로 쓴다
+   - 역할 설정 오류(NoMatch) 또는 두 PLC 역할이 같음 → Failed (둘 다 장비에 쓰지 않음)
+   - Primary: 시작하면 상대 상태를 볼 때까지 Init. 상대가 Active가 아니면 Active, 이미 Active이면 뺏지 않고 Standby
+   - 절체: Secondary는 상대가 Lost(EAP·접점 둘 다 끊김)이고 tTakeoverDelay가 지나면 Active (Standby → Active)
+   - 복귀: Primary가 Standby에서 상대(Secondary)가 Active이고 통신이 tFailbackStable 동안 정상이면 Handover(넘겨받기 요청)로 감.
+     Secondary는 상대가 Handover이면 Active를 내려놓고 Standby로. Primary는 상대가 Active가 아니게 되면 Active.
+     tHandoverTimeout 안에 안 내려놓으면 Primary가 Standby로 돌아가 다시 기다림. 둘 다 안 쓰는 틈이 생기지만 둘 다 쓰는 일은 없음
+   - 둘 다 Active로 보이면 Secondary가 Standby로 물러남 (Primary 우선)
+   - 상대 Active = EAP 하트비트의 Active (EAP 정상일 때) 또는 Active 접점 (접점 정상일 때)
+   - PLC가 멈췄다 이어지면(i_bReset) Init부터 다시 정함: 멈춘 사이 상대가 Active를 넘겨받았을 수 있으므로 옛 Active를 이어 쓰지 않고, 상대 상태를 본 뒤 Standby로 들어가 복귀 절차를 밟음
+   - 장비에 쓰는 허가(q_bWrite)는 Active가 된 뒤 tWriteHold가 지나야 켜짐 (승격 직후 계산이 안정되기를 기다림). Active가 아니게 되면 바로 꺼짐 *)
+VAR_INPUT
+	i_bUse			: BOOL;				// GVL_SITE.RED_SET.bUse
+	i_stSet			: ST_RedSet;		// 시간 설정
+	i_eRole			: E_RedRole;
+	i_ePeer			: E_RedPeer;
+	i_bPeerActive	: BOOL;				// 상대가 Active (EAP 또는 접점. 정상인 쪽만 반영해서 넘길 것)
+	i_bPeerHandover	: BOOL;				// 상대가 Handover라고 알림 (EAP 정상일 때만)
+	i_bRoleConflict	: BOOL;				// 두 PLC 역할이 같음 (FB_RedPeerMonitor)
+	i_bReset		: BOOL;				// PLC가 멈췄다 이어짐: 상태를 Init부터 다시 정함 (멈춘 사이 상대가 Active를 넘겨받았을 수 있음)
+	i_bSyncDone		: BOOL := TRUE;		// 복귀 전에 상대에게서 받을 값 동기화가 끝났음 (4단계에서 연결. 지금은 항상 TRUE)
+END_VAR
+VAR_OUTPUT
+	q_eState		: E_RedState;
+	q_bActive		: BOOL;				// Active 상태 (상대에게 알림)
+	q_bWrite		: BOOL;				// 장비에 써도 됨 (Active + 쓰기 대기 지남)
+	q_nSwitchCount	: UDINT;			// Active가 바뀐 횟수 (들어가거나 나옴)
+	q_eLastSwitch	: E_RedSwitch;		// 마지막으로 바뀐 이유
+END_VAR
+VAR
+	_ePrev			: E_RedState;
+	_tonTakeover	: TON;
+	_tonFailback	: TON;
+	_tonHandover	: TON;
+	_tonHold		: TON;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// 타이머는 매 스캔 부름
+_tonTakeover(IN := i_eRole = E_RedRole.Secondary AND q_eState = E_RedState.Standby AND i_ePeer = E_RedPeer.Lost, PT := i_stSet.tTakeoverDelay);
+_tonFailback(IN := i_eRole = E_RedRole.Primary AND q_eState = E_RedState.Standby AND i_ePeer = E_RedPeer.Alive AND i_bPeerActive AND i_bSyncDone, PT := i_stSet.tFailbackStable);
+_tonHandover(IN := q_eState = E_RedState.Handover, PT := i_stSet.tHandoverTimeout);
+
+IF i_bReset THEN
+	q_eState := E_RedState.Init;
+ELSIF NOT i_bUse THEN
+	q_eState := E_RedState.Active;
+ELSIF i_eRole = E_RedRole.NoMatch OR i_bRoleConflict THEN
+	q_eState := E_RedState.Failed;
+ELSIF i_eRole = E_RedRole.Reading THEN
+	q_eState := E_RedState.Init;
+ELSE
+	IF q_eState = E_RedState.Failed THEN
+		q_eState := E_RedState.Init;		// 오류가 풀리면 처음부터 다시 정함
+	END_IF
+	CASE q_eState OF
+	E_RedState.Init:
+		IF i_eRole = E_RedRole.Secondary THEN
+			q_eState := E_RedState.Standby;
+		ELSIF i_ePeer <> E_RedPeer.Unknown THEN		// Primary: 상대 상태를 본 뒤 정함
+			IF i_bPeerActive THEN
+				q_eState := E_RedState.Standby;
+			ELSE
+				q_eState := E_RedState.Active;
+				q_eLastSwitch := E_RedSwitch.Start;
+			END_IF
+		END_IF
+	E_RedState.Standby:
+		IF i_eRole = E_RedRole.Secondary THEN
+			IF _tonTakeover.Q THEN
+				q_eState := E_RedState.Active;		// 절체
+				q_eLastSwitch := E_RedSwitch.PeerLost;
+			END_IF
+		ELSIF i_ePeer <> E_RedPeer.Unknown THEN		// Primary
+			IF NOT i_bPeerActive THEN
+				q_eState := E_RedState.Active;		// 상대가 Active가 아님 (정지·대기)
+				q_eLastSwitch := E_RedSwitch.Start;
+			ELSIF _tonFailback.Q THEN
+				q_eState := E_RedState.Handover;	// 복귀: 상대에게 Active를 내려놓으라고 알림
+			END_IF
+		END_IF
+	E_RedState.Handover:
+		IF NOT i_bPeerActive THEN
+			q_eState := E_RedState.Active;			// 상대가 내려놓음 (또는 사라짐)
+			q_eLastSwitch := E_RedSwitch.Failback;
+		ELSIF _tonHandover.Q OR i_ePeer <> E_RedPeer.Alive THEN
+			q_eState := E_RedState.Standby;			// 포기하고 처음부터 다시 기다림
+		END_IF
+	E_RedState.Active:
+		IF i_eRole = E_RedRole.Secondary AND (i_bPeerActive OR i_bPeerHandover) THEN
+			q_eState := E_RedState.Standby;			// Primary에 양보
+			q_eLastSwitch := E_RedSwitch.Yield;
+		END_IF
+	ELSE
+		q_eState := E_RedState.Init;
+	END_CASE
+END_IF
+
+// Active가 들어가거나 나올 때 횟수
+IF (q_eState = E_RedState.Active) <> (_ePrev = E_RedState.Active) THEN
+	q_nSwitchCount := q_nSwitchCount + 1;
+END_IF
+_ePrev := q_eState;
+
+q_bActive := q_eState = E_RedState.Active;
+_tonHold(IN := q_bActive, PT := i_stSet.tWriteHold);
+q_bWrite := q_bActive AND (_tonHold.Q OR NOT i_bUse);]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,170 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_GasdnaAsd57" Id="{9f22057b-3101-4eaf-9d9c-32703403c2c4}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_GasdnaAsd57 EXTENDS FB_DeviceBase IMPLEMENTS I_AuxDevice		// 가스디엔에이 ASD-57 열연복합 감지기 (Modbus RTU), 읽기 전용
+(* ---------------------------------------------------------------
+   기반 없음(신규). 맵: 프로토콜 맵 v3\ASD-5x(모드 버스 프로토콜)_ver1.1(22_0922).pdf, 결선: ASD-57_매뉴얼.pdf. 2026-11-10
+   통신: EL6022 채널 하나를 ModbusRtuMaster_KL6x22B로. 단자 연결(InData·OutData)은 XAE I/O 화면에서 사람이 함
+         장비: RS-485 9600 bps 고정, 8N1, 국번 1~126 (출하 1). 흰 TX+, 파랑 TX-
+         속도가 9600 고정이라 다른 속도 장비(지락계전기 출하 19200)와 한 채널에 묶지 않음
+         응답 뒤 10 ms 이상 지나 다음 요청 (읽기 주기 1 s라 맞음)
+   읽기: 읽기 주기마다 Holding Register(FC3) 0부터 9칸
+     @MAP HR 0 (40001) U16  1 Color 연기 농도 0~1000, ×0.1 %
+     @MAP HR 1 (40002) U16  2 Color 연기 농도 0~1000, ×0.01 (맵 표기 x.xx, 단위 표기 없음)
+     @MAP HR 2 (40003) U16  온도 0~1000, ×0.1 ℃ (ASD-57 전용)
+     @MAP HR 3 (40004) U16  알람 상태: 0 없음, 1 연기 (1·2 Color 모두 알람값 초과), 2 온도 (ASD-57 전용)
+     @MAP HR 4 (40005) U16  1 Color 연기 알람값 (출하 80)
+     @MAP HR 5 (40006) U16  2 Color 연기 알람값 (출하 170)
+     @MAP HR 6 (40007) U16  온도 알람값 ×0.1 ℃ (출하 700 = 70.0 ℃)
+     @MAP HR 7 (40008) U16  딜레이 ×10 ms (최대 1000 = 10 s)
+     @MAP HR 8 (40009) U16  통신 국번
+   쓰지 않는 것: FC6 HR 4~8 설정 바꾸기, HR 50 ZERO 교정(1234). 설정은 장비 출하값 그대로 (바꾸려면 사용자 결정)
+   알람 상태 3(연기 + 온도)은 맵에 없음 → 비트로 봄 (b0 연기, b1 온도)
+   점 (I_AuxDevice)
+     AI 1 = 1 Color 연기 %, AI 2 = 2 Color 연기, AI 3 = 온도 ℃
+     DI 1 = 연기 알람, DI 2 = 온도 알람
+   --------------------------------------------------------------- *)
+VAR_INPUT
+	i_bEnable		: BOOL;					// FALSE면 통신하지 않음 (장비 미설치)
+	i_nUnitId		: UINT := 1;			// 장비 국번 (HR 8)
+	i_tTimeout		: TIME := T#1S;			// 응답 기다림
+END_VAR
+VAR_OUTPUT
+	q_fSmoke1		: REAL;					// 1 Color 연기 농도 %
+	q_fSmoke2		: REAL;					// 2 Color 연기 농도
+	q_fTemp			: REAL;					// 온도 ℃
+	q_wAlarm		: WORD;					// HR 3 알람 상태 원시값
+	q_bSmokeAlarm	: BOOL;					// 연기 알람
+	q_bTempAlarm	: BOOL;					// 온도 알람
+	q_anSet			: ARRAY[4..8] OF UINT;	// HR 4~8 설정값 원시값 (알람값, 딜레이, 국번)
+	q_bValid		: BOOL;					// 통신 정상이고 한 번 이상 읽음
+END_VAR
+VAR
+	_fbRtu			: ModbusRtuMaster_KL6x22B;
+	_awRaw			: ARRAY[0..8] OF WORD;	// HR 0..8
+	_bReadDue		: BOOL;
+	_bReading		: BOOL;
+	_bDataOk		: BOOL;
+	_i				: UINT;
+END_VAR
+VAR CONSTANT
+	READ_QTY		: UINT := 9;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[
+]]></ST>
+    </Implementation>
+    <Action Name="A_Map" Id="{450d0306-b5be-4d1b-bc05-875acf3866eb}">
+      <Implementation>
+        <ST><![CDATA[q_fSmoke1 := WORD_TO_REAL(_awRaw[0]) * 0.1;		// @MAP HR 0 ×0.1 %
+q_fSmoke2 := WORD_TO_REAL(_awRaw[1]) * 0.01;	// @MAP HR 1 ×0.01
+q_fTemp := WORD_TO_REAL(_awRaw[2]) * 0.1;		// @MAP HR 2 ×0.1 ℃
+q_wAlarm := _awRaw[3];							// @MAP HR 3
+q_bSmokeAlarm := q_wAlarm.0;
+q_bTempAlarm := q_wAlarm.1;
+FOR _i := 4 TO 8 DO
+	q_anSet[_i] := WORD_TO_UINT(_awRaw[_i]);	// @MAP HR 4~8
+END_FOR
+_bDataOk := TRUE;
+]]></ST>
+      </Implementation>
+    </Action>
+    <Method Name="M_Cycle" Id="{2612d964-3f41-406b-9e63-9743d2679438}">
+      <Declaration><![CDATA[METHOD M_Cycle
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_bReadDue := M_IsReadTime();
+IF NOT _bReading THEN
+	IF i_bEnable AND _bReadDue AND i_nUnitId >= 1 AND i_nUnitId <= 126 THEN
+		_fbRtu.ReadRegs(UnitID := UINT_TO_BYTE(i_nUnitId), Quantity := READ_QTY, MBAddr := 0,
+			cbLength := SIZEOF(_awRaw), pMemoryAddr := ADR(_awRaw), Timeout := i_tTimeout, Execute := TRUE);
+		_bReading := TRUE;
+	END_IF
+ELSE
+	_fbRtu.ReadRegs(Execute := FALSE);	// 시작한 읽기는 끝까지 부름
+	IF NOT _fbRtu.BUSY THEN
+		IF NOT _fbRtu.Error AND i_bEnable THEN
+			A_Map();
+			M_MarkAlive();
+		END_IF
+		_bReading := FALSE;
+	END_IF
+END_IF
+M_UpdateComm();
+q_bValid := Comm AND _bDataOk;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetBit" Id="{e40f5ef7-90b4-443c-8efd-bd5fe0e4a3e8}">
+      <Declaration><![CDATA[METHOD M_GetBit : BOOL		// DI 1 연기 알람, DI 2 온도 알람. 통신 이상이면 FALSE (규칙 FB_RuleBit은 Comm으로 따로 판단)
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF q_bValid THEN
+	CASE i_nPoint OF
+		1: M_GetBit := q_bSmokeAlarm;
+		2: M_GetBit := q_bTempAlarm;
+	END_CASE
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetValue" Id="{d9353e8e-37ef-4e49-9c34-10859be8b298}">
+      <Declaration><![CDATA[METHOD M_GetValue : ST_Val		// AI 1 연기1 %, AI 2 연기2, AI 3 온도 ℃
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE i_nPoint OF
+	1: M_GetValue.fValue := q_fSmoke1;
+	2: M_GetValue.fValue := q_fSmoke2;
+	3: M_GetValue.fValue := q_fTemp;
+ELSE
+	RETURN;
+END_CASE
+M_GetValue.bValid := q_bValid;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetBit" Id="{a1076959-4ca4-4310-8cbe-e044cf156e3d}">
+      <Declaration><![CDATA[METHOD M_SetBit		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetValue" Id="{ba9a2df2-7ce4-4089-b8a6-17312a0e7d26}">
+      <Declaration><![CDATA[METHOD M_SetValue		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_fValue	: REAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Comm" Id="{8eb90736-9e86-47bd-ba28-8ff18b994426}">
+      <Declaration><![CDATA[PROPERTY Comm : BOOL]]></Declaration>
+      <Get Name="Get" Id="{2cca6cb0-dddd-4577-984f-bedd4ee1d82a}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Comm := _bComm AND i_bEnable;
+]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

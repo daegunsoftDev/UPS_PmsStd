@@ -1,0 +1,93 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_StateArbiter" Id="{8213992c-cc80-4f1c-9b41-bfa1badaf6f7}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_StateArbiter		// 유닛마다 이번 스캔 지령원 상태 요청 하나 고르기: 같은 스캔은 정지 쪽. 저장하지 않음 (받은 명령은 시퀀서가 한 번 보냄)
+// 호출 순서 (MAIN): 본체(요청 후보) → FB_Sequencer.M_CheckRequest(접수 검사) → M_CommitRequest(접수된 것만 이번 스캔 요청)
+// 보호 조치가 걸린 유닛은 그보다 기동 쪽인 요청을 버림 (보호가 풀려도 저절로 기동하지 않게). 보호 정지·비상정지 명령은 시퀀서가 보호 결과를 직접 봄
+VAR_IN_OUT CONSTANT
+	iq_astSrcOut	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceOutput;
+	iq_anSrcModule	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF UINT;
+	iq_astReg		: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceReg;
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astUnitProt	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitProt;
+	iq_abSwitching	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 모드 전환 중: 지령원 기동 쪽 요청(Run) 안 받음. 정지 쪽은 받음
+END_VAR
+VAR_OUTPUT
+	(* 요청 후보 (본체 결과, 접수 검사 전) *)
+	q_abCand		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 이번 스캔 요청 후보 있음
+	q_aeCand		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_PcsCmd;	// 후보 명령
+	q_anCandModule	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;		// 후보를 낸 지령원 모듈 ID
+	(* 이번 스캔 요청 (M_CommitRequest 결과) *)
+	q_abNewReq		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 이번 스캔에 접수된 요청 있음
+	q_aeReq			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_PcsCmd;	// 그 요청 (없으면 None)
+	q_abPcsReqTaken	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF BOOL;		// 지령원의 이번 PCS 요청을 후보로 본 유닛이 있음 (로그용. FALSE면 운전 모드 설정·모드 전환 때문에 무시)
+END_VAR
+VAR_TEMP
+	u				: UINT;
+	i				: UINT;
+	nRank			: INT;
+	nBest			: INT;
+	eBest			: E_PcsCmd;
+	nBestModule		: UINT;
+	nProtRank		: INT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR i := 1 TO GVL_PARAM.SOURCE_COUNT DO
+	q_abPcsReqTaken[i] := FALSE;
+END_FOR
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	// 1) 이번 스캔 요청 중 가장 정지 쪽 (이 유닛의 운전 모드에 맞는 지령원만)
+	nBest		:= -1;
+	eBest		:= E_PcsCmd.None;
+	nBestModule	:= 0;
+	FOR i := 1 TO GVL_PARAM.SOURCE_COUNT DO
+		nRank := F_StateRank(iq_astSrcOut[i].stPcsReq.eCmd);
+		IF iq_astSrcOut[i].bValid AND nRank >= 0
+			AND (iq_astReg[i].nGroup = 0 OR iq_astReg[i].nGroup = iq_astUnitCfg[u].nGroup)
+			AND (iq_astSrcOut[i].stPcsReq.nUnit = 0 OR iq_astSrcOut[i].stPcsReq.nUnit = u)
+			AND F_PcsCmdAllowed(iq_astReg[i].stStateMode.stPcs, iq_astSrcOut[i].stPcsReq.eCmd, iq_aeOpMode[u])
+			AND (NOT iq_abSwitching[u] OR nRank >= F_StateRank(E_PcsCmd.Standby)) THEN		// 모드 전환 중에는 정지 쪽(Standby·Stop·EStop)만 받음
+			q_abPcsReqTaken[i] := TRUE;
+			IF nRank > nBest THEN
+				nBest		:= nRank;
+				eBest		:= iq_astSrcOut[i].stPcsReq.eCmd;
+				nBestModule	:= iq_anSrcModule[i];
+			END_IF
+		END_IF
+	END_FOR
+	// 2) 보호 조치보다 기동 쪽인 요청은 버림 (접수 검사 전)
+	CASE iq_astUnitProt[u].ePcsAction OF
+		E_PcsAction.Standby:	nProtRank := F_StateRank(E_PcsCmd.Standby);
+		E_PcsAction.Stop:		nProtRank := F_StateRank(E_PcsCmd.Stop);
+		E_PcsAction.EStop:		nProtRank := F_StateRank(E_PcsCmd.EStop);
+	ELSE
+		nProtRank := -1;
+	END_CASE
+	q_abCand[u]			:= nBest >= 0 AND nBest >= nProtRank;
+	q_aeCand[u]			:= eBest;
+	q_anCandModule[u]	:= nBestModule;
+	q_abNewReq[u]		:= FALSE;		// M_CommitRequest에서 정함
+	q_aeReq[u]			:= E_PcsCmd.None;
+END_FOR]]></ST>
+    </Implementation>
+    <Method Name="M_CommitRequest" Id="{ef36fb81-9d0c-4830-b60c-57080a244874}">
+      <Declaration><![CDATA[METHOD M_CommitRequest		// 접수된 후보만 이번 스캔 요청으로 (거부된 후보는 버림)
+VAR_IN_OUT CONSTANT
+	iq_abAccept		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 접수 검사 결과 (FB_Sequencer.q_abAccept)
+END_VAR
+VAR
+	u				: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	q_abNewReq[u] := q_abCand[u] AND iq_abAccept[u];
+	IF q_abNewReq[u] THEN
+		q_aeReq[u] := q_aeCand[u];
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

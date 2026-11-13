@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_StateRank" Id="{4bced440-0b3c-4664-9185-13e9f7d0b43a}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_StateRank : INT		// 상태 요청 세기 (정지 쪽이 큼). 상태가 아닌 요청은 -1
+VAR_INPUT
+	i_eCmd		: E_PcsCmd;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_eCmd OF
+	E_PcsCmd.Run:		F_StateRank := 0;
+	E_PcsCmd.Standby:	F_StateRank := 1;
+	E_PcsCmd.Stop:	F_StateRank := 2;
+	E_PcsCmd.EStop:	F_StateRank := 3;
+ELSE
+	F_StateRank := -1;		// None, Reset
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

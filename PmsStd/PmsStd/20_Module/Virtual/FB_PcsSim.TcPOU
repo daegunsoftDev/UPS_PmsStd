@@ -1,0 +1,126 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_PcsSim" Id="{a2c2e20a-978b-48c3-8cb3-937c2b3eb1ac}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_PcsSim EXTENDS FB_DeviceBase IMPLEMENTS I_Pcs		// 가상 PCS (시험용)
+VAR_INPUT
+	i_tTau			: TIME := T#500MS;	// 출력 응답 시정수
+	i_bForceFault	: BOOL;				// 시험: 전 유닛 고장
+	i_bForceLocal	: BOOL;				// 시험: 로컬 모드 (PMS 제어 불가)
+	i_bForceCommLoss	: BOOL;			// 시험: 통신 끊김 (응답 안 함. i_tCommTimeout 뒤 통신 이상)
+	i_bIgnoreCmd	: BOOL;				// 시험: 상태 명령을 접수하되 상태는 바꾸지 않음 (P/Q 지령은 적용)
+	i_bFaultFlagOnly	: BOOL;			// 시험: 운전 상태는 그대로 두고 고장 표시만 켬 (해제도 이 입력으로 함)
+END_VAR
+VAR
+	_aeState		: ARRAY[1..GVL_PARAM.MAX_SUB] OF E_RunState;
+	_afPSet			: ARRAY[1..GVL_PARAM.MAX_SUB] OF REAL;
+	_afQSet			: ARRAY[1..GVL_PARAM.MAX_SUB] OF REAL;
+	_afbPLag			: ARRAY[1..GVL_PARAM.MAX_SUB] OF FB_Lpf;
+	_afbQLag			: ARRAY[1..GVL_PARAM.MAX_SUB] OF FB_Lpf;
+	_astUnit		: ARRAY[1..GVL_PARAM.MAX_SUB] OF ST_UnitState;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Cycle" Id="{826d1a94-4d41-4076-ab7e-97dc1b144954}">
+      <Declaration><![CDATA[METHOD M_Cycle
+VAR
+	u		: UINT;
+	fPTarget		: REAL;
+	fQTarget		: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF M_IsReadTime() AND NOT i_bForceCommLoss THEN		// 읽기 주기마다 응답한 것으로 봄 (시험: 통신 끊김이면 응답 안 함)
+	M_MarkAlive();
+END_IF
+M_UpdateComm();
+
+FOR u := 1 TO GVL_PARAM.MAX_SUB DO
+	IF _aeState[u] = E_RunState.Unknown THEN
+		_aeState[u] := E_RunState.Stop;
+	END_IF
+	IF i_bForceFault THEN
+		_aeState[u] := E_RunState.Fault;
+	END_IF
+
+	// 운전 중이면 지령을, 아니면 0을 1차 지연으로 따라감
+	IF _aeState[u] = E_RunState.Run THEN
+		fPTarget := _afPSet[u];
+		fQTarget := _afQSet[u];
+	ELSE
+		fPTarget := 0;
+		fQTarget := 0;
+	END_IF
+	_afbPLag[u](i_fIn := fPTarget, i_tTau := i_tTau);
+	_afbQLag[u](i_fIn := fQTarget, i_tTau := i_tTau);
+
+	_astUnit[u].bComm		:= _bComm;
+	_astUnit[u].eRunState	:= _aeState[u];
+	_astUnit[u].bCtrlReady	:= NOT i_bForceLocal;
+	_astUnit[u].bFault		:= (_aeState[u] = E_RunState.Fault) OR i_bFaultFlagOnly;
+	_astUnit[u].stP.fValue	:= _afbPLag[u].q_fOut;
+	_astUnit[u].stP.bValid	:= TRUE;
+	_astUnit[u].stQ.fValue	:= _afbQLag[u].q_fOut;
+	_astUnit[u].stQ.bValid	:= TRUE;
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetUnitState" Id="{18258824-4ec7-4694-bb88-aa19d637f440}">
+      <Declaration><![CDATA[METHOD M_GetUnitState : ST_UnitState
+VAR_INPUT
+	i_nSub		: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nSub >= 1 AND i_nSub <= GVL_PARAM.MAX_SUB THEN
+	M_GetUnitState := _astUnit[i_nSub];
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetPower" Id="{665334e2-607e-4184-bd92-daac319df9b9}">
+      <Declaration><![CDATA[METHOD M_SetPower : BOOL
+VAR_INPUT
+	i_nSub		: UINT;
+	i_fP		: REAL;
+	i_fQ		: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nSub < 1 OR i_nSub > GVL_PARAM.MAX_SUB THEN
+	RETURN;
+END_IF
+_afPSet[i_nSub] := i_fP;
+_afQSet[i_nSub] := i_fQ;
+M_SetPower := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetStateCmd" Id="{da488b7f-1a8d-497d-8499-01246726d28b}">
+      <Declaration><![CDATA[METHOD M_SetStateCmd : BOOL
+VAR_INPUT
+	i_nSub		: UINT;
+	i_stCmd		: ST_PcsCmd;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nSub < 1 OR i_nSub > GVL_PARAM.MAX_SUB THEN
+	RETURN;
+END_IF
+
+CASE i_stCmd.eCmd OF
+	E_PcsCmd.Run:
+		IF NOT i_bIgnoreCmd AND _aeState[i_nSub] <> E_RunState.Fault THEN _aeState[i_nSub] := E_RunState.Run; END_IF
+
+	E_PcsCmd.Standby:
+		IF NOT i_bIgnoreCmd AND _aeState[i_nSub] <> E_RunState.Fault THEN _aeState[i_nSub] := E_RunState.Standby; END_IF
+
+	E_PcsCmd.Stop,
+	E_PcsCmd.EStop:
+		IF NOT i_bIgnoreCmd AND _aeState[i_nSub] <> E_RunState.Fault THEN _aeState[i_nSub] := E_RunState.Stop; END_IF
+
+	E_PcsCmd.Reset:
+		IF NOT i_bIgnoreCmd AND _aeState[i_nSub] = E_RunState.Fault AND NOT i_bForceFault THEN _aeState[i_nSub] := E_RunState.Stop; END_IF
+ELSE
+	RETURN;		// 배터리 명령 등은 PCS가 받지 않음
+END_CASE
+
+M_SetStateCmd := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

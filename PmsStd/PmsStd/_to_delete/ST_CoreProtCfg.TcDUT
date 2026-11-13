@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CoreProtCfg" Id="{475b5c36-dc37-407a-a73a-3852629b8bd6}">
+    <Declaration><![CDATA[TYPE ST_CoreProtCfg :
+STRUCT
+	stPcsFault		: ST_ProtCfg := (bAuto := TRUE, bManual := TRUE, ePcsAction := E_PcsAction.Stop, fDeratePct := 100.0);		// PCS 고장 → 그 유닛 정지
+	stPcsComm		: ST_ProtCfg := (bAuto := TRUE, bManual := TRUE, ePcsAction := E_PcsAction.Standby, fDeratePct := 100.0);	// PCS 통신 끊김 → 그 유닛 대기
+	stBmsFault		: ST_ProtCfg := (bAuto := TRUE, bManual := TRUE, ePcsAction := E_PcsAction.Stop, eBatAction := E_BatAction.Stop, fDeratePct := 100.0);	// BMS 고장 → 그 BMS 정지 + 같은 배터리 그룹 유닛 정지
+	stBmsComm		: ST_ProtCfg := (bAuto := TRUE, bManual := TRUE, ePcsAction := E_PcsAction.Standby, fDeratePct := 100.0);	// BMS 통신 끊김 → 같은 배터리 그룹 유닛 대기
+	stPccInvalid	: ST_ProtCfg := (bAuto := TRUE, bManual := TRUE, ePcsAction := E_PcsAction.Standby, fDeratePct := 100.0);	// 접속점 계측 무효 → 그룹 대기
+	(* BMS 하나가 빠져도 남은 BMS로 계속 돌리려면 stBmsFault·stBmsComm의 ePcsAction을 None으로 *)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,120 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MqttSubscribe" Id="{d79b1b87-7ef6-43ab-a78e-9eca04ef3894}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_MqttSubscribe		// MQTT 구독 (브로커 1개): command·config 토픽을 받아 토픽 표대로 수신 배열에 넣고, 토픽별 새 수신을 셈
+VAR_INPUT
+	i_nSiteId		: UDINT;
+	i_sHost			: STRING(15);
+	i_nPort			: UINT;
+	i_sUserName		: STRING;
+	i_sUserPassword	: STRING;	// 접속 값은 첫 호출 때 한 번 읽음
+	i_sInstance		: STRING(4) := '';	// ClientId 뒤에 붙임 (이중화: PLC마다 다르게 '-P', '-S'. 같으면 브로커가 서로 끊음)
+	i_astCommandTable	: ARRAY[1..GVL_MQTT.COMMAND_TOPIC_COUNT] OF ST_MqttSubEntry;	// FB_MqttMain.A_InitSubscribeTable
+	i_astConfigTable	: ARRAY[1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF ST_MqttSubEntry;
+END_VAR
+VAR_OUTPUT
+	q_asCmdRxTime		: ARRAY[1..GVL_MQTT.COMMAND_TOPIC_COUNT] OF STRING(23);	// 토픽별 마지막 헤더 TimeStamp
+	q_asCfgRxTime		: ARRAY[1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF STRING(23);
+	q_anCmdRxCount		: ARRAY[1..GVL_MQTT.COMMAND_TOPIC_COUNT] OF UDINT;	// 새 수신 횟수 (헤더 TimeStamp가 바뀐 메시지)
+	q_anCfgRxCount		: ARRAY[1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF UDINT;
+	q_anCfgRxRecords	: ARRAY[1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF UDINT;	// 토픽별 마지막 새 메시지에서 실제로 받은 레코드 수 [21번 수정 2026-11-09: 추가]
+	q_bConnected		: BOOL;		// 브로커에 접속됨 (FB_IotMqttClient.bConnected) [9번 수정 2026-11-09: 추가]
+END_VAR
+VAR
+	_sSiteId			: STRING;
+	_sClientId			: STRING;
+	_sHost				: STRING(15);
+	_nPort				: UINT;
+	_sUserName			: STRING;
+	_sUserPassword		: STRING;
+	_asCommandTopic		: ARRAY[1..GVL_MQTT.COMMAND_TOPIC_COUNT] OF STRING(80);
+	_asConfigTopic		: ARRAY[1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF STRING(80);
+	_fbClient			: FB_IotMqttClient;
+	_fbQueue			: FB_IotMqttMessageQueue;
+	_fbMessage			: FB_IotMqttMessage;
+	_i					: UINT;
+	_bSetParameter		: BOOL := TRUE;
+	_bConnect			: BOOL := TRUE;
+	_bSubscribed		: BOOL;		// 모든 토픽 구독 완료. 연결이 끊기면 지워서 다시 연결되면 다시 구독
+	_pHeader			: POINTER TO ST_MqttCommandHeader;
+	_nCopied			: UDINT;
+	_nReceived			: UDINT;	// 받은 레코드 수 (F_MqttDistribute.q_nReceived)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF _bSetParameter THEN
+	_bSetParameter := FALSE;
+	_sSiteId		:= UDINT_TO_STRING(i_nSiteId);
+	_sHost			:= i_sHost;
+	_nPort			:= i_nPort;
+	_sClientId		:= CONCAT(CONCAT('dgsems/sub/', _sSiteId), i_sInstance);
+	_sUserName		:= i_sUserName;
+	_sUserPassword	:= i_sUserPassword;
+	(* dgsems/{solution}/{site_id}/{command|config}/{device_name} *)
+	FOR _i := 1 TO GVL_MQTT.COMMAND_TOPIC_COUNT DO
+		_asCommandTopic[_i] := CONCAT(CONCAT(CONCAT('dgsems/', GVL_MQTT.SOLUTION_NAME), CONCAT('/', _sSiteId)),
+									CONCAT(CONCAT('/', i_astCommandTable[_i].sCategory), CONCAT('/', i_astCommandTable[_i].sTopic)));
+	END_FOR
+	FOR _i := 1 TO GVL_MQTT.CONFIG_TOPIC_COUNT DO
+		_asConfigTopic[_i] := CONCAT(CONCAT(CONCAT('dgsems/', GVL_MQTT.SOLUTION_NAME), CONCAT('/', _sSiteId)),
+									CONCAT(CONCAT('/', i_astConfigTable[_i].sCategory), CONCAT('/', i_astConfigTable[_i].sTopic)));
+	END_FOR
+	_fbClient.sClientId		:= _sClientId;
+	_fbClient.sUserName		:= _sUserName;
+	_fbClient.sUserPassword	:= _sUserPassword;
+	_fbClient.sHostName		:= _sHost;
+	_fbClient.nHostPort		:= _nPort;
+	_fbClient.sTopicPrefix	:= '';
+	_fbClient.ipMessageQueue := _fbQueue;
+END_IF
+
+_fbClient.Execute(_bConnect);
+q_bConnected := _fbClient.bConnected;	// [9번 수정 2026-11-09: 추가]
+
+(* 구독: 모든 토픽이 성공할 때까지 매 스캔 시도. 연결이 끊기면 다시 구독 *)
+IF NOT _fbClient.bConnected THEN
+	_bSubscribed := FALSE;
+ELSIF NOT _bSubscribed THEN
+	_bSubscribed := TRUE;
+	FOR _i := 1 TO GVL_MQTT.COMMAND_TOPIC_COUNT DO
+		_bSubscribed := _fbClient.Subscribe(sTopic := _asCommandTopic[_i], eQos := TcIotMqttQos.AtMostOnceDelivery) AND _bSubscribed;
+	END_FOR
+	FOR _i := 1 TO GVL_MQTT.CONFIG_TOPIC_COUNT DO
+		_bSubscribed := _fbClient.Subscribe(sTopic := _asConfigTopic[_i], eQos := TcIotMqttQos.AtMostOnceDelivery) AND _bSubscribed;
+	END_FOR
+END_IF
+
+(* 수신: 한 스캔에 1개 *)
+IF _fbQueue.nQueuedMessages > 0 THEN
+	IF _fbQueue.Dequeue(fbMessage := _fbMessage) THEN
+		FOR _i := 1 TO GVL_MQTT.COMMAND_TOPIC_COUNT DO
+			IF _fbMessage.CompareTopic(sTopic := _asCommandTopic[_i]) THEN
+				_nCopied := F_MqttDistribute(iq_fbMessage := _fbMessage, iq_stEntry := i_astCommandTable[_i]);
+				_pHeader := i_astCommandTable[_i].pRxBuffer;
+				IF _nCopied > 0 AND _pHeader <> 0 THEN
+					IF _pHeader^.TimeStamp <> q_asCmdRxTime[_i] THEN
+						q_asCmdRxTime[_i]	:= _pHeader^.TimeStamp;
+						q_anCmdRxCount[_i]	:= q_anCmdRxCount[_i] + 1;
+					END_IF
+				END_IF
+				EXIT;
+			END_IF
+		END_FOR
+		FOR _i := 1 TO GVL_MQTT.CONFIG_TOPIC_COUNT DO
+			IF _fbMessage.CompareTopic(sTopic := _asConfigTopic[_i]) THEN
+				_nCopied := F_MqttDistribute(iq_fbMessage := _fbMessage, iq_stEntry := i_astConfigTable[_i], q_nReceived => _nReceived);
+				_pHeader := i_astConfigTable[_i].pRxBuffer;
+				IF _nCopied > 0 AND _pHeader <> 0 THEN
+					IF _pHeader^.TimeStamp <> q_asCfgRxTime[_i] THEN
+						q_asCfgRxTime[_i]	:= _pHeader^.TimeStamp;
+						q_anCfgRxRecords[_i]	:= _nReceived;
+						q_anCfgRxCount[_i]	:= q_anCfgRxCount[_i] + 1;
+					END_IF
+				END_IF
+				EXIT;
+			END_IF
+		END_FOR
+	END_IF
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

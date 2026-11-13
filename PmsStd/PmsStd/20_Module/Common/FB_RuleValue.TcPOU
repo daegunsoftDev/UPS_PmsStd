@@ -1,0 +1,82 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_RuleValue" Id="{349ccfa6-ecf1-444d-a226-19c9620d1a25}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_RuleValue EXTENDS FB_ModuleBase IMPLEMENTS I_ProtectionRule, I_OutputRule		// 아날로그 값 하나 ↔ 임계값 (온도·습도 등). 임계값은 등록 설정(fThreshold)에서 받음
+VAR_INPUT
+	i_ipAux			: I_AuxDevice;		// 읽을 보조 장비 (선언 때 지정)
+	i_nPoint		: UINT;				// 아날로그 입력 점 번호
+	i_stSet			: ST_RuleValueSet;	// 설정: 이하·이상, 해소 폭, 통신 끊김 시 조건 (MAIN이 GVL_PERSIST.g_stModuleSet 칸을 매 스캔 넘김. 안 넘기면 기본값)
+END_VAR
+VAR
+	_bProtCond		: BOOL;				// 보호 규칙 판단 상태 (히스테리시스)
+	_bOutCond		: BOOL;				// 출력 규칙 판단 상태 (히스테리시스)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Evaluate" Id="{dc4e25ba-ddf6-439c-993d-8e934b45deec}">
+      <Declaration><![CDATA[METHOD M_Evaluate : BOOL		// 보호 규칙으로 판단 (보호용 상태 _bProtCond. 값 하나라 대상과 관계없음)
+VAR_INPUT
+	i_stView	: ST_ProtView;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Evaluate := M_Judge(i_fThreshold := i_stView.fThreshold, iq_bCond := _bProtCond);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Check" Id="{41a243d6-63ef-4c26-aac3-ac8c4aadc2df}">
+      <Declaration><![CDATA[METHOD M_Check : BOOL		// 출력 규칙으로 판단 (출력용 상태 _bOutCond. 보호와 같은 인스턴스여도 히스테리시스가 섞이지 않음)
+VAR_INPUT
+	i_fThreshold	: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Check := M_Judge(i_fThreshold := i_fThreshold, iq_bCond := _bOutCond);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Judge" Id="{94a9501c-dca1-4fea-8bcd-b40ac2249e33}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Judge : BOOL		// 임계값·히스테리시스 판단. 상태는 부르는 쪽 것을 씀
+VAR_INPUT
+	i_fThreshold	: REAL;
+END_VAR
+VAR_IN_OUT
+	iq_bCond		: BOOL;			// 이 판단의 히스테리시스 상태 (보호용·출력용 따로)
+END_VAR
+VAR
+	stValue			: ST_Val;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_ipAux = 0 THEN
+	iq_bCond := FALSE;
+ELSE
+	stValue := i_ipAux.M_GetValue(i_nPoint);
+	IF NOT i_ipAux.Comm OR NOT stValue.bValid THEN
+		iq_bCond := i_stSet.bOnCommLoss;
+	ELSIF NOT i_stSet.bBelow THEN
+		IF stValue.fValue >= i_fThreshold THEN
+			iq_bCond := TRUE;
+		ELSIF stValue.fValue < i_fThreshold - i_stSet.fHyst THEN
+			iq_bCond := FALSE;
+		END_IF
+	ELSE
+		IF stValue.fValue <= i_fThreshold THEN
+			iq_bCond := TRUE;
+		ELSIF stValue.fValue > i_fThreshold + i_stSet.fHyst THEN
+			iq_bCond := FALSE;
+		END_IF
+	END_IF
+END_IF
+M_Judge := iq_bCond;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckSet" Id="{e8921888-ec23-4b9e-aaaa-43bda4097fcb}">
+      <Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)		// 설정 점검: 해소 폭 (FB_RuleBit은 점검할 값 없음)]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckSet := "";
+IF NOT F_RealOk(i_stSet.fHyst) THEN	// [결함 13 수정 2026-11-04]
+	M_CheckSet := "해소 폭 fHyst 숫자 아님";
+ELSIF i_stSet.fHyst < 0.0 THEN
+	M_CheckSet := "해소 폭 fHyst 음수";
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

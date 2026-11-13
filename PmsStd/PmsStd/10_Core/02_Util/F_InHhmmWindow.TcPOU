@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_InHhmmWindow" Id="{8883c6e0-b167-4501-83a2-f7980ebea2f6}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_InHhmmWindow : BOOL		// 지금이 시간 구간 안인가: 시작 ≤ 지금 < 끝 (HHMM). 시작 > 끝이면 자정을 넘는 구간, 시작 = 끝이면 빈 구간
+VAR_INPUT
+	i_nNow		: UINT;		// HHMM
+	i_nStart	: UINT;
+	i_nEnd		: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF i_nStart = i_nEnd THEN
+	F_InHhmmWindow := FALSE;
+ELSIF i_nStart < i_nEnd THEN
+	F_InHhmmWindow := i_nNow >= i_nStart AND i_nNow < i_nEnd;
+ELSE
+	F_InHhmmWindow := i_nNow >= i_nStart OR i_nNow < i_nEnd;
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

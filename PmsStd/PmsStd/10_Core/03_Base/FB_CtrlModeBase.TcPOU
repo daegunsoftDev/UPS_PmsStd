@@ -1,0 +1,46 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_CtrlModeBase" Id="{7225712a-2dff-4a78-bafd-078bf9b664c1}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK ABSTRACT FB_CtrlModeBase EXTENDS FB_ModuleBase IMPLEMENTS I_ControlMode	// 제어 모드 공통 바탕. 파생 FB는 M_Calc만 쓰면 됨 (필요하면 M_CheckEnter·M_Enter·M_Exit·M_ReasonText·M_CheckSet을 바꿈)
+// M_Enter·M_Exit를 바꾸면 SUPER^.M_Enter(i_stView := i_stView)·SUPER^.M_Exit()도 부름 (_bActive 유지)
+VAR
+	_bActive	: BOOL;		// 켜져 있음 (M_Enter ~ M_Exit). 진단용
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_CheckEnter" Id="{6be4ac5b-18cf-444d-8dd3-13e06db12179}">
+      <Declaration><![CDATA[METHOD M_CheckEnter : UINT		// 기본: 조건 없음
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;	// 그룹 값(stGroup)·현지 시각(stTime). 관리자가 매 스캔 채움
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckEnter := 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Enter" Id="{6804a8f7-7931-4667-b193-b6a3d4feb11a}">
+      <Declaration><![CDATA[METHOD M_Enter
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;	// 그룹 값(stGroup)·현지 시각(stTime). 관리자가 매 스캔 채움
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_bActive := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Calc" Id="{2ab0e793-6273-4da9-8852-2fe38f73547c}">
+      <Declaration><![CDATA[METHOD ABSTRACT M_Calc : ST_CtrlModeOut
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;	// 그룹 값(stGroup)·현지 시각(stTime). 관리자가 매 스캔 채움
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Exit" Id="{4a959e0c-d973-4312-b6b9-3611f816fdb9}">
+      <Declaration><![CDATA[METHOD M_Exit]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_bActive := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

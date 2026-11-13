@@ -1,0 +1,107 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_CmSchedPeak" Id="{dab400b7-0b10-4ef4-868f-e7cc70ab82b1}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_CmSchedPeak EXTENDS FB_CmTariffBase		// 제어 모드: 통합 = 스케줄 + 피크컷 (Messis SCHEDULE_PS_MODE)
+// 우선순위: 잔량 방전 시간 (잔량 방전과 피크 제어 중 큰 값, 방전 허용 시간에만) → 피크 제어가 필요하고 방전 허용 시간이면 (피크 제어량과 시간표 방전 중 큰 값)
+//   → 아니면 스케줄 모드와 같음. 시간표는 스케줄 모드와 같은 표, 피크 제어량 계산은 피크컷과 같은 FB_CmPeakCalc
+// Messis와 다른 점: 시간표가 충전 칸일 때 피크 제어가 필요하면 피크 제어량만 방전 (Messis는 충전값 크기만큼 방전할 수 있었음)
+VAR_INPUT
+	i_stTable	: ST_CmScheduleSet;		// 시간표 (스케줄 모드와 같은 GVL_PERSIST.g_stModuleSet.stCmSchedule)
+	i_stSet		: ST_CmSchedPeakSet;	// 설정 (GVL_PERSIST.g_stModuleSet.stCmSchedPeak)
+END_VAR
+VAR_OUTPUT
+	q_fPeakCtrl	: REAL;		// 진단: 피크 제어량 (kW, FB_CmPeakCalc)
+	q_nRemainMin	: UINT;		// 진단: 15분 구간 남은 분
+	q_fExceeded	: REAL;		// 진단: 구간 목표 초과 수전 누적 (kW·분)
+	q_fLoad1m	: REAL;		// 진단: 직전 1분 평균 부하 (kW)
+END_VAR
+VAR
+	_fbPeak		: FB_CmPeakCalc;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Enter" Id="{4ffb22d1-18a8-4a9f-8c03-7027d2e5a30e}">
+      <Declaration><![CDATA[METHOD M_Enter
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SUPER^.M_Enter(i_stView := i_stView);
+_fbPeak.M_Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Calc" Id="{4fc519ab-6845-4441-9107-58550db6d139}">
+      <Declaration><![CDATA[METHOD M_Calc : ST_CtrlModeOut
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;
+END_VAR
+VAR
+	nNow	: UINT;
+	fP		: REAL;
+	fRem	: REAL;
+	nRsn	: UINT;
+	bNoCap	: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fP := 0.0;
+_fbPeak(i_stSet := i_stSet.stPeak, i_fRevMargin := i_stCommon.stNoRev.fMargin, i_stView := i_stView);
+q_fPeakCtrl		:= _fbPeak.q_fCtrl;
+q_nRemainMin	:= _fbPeak.q_nRemainMin;
+q_fExceeded		:= _fbPeak.q_fExceeded;
+q_fLoad1m		:= _fbPeak.q_fLoad1m;
+IF M_Begin(i_stView := i_stView) THEN
+	nNow := F_TimeHhmm(i_stTime := i_stView.stTime);
+	M_SchedLookup(i_stTime := i_stView.stTime, iq_stTable := i_stTable);
+	IF i_stSet.stRemain.bUse AND F_InHhmmWindow(i_nNow := nNow, i_nStart := i_stSet.stRemain.nStart, i_nEnd := i_stSet.stRemain.nEnd) THEN
+		// 1) 잔량 방전
+		// [14번 수정 2026-11-09: 방전 허용 시간(공통 stDis: 시간·일요일) 밖이면 잔량 방전·피크 제어 모두 0, 상태 DIS_TIME.
+		//   원래는 잔량 방전 시간이면 방전 허용 시간을 보지 않고 방전함]
+		IF NOT M_DisAllowed(i_stTime := i_stView.stTime) THEN
+			q_nState := GVL_CM_RSN.DIS_TIME;
+		ELSE
+			fRem		:= M_RemainDis(i_stView := i_stView, i_stWin := i_stSet.stRemain, q_bNoCap => bNoCap);
+			q_nState	:= SEL(bNoCap, GVL_CM_RSN.REMAIN_DIS, GVL_CM_RSN.NO_CAP);
+			IF fRem > 0.0 THEN
+				fP := M_NoReverse(i_fReq := MAX(fRem, _fbPeak.q_fCtrl), i_stView := i_stView, q_nRsn => nRsn);
+				IF nRsn <> 0 THEN
+					q_nState := nRsn;
+				END_IF
+			END_IF
+		END_IF
+	ELSIF _fbPeak.q_fCtrl > 0.0 AND M_DisAllowed(i_stTime := i_stView.stTime) THEN
+		// 2) 피크 제어 + 시간표 방전 중 큰 값
+		fP			:= M_NoReverse(i_fReq := MAX(_fbPeak.q_fCtrl, MAX(q_fSlotP, 0.0)), i_stView := i_stView, q_nRsn => nRsn);
+		q_nState	:= SEL(nRsn <> 0, GVL_CM_RSN.SCHED_PEAK, nRsn);
+	ELSE
+		// 3) 스케줄만
+		fP			:= M_SchedOut(i_stView := i_stView, q_nRsn => nRsn);
+		q_nState	:= nRsn;
+	END_IF
+END_IF
+M_Calc := M_Finish(i_fP := fP);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckSet" Id="{d0c4ece5-0d39-47ff-a63f-196f9c952140}">
+      <Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckSet := SUPER^.M_CheckSet();
+IF M_CheckSet <> "" THEN
+	RETURN;
+END_IF
+M_CheckSet := M_CheckTable(iq_stTable := i_stTable);
+IF M_CheckSet <> "" THEN
+	RETURN;
+END_IF
+// [결함 13 수정 2026-11-04: 피크 설정이 숫자인지 먼저]
+IF NOT (F_RealOk(i_stSet.stPeak.fTarget) AND F_RealOk(i_stSet.stPeak.fBandSens) AND F_RealOk(i_stSet.stPeak.fLoadRatio) AND F_RealOk(i_stSet.stPeak.fMinOut)) THEN
+	M_CheckSet := "통합: 피크 설정 숫자 아님";
+ELSIF i_stSet.stPeak.fTarget < 0.0 OR i_stSet.stPeak.fBandSens < 0.0 OR i_stSet.stPeak.fLoadRatio < 0.0 OR i_stSet.stPeak.fLoadRatio > 1.0 OR i_stSet.stPeak.fMinOut < 0.0 THEN
+	M_CheckSet := "통합: 목표·감도·부하 비율(0~1)·최소 출력";
+ELSIF NOT M_CheckWindow(i_stWin := i_stSet.stRemain) THEN
+	M_CheckSet := "통합: 잔량 방전 시간·SOC";
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_MqttBroker" Id="{7b5830aa-a22d-483d-9507-1b3f57eceafe}">
+    <Declaration><![CDATA[TYPE ST_MqttBroker :		// 브로커 한 곳의 접속 설정
+STRUCT
+	bUse		: BOOL;				// FALSE = 이 브로커에 접속하지 않음
+	sHost		: STRING(15);		// IP 주소
+	nPort		: UINT := 1883;
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

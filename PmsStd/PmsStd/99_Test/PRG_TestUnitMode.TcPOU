@@ -1,0 +1,264 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="PRG_TestUnitMode" Id="{d4845347-21a8-433b-8f59-3f7d4bee6c04}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_TestUnitMode		// PCS별(유닛 단위) 제어 모드 자동 시험 (GVL_SITE.TEST_MODE일 때 MAIN이 부름). 따로 둔 인스턴스만 씀 (장비 지령에 영향 없음)
+// 온라인에서 bDone = TRUE가 되면 fbTally.q_nPass·q_nFail, 실패하면 fbTally.q_anFail. bRestart := TRUE로 다시 돌림
+// 40~41: 유닛 단위 출력 칸, 42~44: 접속점 몫 (ByRating·Actual·Fixed), 45~47: 설정 점검, 48~50: FB_UnitView 버스 몫, 51~57: 스탠다드 스케줄 모드, 58~63: NaN·무한대 거르기 (PLC가 멈추지 않아야 함)
+VAR
+	bRestart	: BOOL;
+	bDone		: BOOL;
+	nStep		: UINT;
+	fbTally		: FB_TestTally;
+	fbConstU	: FB_CmConstPower	:= (i_nModuleId := 9012, i_sName := 'TestConstU');
+	fbMgrU		: FB_CtrlModeMgr	:= (i_nModuleId := 9010, i_sName := 'TestMgrU', i_nUnit := 1);
+	aipMode		: ARRAY[1..GVL_PARAM.CTRL_MODE_COUNT] OF I_ControlMode;
+	astUv		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitView;	// 관리자에 주소로 넘기는 유닛 값 (시험이 채움)
+	stGrpView	: ST_GroupView;			// 지령원 공통 입력 (유닛 단위에서는 안 봄)
+	stReg		: ST_SourceReg := (bEnable := TRUE, nGrade := 1, ePowerMode := E_SourceMode.Auto, nGroup := 0, tExpire := T#10S);
+	stMgrOut	: ST_SourceOutput;
+	wsTmp		: WSTRING(63);
+	(* FB_UnitView 시험 (유닛 1 기준, 유닛이 2개 이상이면 유닛 2도) *)
+	fbUv		: FB_UnitView;
+	astView		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupView;
+	astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	astAvail	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitAvail;
+	astCfg		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	astEnv		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitEnvelope;
+	astBat		: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatGroupState;
+	astBatEnv	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatEnvelope;
+	fShareExp	: REAL;
+	(* 스탠다드 스케줄 모드 시험 *)
+	fbStd		: FB_CmStdSchedule	:= (i_nModuleId := 9013, i_sName := 'TestStdSched');
+	stStdView	: ST_CtrlModeView;
+	stStdOut	: ST_CtrlModeOut;
+	nInfBits	: DWORD := 16#7F800000;	// +무한대 비트 (NaN은 크기 비교에서 부동소수점 예외로 PLC가 멈추므로 시험에 쓰지 않음)
+	fInf		: REAL;
+	nBad0		: UDINT;
+	nNanBits	: DWORD := 16#7FC00000;	// NaN 비트 (거르기 시험: 비교하기 전에 걸러져야 PLC가 멈추지 않음)
+	fNan		: REAL;
+	fbEmsCmd	: FB_EmsCommand;		// EMS 명령 핸들러 시험 인스턴스
+	astPcsRx	: ARRAY[0..GVL_PARAM.PCS_COUNT - 1] OF ST_MqttCommand_Rx;
+	astBatRx	: ARRAY[0..GVL_PARAM.BMS_COUNT - 1] OF ST_MqttCommand_Rx;
+	nPSeq0		: UDINT;
+	nRunSeq0	: UDINT;		// 시험 전 이상값 버린 수 (누계라 다시 돌려도 맞게)
+	u			: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF bRestart THEN
+	bRestart	:= FALSE;
+	bDone		:= FALSE;
+	nStep		:= 0;
+END_IF
+
+CASE nStep OF
+	0:	// 준비: 정출력 80 kW 하나, 유닛 1 값 (출력 100, 그룹 출력 300, 접속점 -200 = 수전 200 → 그룹 부하 500, 몫 0.5)
+		fbTally.M_Reset();
+		aipMode[1]					:= fbConstU;
+		fbConstU.i_stSet.fPSet		:= 80.0;
+		fbConstU.i_stSet.bQSet		:= FALSE;
+		fbConstU.i_stSet.tDuration	:= T#0S;
+		astUv[1].nUnit				:= 1;
+		astUv[1].bAvail				:= TRUE;
+		astUv[1].stView.nUnitAvail	:= 1;
+		astUv[1].stView.fPRatedAvail	:= 1000.0;
+		astUv[1].stView.fPOut		:= 100.0;
+		astUv[1].stView.stPcc.stMeas.stP.bValid	:= TRUE;
+		astUv[1].stView.stPcc.stMeas.stP.fValue	:= -200.0;
+		astUv[1].fGroupPOut			:= 300.0;
+		astUv[1].fRatingShare		:= 0.5;
+		fbMgrU.i_aipMode			:= aipMode;
+		fbMgrU.i_stSet.bZeroOnSwitch	:= TRUE;
+		fbMgrU.i_stSet.tZeroDelay	:= T#1S;
+		fbMgrU.i_stSet.nFallback	:= 0;
+		fbMgrU.i_stSet.ePccShare	:= E_PccShare.ByRating;
+		fbMgrU.i_stSet.fPccRatio	:= 1.0;
+		fbMgrU.i_pUnitView			:= ADR(astUv);
+		wsTmp := fbMgrU.M_CheckSet();
+		fbTally.M_Check(i_nId := 40, i_bOk := wsTmp = "");
+		fbMgrU.i_nModeReq := 1;
+		nStep := 10;
+
+	10:	// 정출력 진입: 유닛 1 칸에만 80, 그룹 지령은 없음. 몫 0.5 → 모드가 본 접속점 = 100 - 0.5 × 500 = -150
+		A_Cycle();
+		fbTally.M_Check(i_nId := 41, i_bOk := fbMgrU.q_nActive = 1 AND stMgrOut.astUnit[1].bPSetActive AND ABS(stMgrOut.astUnit[1].fPSet - 80.0) < 0.01 AND NOT stMgrOut.bPSetActive);
+		fbTally.M_Check(i_nId := 42, i_bOk := ABS(fbMgrU.q_fPccP + 150.0) < 0.01);
+		fbMgrU.i_stSet.ePccShare := E_PccShare.Actual;
+		nStep := 11;
+
+	11:	// Actual: 실측 그대로 -200
+		A_Cycle();
+		fbTally.M_Check(i_nId := 43, i_bOk := ABS(fbMgrU.q_fPccP + 200.0) < 0.01);
+		fbMgrU.i_stSet.ePccShare := E_PccShare.Fixed;
+		fbMgrU.i_stSet.fPccRatio := 0.2;
+		nStep := 12;
+
+	12:	// Fixed 0.2: 100 - 0.2 × 500 = 0
+		A_Cycle();
+		fbTally.M_Check(i_nId := 44, i_bOk := ABS(fbMgrU.q_fPccP) < 0.01);
+		// 설정 점검: 몫 범위 밖, 유닛 값 연결 안 됨, 유닛 번호 범위 밖
+		fbMgrU.i_stSet.fPccRatio := 1.5;
+		wsTmp := fbMgrU.M_CheckSet();
+		fbTally.M_Check(i_nId := 45, i_bOk := wsTmp <> "");
+		fbMgrU.i_stSet.fPccRatio := 0.2;
+		fbMgrU.i_pUnitView := 0;
+		wsTmp := fbMgrU.M_CheckSet();
+		fbTally.M_Check(i_nId := 46, i_bOk := wsTmp <> "");
+		fbMgrU.i_pUnitView := ADR(astUv);
+		fbMgrU.i_nUnit := GVL_PARAM.UNIT_COUNT + 1;
+		wsTmp := fbMgrU.M_CheckSet();
+		fbTally.M_Check(i_nId := 47, i_bOk := wsTmp <> "");
+		fbMgrU.i_nUnit := 1;
+		A_UnitViewTest();
+		A_StdScheduleTest();
+		A_NanTest();
+		nStep := 99;
+
+	99:
+		bDone := TRUE;
+END_CASE]]></ST>
+    </Implementation>
+    <Action Name="A_Cycle" Id="{89272ff3-d77a-4be4-9a13-51f2db0c1201}">
+      <Implementation>
+        <ST><![CDATA[fbMgrU.i_pUnitView := ADR(astUv);	// 온라인 변경 뒤에도 맞게 매번
+fbMgrU.M_Cycle(i_stReg := stReg, i_stView := stGrpView);
+stMgrOut := fbMgrU.Output;]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_UnitViewTest" Id="{be2f2b65-6f52-488d-9aa8-0e3d63b9d1ef}">
+      <Implementation>
+        <ST><![CDATA[// FB_UnitView: 그룹 1 (접속점 -200, 그룹 출력 300, 가용 한도 합 2000), 버스 1 (방전 한도 1200, 충전 한도 800, 용량 4000, SOC 60)
+// 유닛 1 정격 1000 (한도 1000, 출력 100). 유닛이 2개 이상이면 유닛 2도 같은 버스·정격 1000 → 버스 몫 0.5, 아니면 1
+astView[1].stPcc.stMeas.stP.bValid	:= TRUE;
+astView[1].stPcc.stMeas.stP.fValue	:= -200.0;
+astView[1].fPOut			:= 300.0;
+astView[1].fPRatedAvail		:= 2000.0;
+astBat[1].bUsable			:= TRUE;
+astBat[1].fCapacity			:= 4000.0;
+astBat[1].stSoc.bValid		:= TRUE;
+astBat[1].stSoc.fValue		:= 60.0;
+astBatEnv[1].stP.fMax		:= 1200.0;
+astBatEnv[1].stP.fMin		:= -800.0;
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	astCfg[u].nGroup		:= 1;
+	astCfg[u].nBatGroup		:= 1;
+	astCfg[u].fPRated		:= 1000.0;
+	astCfg[u].fQRated		:= 500.0;
+	astAvail[u].bAvail		:= TRUE;
+	astEnv[u].stP.fMax		:= 1000.0;
+	astEnv[u].stQ.fMax		:= 500.0;
+	astUnit[u].stP.bValid	:= TRUE;
+	astUnit[u].stP.fValue	:= 100.0;
+END_FOR
+fShareExp := 1.0 / UINT_TO_REAL(GVL_PARAM.UNIT_COUNT);
+fbUv(iq_astView := astView, iq_astUnit := astUnit, iq_astAvail := astAvail, iq_astUnitCfg := astCfg,
+	iq_astUnitEnv := astEnv, iq_astBatGroup := astBat, iq_astBatEnv := astBatEnv);
+// 48) 유닛 1: 출력·한도·접속점·그룹 출력·정격 몫 (1000 / 2000)
+fbTally.M_Check(i_nId := 48, i_bOk := fbUv.q_astView[1].stView.nUnitAvail = 1 AND ABS(fbUv.q_astView[1].stView.fPOut - 100.0) < 0.01
+	AND ABS(fbUv.q_astView[1].stView.fPRatedAvail - 1000.0) < 0.01 AND ABS(fbUv.q_astView[1].stView.stPcc.stMeas.stP.fValue + 200.0) < 0.01
+	AND ABS(fbUv.q_astView[1].fGroupPOut - 300.0) < 0.01 AND ABS(fbUv.q_astView[1].fRatingShare - 0.5) < 0.001);
+// 49) 버스 몫: 용량·방전·충전 한도 × 몫, SOC 그대로
+fbTally.M_Check(i_nId := 49, i_bOk := ABS(fbUv.q_astView[1].stView.fCapacity - 4000.0 * fShareExp) < 0.1
+	AND ABS(fbUv.q_astView[1].stView.fPDisMax - MIN(1200.0 * fShareExp, 1000.0)) < 0.1 AND ABS(fbUv.q_astView[1].stView.fPChgMax - MIN(800.0 * fShareExp, 1000.0)) < 0.1
+	AND fbUv.q_astView[1].stView.stSocAvg.bValid AND ABS(fbUv.q_astView[1].stView.stSocAvg.fValue - 60.0) < 0.01);
+// 50) 가용이 아닌 유닛: 가용 0, 몫 0, 용량 0
+astAvail[1].bAvail := FALSE;
+fbUv(iq_astView := astView, iq_astUnit := astUnit, iq_astAvail := astAvail, iq_astUnitCfg := astCfg,
+	iq_astUnitEnv := astEnv, iq_astBatGroup := astBat, iq_astBatEnv := astBatEnv);
+fbTally.M_Check(i_nId := 50, i_bOk := fbUv.q_astView[1].stView.nUnitAvail = 0 AND fbUv.q_astView[1].fRatingShare = 0.0 AND fbUv.q_astView[1].stView.fCapacity = 0.0
+	AND ABS(fbUv.q_astView[1].stView.fPOut - 100.0) < 0.01);
+astAvail[1].bAvail := TRUE;]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_StdScheduleTest" Id="{e19bb26a-93f2-4f81-ac30-97d7c4197f05}">
+      <Implementation>
+        <ST><![CDATA[// 스탠다드 스케줄: EMS가 9시 방전 100, 10시 정지를 보내는 흐름 (한 스캔씩 직접 부름)
+stStdView.stGroup.nUnitAvail := 1;
+// 켜지기 전에 온 지령(번호 5, 50 kW)은 쓰지 않음
+fbStd.i_astCmd[1].bUse		:= TRUE;	// [16번 수정 2026-11-09: 모드가 유닛마다 칸을 받음 (유닛 1 칸으로 시험). 원래 fbStd.i_stCmd, 출력 stStdOut.bPSetActive·fPSet]
+fbStd.i_astCmd[1].bAlive	:= TRUE;
+fbStd.i_astCmd[1].nPSeq		:= 5;
+fbStd.i_astCmd[1].fP		:= 50.0;
+fbStd.i_astCmd[1].nStateSeq	:= 3;
+fbStd.i_astCmd[1].eState	:= E_PcsCmd.Run;
+fbStd.M_Enter(i_stView := stStdView);
+stStdOut := fbStd.M_Calc(i_stView := stStdView);
+fbTally.M_Check(i_nId := 51, i_bOk := stStdOut.bUnitOut AND stStdOut.astUnit[1].bPSetActive AND stStdOut.astUnit[1].fPSet = 0.0 AND fbStd.q_nState = 3 AND NOT fbStd.q_abHold[1]);
+// 9시: 방전 100 → 100, 다음 지령까지 유지
+fbStd.i_astCmd[1].nPSeq	:= 6;
+fbStd.i_astCmd[1].fP	:= 100.0;
+stStdOut := fbStd.M_Calc(i_stView := stStdView);
+stStdOut := fbStd.M_Calc(i_stView := stStdView);
+fbTally.M_Check(i_nId := 52, i_bOk := ABS(stStdOut.astUnit[1].fPSet - 100.0) < 0.01 AND fbStd.q_nState = 0 AND fbStd.q_nCmdCount = 1);
+// 10시: 정지 → 0 (새 P 지령 대기)
+fbStd.i_astCmd[1].nStateSeq	:= 4;
+fbStd.i_astCmd[1].eState	:= E_PcsCmd.Stop;
+stStdOut := fbStd.M_Calc(i_stView := stStdView);
+fbTally.M_Check(i_nId := 53, i_bOk := stStdOut.astUnit[1].bPSetActive AND stStdOut.astUnit[1].fPSet = 0.0 AND fbStd.q_nState = 3);
+// Run만 다시 와도 옛 100은 되살아나지 않음
+fbStd.i_astCmd[1].nStateSeq	:= 5;
+fbStd.i_astCmd[1].eState	:= E_PcsCmd.Run;
+stStdOut := fbStd.M_Calc(i_stView := stStdView);
+fbTally.M_Check(i_nId := 54, i_bOk := stStdOut.astUnit[1].fPSet = 0.0 AND NOT fbStd.q_abHold[1]);
+// 충전 -200 → -200. 이상값(무한대)은 버리고 앞 값 유지
+fbStd.i_astCmd[1].nPSeq	:= 7;
+fbStd.i_astCmd[1].fP	:= -200.0;
+stStdOut := fbStd.M_Calc(i_stView := stStdView);
+nBad0 := fbStd.q_nBadCount;
+fbStd.i_astCmd[1].nPSeq	:= 8;
+MEMCPY(destAddr := ADR(fInf), srcAddr := ADR(nInfBits), n := SIZEOF(fInf));	// +무한대 (비트로 만듦)
+fbStd.i_astCmd[1].fP	:= fInf;
+stStdOut := fbStd.M_Calc(i_stView := stStdView);
+fbTally.M_Check(i_nId := 55, i_bOk := ABS(stStdOut.astUnit[1].fPSet + 200.0) < 0.01 AND fbStd.q_nBadCount = nBad0 + 1);
+// EMS 끊김 → 0, 돌아와도 옛 값은 되살아나지 않음
+fbStd.i_astCmd[1].bAlive := FALSE;
+stStdOut := fbStd.M_Calc(i_stView := stStdView);
+fbTally.M_Check(i_nId := 56, i_bOk := stStdOut.astUnit[1].fPSet = 0.0 AND fbStd.q_nState = 2);
+fbStd.i_astCmd[1].bAlive := TRUE;
+stStdOut := fbStd.M_Calc(i_stView := stStdView);
+fbTally.M_Check(i_nId := 57, i_bOk := stStdOut.astUnit[1].fPSet = 0.0 AND fbStd.q_nState = 3);
+fbStd.M_Exit();]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_NanTest" Id="{33d064bc-6dd7-43e8-98ec-ede18fdb00f3}">
+      <Implementation>
+        <ST><![CDATA[// NaN·무한대: 비트로 먼저 거르는지 (거르지 못하면 여기서 PLC가 멈춤)
+MEMCPY(destAddr := ADR(fNan), srcAddr := ADR(nNanBits), n := SIZEOF(fNan));
+// 58) F_IsFinite: NaN·무한대 FALSE, 보통 숫자 TRUE
+fbTally.M_Check(i_nId := 58, i_bOk := NOT F_IsFinite(fNan) AND NOT F_IsFinite(fInf) AND F_IsFinite(-123.4) AND F_IsFinite(0.0));
+// 59) F_CmdOk: NaN은 한도가 있든 없든 FALSE, 보통 숫자는 한도대로
+fbTally.M_Check(i_nId := 59, i_bOk := NOT F_CmdOk(fNan, 0.0) AND NOT F_CmdOk(fNan, 1000.0) AND NOT F_CmdOk(fInf, 0.0)
+	AND F_CmdOk(500.0, 1000.0) AND NOT F_CmdOk(1500.0, 1000.0));
+// 60) 스탠다드 스케줄 모드: NaN P 지령은 버리고 앞 값 유지
+fbStd.i_astCmd[1].bAlive	:= TRUE;
+fbStd.M_Enter(i_stView := stStdView);
+fbStd.i_astCmd[1].nPSeq		:= fbStd.i_astCmd[1].nPSeq + 1;
+fbStd.i_astCmd[1].fP		:= 70.0;
+stStdOut := fbStd.M_Calc(i_stView := stStdView);
+nBad0 := fbStd.q_nBadCount;
+fbStd.i_astCmd[1].nPSeq		:= fbStd.i_astCmd[1].nPSeq + 1;
+fbStd.i_astCmd[1].fP		:= fNan;
+stStdOut := fbStd.M_Calc(i_stView := stStdView);
+fbTally.M_Check(i_nId := 60, i_bOk := ABS(stStdOut.astUnit[1].fPSet - 70.0) < 0.01 AND fbStd.q_nBadCount = nBad0 + 1);
+fbStd.M_Exit();
+// 61) EMS 명령 핸들러: 방전 NaN → 버리고 셈, P 번호 안 바뀜 (PCS1 = 칸 0)
+nPSeq0 := fbEmsCmd.q_stCmd.anPcsPSeq[1];
+nBad0 := fbEmsCmd.q_nBadValueCount;
+astPcsRx[0].Value		:= fNan;
+astPcsRx[0].CommandType	:= 5;
+fbEmsCmd(i_nRxCount := 1, iq_astPcsCommand := astPcsRx, iq_astBatCommand := astBatRx);
+fbTally.M_Check(i_nId := 61, i_bOk := fbEmsCmd.q_nBadValueCount = nBad0 + 1 AND fbEmsCmd.q_stCmd.anPcsPSeq[1] = nPSeq0 AND astPcsRx[0].CommandType = 0);
+// 62) 상태 명령(Run)에 Value가 NaN이어도 명령은 받음 (값은 안 봄)
+nRunSeq0 := fbEmsCmd.q_stCmd.astPcs[1].nSeq;
+astPcsRx[0].Value		:= fNan;
+astPcsRx[0].CommandType	:= 1;
+fbEmsCmd(i_nRxCount := 2, iq_astPcsCommand := astPcsRx, iq_astBatCommand := astBatRx);
+fbTally.M_Check(i_nId := 62, i_bOk := fbEmsCmd.q_stCmd.astPcs[1].nSeq = nRunSeq0 + 1 AND fbEmsCmd.q_stCmd.astPcs[1].eCmd = E_PcsCmd.Run);
+// 63) 보통 값(방전 120)은 받음
+astPcsRx[0].Value		:= 120.0;
+astPcsRx[0].CommandType	:= 5;
+fbEmsCmd(i_nRxCount := 3, iq_astPcsCommand := astPcsRx, iq_astBatCommand := astBatRx);
+fbTally.M_Check(i_nId := 63, i_bOk := fbEmsCmd.q_stCmd.anPcsPSeq[1] = nPSeq0 + 1 AND ABS(fbEmsCmd.q_stCmd.afPcsP[1] - 120.0) < 0.01);]]></ST>
+      </Implementation>
+    </Action>
+  </POU>
+</TcPlcObject>

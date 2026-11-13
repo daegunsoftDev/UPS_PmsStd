@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_LoggerSlot" Id="{592ec9e9-6bc3-453e-903b-fbce1c3ac15d}">
+    <Declaration><![CDATA[TYPE ST_LoggerSlot :		// 로거 큐 한 칸 (FB_MqttLoggerListener 안에서만 씀)
+STRUCT
+	nNo				: UDINT;		// 이벤트 번호 (받은 순서, 1부터). 0 = 빈 칸
+	nTimestamp		: ULINT;		// 로거 기록 시각 (FILETIME: UTC, 100 ns)
+	nEventId		: UDINT;		// 이벤트 ID (문구를 못 받았을 때 대체 문구에 씀)
+	bCleared		: BOOL;			// 알람 해소
+	bRequesting		: BOOL;			// 문구 요청 중 (같은 칸 번호의 FB_RequestEventText)
+	nRequestStart	: ULINT;		// 문구 요청 시작 (F_GetSystemTime). 너무 오래 걸리면 대체 문구
+	bTextDone		: BOOL;			// 문구 받음
+	bReady			: BOOL;			// 발행 준비 끝 (문구 + 시각 문자열)
+	sTime			: STRING(23);	// 현지 시각 문자열
+	wsText			: WSTRING(100);	// 발행할 문구 (해소 표시 포함, 100자 이내)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

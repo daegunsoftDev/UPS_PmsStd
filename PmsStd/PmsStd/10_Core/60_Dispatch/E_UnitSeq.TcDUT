@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_UnitSeq" Id="{5ecc865e-6531-40db-b53d-7b680540abeb}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_UnitSeq :
+(
+	Unknown		:= 0,	// 통신 전
+	Stopped		:= 1,
+	WaitBat		:= 2,	// 배터리 투입 대기 (순서 기동)
+	Standby		:= 4,	// 대기 (활성 + 출력 0)
+	WaitPermit	:= 5,	// 기동 조건 대기
+	ToRun		:= 6,	// Run 명령 확인 중
+	Running		:= 7,
+	StopRamp	:= 8,	// 정지 전 출력 내리는 중
+	ToStop		:= 9	// 정지 쪽 명령 보낼 차례(통신 대기)·확인 중
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

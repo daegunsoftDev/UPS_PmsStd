@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_OutputRule" Id="{5fd044a6-8ea1-48a7-8df6-3d2858d69ca9}">
+    <Declaration><![CDATA[INTERFACE I_OutputRule EXTENDS I_Module		// 출력 규칙: 보조 장비 출력(DO)을 켤지 판단만. 쓰는 건 코어 FB_AuxOutput]]></Declaration>
+    <Method Name="M_Check" Id="{13667c6e-80ac-43e8-9033-4efbbbbd9c71}">
+      <Declaration><![CDATA[METHOD M_Check : BOOL		// TRUE = 출력 켬 (지연·유지는 코어가 처리)
+VAR_INPUT
+	i_fThreshold	: REAL;			// ST_OutputCfg.fThreshold
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

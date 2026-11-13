@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_SocLimitSetErr" Id="{f3095e94-f04b-4f5e-b8de-cf234dd156be}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_SocLimitSetErr : WSTRING(63)		// SOC 정책 설정 점검 ("" = 정상). FB_SocLimit.M_CheckSet과 FB_EmsConfigApply(EMS config 반영 전 검사)가 같이 씀 [9-21 수정 2026-11-04: FB_SocLimit.M_CheckSet에서 옮김]
+VAR_INPUT
+	i_stSet	: ST_SocLimitSet;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_SocLimitSetErr := "";
+IF NOT (F_RealOk(i_stSet.fSocMin) AND F_RealOk(i_stSet.fSocMax) AND F_RealOk(i_stSet.fBand) AND F_RealOk(i_stSet.fResumeMargin)) THEN	// [결함 13 수정 2026-11-04]
+	F_SocLimitSetErr := "SOC 설정 숫자 아님";
+ELSIF i_stSet.fSocMin < 0.0 OR i_stSet.fSocMax > 100.0 OR i_stSet.fSocMin >= i_stSet.fSocMax THEN
+	F_SocLimitSetErr := "SOC 상·하한 (0 ≤ 하한 < 상한 ≤ 100)";
+ELSIF i_stSet.fBand < 0.0 OR i_stSet.fSocMin + i_stSet.fBand > i_stSet.fSocMax - i_stSet.fBand THEN
+	F_SocLimitSetErr := "감발 폭 fBand (0 이상, 상·하한 사이)";
+ELSIF i_stSet.fResumeMargin < 0.0 OR i_stSet.fSocMin + i_stSet.fResumeMargin >= i_stSet.fSocMax - i_stSet.fResumeMargin THEN
+	F_SocLimitSetErr := "재개 마진 fResumeMargin (0 이상, 상·하한 사이)";
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

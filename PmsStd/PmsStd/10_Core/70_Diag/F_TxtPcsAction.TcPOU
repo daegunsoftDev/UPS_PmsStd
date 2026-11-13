@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtPcsAction" Id="{fe2613be-45ee-4d7f-a68c-110d6adb220c}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtPcsAction : WSTRING(31)		// PCS 조치 문구
+VAR_INPUT
+	i_e		: E_PcsAction;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_e OF
+	E_PcsAction.None:	F_TxtPcsAction := "알람만";
+	E_PcsAction.Standby:	F_TxtPcsAction := "대기";
+	E_PcsAction.Stop:	F_TxtPcsAction := "정지";
+	E_PcsAction.EStop:	F_TxtPcsAction := "비상정지";
+ELSE
+	F_TxtPcsAction := "?";
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

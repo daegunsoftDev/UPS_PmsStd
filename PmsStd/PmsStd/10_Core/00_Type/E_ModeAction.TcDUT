@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_ModeAction" Id="{132b7cdc-ce44-4737-9c76-c1cb5a7f33b9}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_ModeAction :		// 보호가 운전 모드를 바꾸는가 (보호 항목마다 ST_ProtCfg.eModeAction)
+(
+	None		:= 0,	// 모드를 바꾸지 않음 (기본)
+	ToManual	:= 1	// 조치를 받는 Auto 유닛의 요청 모드를 Manual로 바꿈. 보호가 풀려도 Manual 유지, 운전원이 Auto를 다시 요청
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

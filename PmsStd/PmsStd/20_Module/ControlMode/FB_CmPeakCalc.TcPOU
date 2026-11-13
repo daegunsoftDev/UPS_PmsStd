@@ -1,0 +1,125 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_CmPeakCalc" Id="{74ab93b5-db11-4711-bc1d-3e6b476c976d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_CmPeakCalc		// 15분 피크 제어량 계산 (Messis ACT_calc_quarter_avg_and_output 이식). 피크컷·통합 모드가 같이 씀
+// 구간 = 시계 기준 15분 (매시 00·15·30·45분). 1초마다 수전·부하 평균, 시계 분이 바뀔 때마다 제어량 갱신, 구간 경계에서 0:
+//   목표를 넘은 수전 누적 / 남은 분 (10 단위 반올림) × 속도 × (지난 분/15), 가용 출력 · 30초 평균 부하 × fLoadRatio · (30초 평균 부하 − 역송 여유) 상한
+// 켜진 모드에서 매 스캔 부름. 모드가 켜질 때 M_Reset
+VAR_INPUT
+	i_stSet			: ST_CmPeakCalcSet;
+	i_fRevMargin	: REAL;				// kW, 역송 방지 여유 (공통 설정 stNoRev.fMargin)
+	i_stView		: ST_CtrlModeView;
+END_VAR
+VAR_OUTPUT
+	q_fCtrl			: REAL;		// kW, 피크 제어 방전량 (0 = 제어 안 함). 1분마다 바뀜
+	q_bNewInterval	: BOOL;		// 이번 스캔에 새 15분 구간 시작 (1스캔)
+	q_nRemainMin	: UINT;		// 구간 남은 분
+	q_fExceeded		: REAL;		// 이 구간 목표를 넘은 수전 누적 (kW·분)
+	q_fLoad1m		: REAL;		// 직전 1분 평균 부하 (kW, ESS가 없을 때의 수전)
+	q_bNoPcc		: BOOL;		// 접속점 계측 무효 (제어량 0, 평균 안 셈)
+END_VAR
+VAR
+	_bInit			: BOOL;
+	_nQuarter		: UINT;		// 지금 구간 번호 (시 × 4 + 분 / 15)
+	_nPrevSec		: UINT;		// 지난 스캔 시계 초
+	_nPrevMin		: UINT;		// 지난 스캔 시계 분
+	_nPrevHalf		: UINT;		// 지난 스캔 30초 칸 (0 / 1)
+	_n60			: UINT;		// 1분 평균 표본 수
+	_n30			: UINT;		// 30초 평균 표본 수
+	_fImp1m			: REAL;		// 1분 평균 수전 (kW)
+	_fLoad30		: REAL;		// 30초 평균 부하 (kW)
+	_fVelocity		: REAL;		// 제어 속도 (F_CmVelocity)
+END_VAR
+VAR_TEMP
+	nQ				: UINT;
+	fImp			: REAL;		// 수전 (kW)
+	fLoad			: REAL;		// 부하 (kW)
+	fCtrl			: REAL;
+	nMin			: UINT;		// 구간 시작부터 지난 분
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[q_bNewInterval := FALSE;
+q_bNoPcc := NOT i_stView.stGroup.stPcc.stMeas.stP.bValid;
+IF NOT i_stView.stTime.bValid OR i_stSet.fTarget <= 0.0 THEN
+	q_fCtrl	:= 0.0;
+	_bInit	:= FALSE;
+	RETURN;
+END_IF
+
+// 1) 구간 시작 (처음 또는 15분 경계). 경계에서는 제어량 0 (Messis: 남은 분 0으로 계산해 0)
+nQ := i_stView.stTime.nHour * 4 + i_stView.stTime.nMinute / 15;
+IF NOT _bInit OR nQ <> _nQuarter THEN
+	q_bNewInterval	:= _bInit;		// 모드가 켜진 첫 스캔은 새 구간으로 보지 않음
+	_bInit			:= TRUE;
+	_nQuarter		:= nQ;
+	_nPrevSec		:= i_stView.stTime.nSecond;
+	_nPrevMin		:= i_stView.stTime.nMinute;
+	_nPrevHalf		:= i_stView.stTime.nSecond / 30;
+	_n60			:= 0;
+	_n30			:= 0;
+	q_nRemainMin	:= 15 - i_stView.stTime.nMinute MOD 15;
+	q_fExceeded		:= 0.0;
+	q_fCtrl			:= 0.0;
+	_fVelocity		:= F_CmVelocity(i_fH := i_stSet.fTarget);
+	RETURN;
+END_IF
+
+// 2) 시계의 초가 바뀔 때마다 (분·30초 경계는 시계 값으로 판단: 시계 보정으로 초가 건너뛰어도 밀리지 않음)
+IF i_stView.stTime.nSecond <> _nPrevSec THEN
+	_nPrevSec := i_stView.stTime.nSecond;
+	// 3) 분이 바뀌면 지난 1분 평균으로 제어량 갱신
+	IF i_stView.stTime.nMinute <> _nPrevMin THEN
+		_nPrevMin		:= i_stView.stTime.nMinute;
+		nMin			:= i_stView.stTime.nMinute MOD 15;		// 구간 시작부터 지난 분
+		q_nRemainMin	:= 15 - nMin;
+		fCtrl			:= 0.0;
+		IF _n60 > 0 AND NOT q_bNoPcc THEN
+			q_fExceeded := q_fExceeded + (_fImp1m - i_stSet.fTarget);
+			IF q_fLoad1m - i_stSet.fTarget > i_stView.stGroup.fPRatedAvail * UINT_TO_REAL(q_nRemainMin / 15) * i_stSet.fBandSens * 0.5 THEN
+				fCtrl := MIN(F_CmRoundTens(i_f := q_fExceeded / UINT_TO_REAL(q_nRemainMin)) * _fVelocity * (UINT_TO_REAL(nMin) / 15.0), i_stView.stGroup.fPRatedAvail);
+			END_IF
+			fCtrl := MIN(fCtrl, _fLoad30 * i_stSet.fLoadRatio);
+			fCtrl := MIN(fCtrl, _fLoad30 - i_fRevMargin);
+			IF fCtrl <= 1.0 THEN
+				fCtrl := 0.0;
+			ELSE
+				fCtrl := MAX(fCtrl, i_stSet.fMinOut);
+			END_IF
+			IF _fImp1m - i_stSet.fTarget > 0.0 THEN
+				_fVelocity := F_CmVelocity(i_fH := _fImp1m - i_stSet.fTarget);
+			END_IF
+		END_IF
+		q_fCtrl	:= fCtrl;
+		_n60	:= 0;			// 다음 1분 평균을 새로 셈 (값은 남김)
+	END_IF
+	IF i_stView.stTime.nSecond / 30 <> _nPrevHalf THEN
+		_nPrevHalf	:= i_stView.stTime.nSecond / 30;
+		_n30		:= 0;		// 다음 30초 평균을 새로 셈 (값은 남김)
+	END_IF
+	// 4) 1초 표본
+	IF q_bNoPcc THEN
+		q_fCtrl := 0.0;			// 계측 무효: 평균에 넣지 않고 제어 안 함
+	ELSE
+		_n60	:= _n60 + 1;
+		_n30	:= _n30 + 1;
+		fImp	:= -i_stView.stGroup.stPcc.stMeas.stP.fValue;			// 수전 + (접속점 P는 공급 +)
+		fLoad	:= i_stView.stGroup.fPOut + fImp;							// ESS가 없을 때의 수전
+		_fImp1m		:= (_fImp1m * UINT_TO_REAL(_n60 - 1) + fImp) / UINT_TO_REAL(_n60);
+		q_fLoad1m	:= (q_fLoad1m * UINT_TO_REAL(_n60 - 1) + fLoad) / UINT_TO_REAL(_n60);
+		_fLoad30	:= (_fLoad30 * UINT_TO_REAL(_n30 - 1) + fLoad) / UINT_TO_REAL(_n30);
+	END_IF
+END_IF]]></ST>
+    </Implementation>
+    <Method Name="M_Reset" Id="{24c199f0-bf26-45d2-b880-2453e1468ba3}">
+      <Declaration><![CDATA[METHOD M_Reset		// 모드가 켜질 때: 구간을 지금부터 다시 셈, 제어량 0]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_bInit		:= FALSE;
+q_fCtrl		:= 0.0;
+q_fExceeded	:= 0.0;
+q_fLoad1m	:= 0.0;
+_fImp1m		:= 0.0;
+_fLoad30	:= 0.0;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

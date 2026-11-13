@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_StartMode" Id="{7dd9f28b-f184-4c40-9d3b-6fad14b11768}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_StartMode :
+(
+	Step		:= 0,	// 단계별 기동: 작업자가 BatClose → Standby → Run을 하나씩 (기본, 지금 운영 방식)
+	Sequence	:= 1	// 순서 기동: Run 요청 하나로 배터리 투입 → Standby → 기동 조건 → Run (운전 모드 Auto/Manual과 별개)
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_HhmmOk" Id="{c42acb53-5a37-4e91-b22e-3478d54d87ff}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_HhmmOk : BOOL		// HHMM 값이 맞는가: 0000~2359, 또는 2400 (하루 끝)
+VAR_INPUT
+	i_nHhmm		: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_HhmmOk := ((i_nHhmm / 100) < 24 AND (i_nHhmm MOD 100) < 60) OR i_nHhmm = 2400;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

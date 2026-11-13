@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_CommandSource" Id="{ded5ea13-0a3a-45e6-bb1a-0f8b1d8d89e1}">
+    <Declaration><![CDATA[INTERFACE I_CommandSource EXTENDS I_Module]]></Declaration>
+    <Method Name="M_Cycle" Id="{794e5cda-0316-4475-bbff-913fa1c8c0ac}">
+      <Declaration><![CDATA[METHOD M_Cycle
+VAR_INPUT
+	i_stReg		: ST_SourceReg;		// 등록표 한 줄
+	i_stView	: ST_GroupView;		// 대상 그룹 값 (대상이 모든 그룹이면 그룹 1)
+END_VAR]]></Declaration>
+    </Method>
+    <Property Name="Output" Id="{5d50a631-7f9c-4597-a80f-56aa763780d3}">
+      <Declaration><![CDATA[PROPERTY Output : ST_SourceOutput]]></Declaration>
+      <Get Name="Get" Id="{69121116-bc6a-4bf7-8bb2-18a00cc53626}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

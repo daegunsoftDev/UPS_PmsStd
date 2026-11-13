@@ -1,0 +1,1271 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <FileVersion>1.0.0.0</FileVersion>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{f6dc6991-4d29-4407-8e00-5d3363987721}</ProjectGuid>
+    <SubObjectsSortedByName>True</SubObjectsSortedByName>
+    <DownloadApplicationInfo>true</DownloadApplicationInfo>
+    <WriteProductVersion>true</WriteProductVersion>
+    <GenerateTpy>false</GenerateTpy>
+    <Name>PmsStd</Name>
+    <ProgramVersion>3.1.4024.0</ProgramVersion>
+    <Application>{b804f681-c8be-4a6c-813b-0d142fb7df16}</Application>
+    <TypeSystem>{c61d57f4-49f2-45e6-8ffc-b09b1a861ee4}</TypeSystem>
+    <Implicit_Task_Info>{7e01a31b-1126-4387-a713-4e41e397d25c}</Implicit_Task_Info>
+    <Implicit_KindOfTask>{3bd7a533-d92d-41e7-862d-1899e67d9033}</Implicit_KindOfTask>
+    <Implicit_Jitter_Distribution>{75aeac32-c050-4817-a6d2-afc5d1480924}</Implicit_Jitter_Distribution>
+    <LibraryReferences>{b1bcb8f5-e02d-4037-bd51-4f7197da8c49}</LibraryReferences>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="FastTask.TcTTO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="MqttTask.TcTTO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="PlcTask.TcTTO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_RuleTargetReg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_UnitLimitView.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_BatLimitView.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_BatLimitOut.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_UnitLimitRule.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_BatLimitRule.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_GateView.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_GateOut.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_Gate.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\FB_GateAuto.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\FB_GateManual.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_SelectCand.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_SelectView.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_DistView.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_SelectPolicy.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_DistPolicy.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\FB_SelectStd.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\50_Distribution\FB_DistStd.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\ST_UnitEnvelope.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\ST_BatEnvelope.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\ST_GroupEnvelope.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\FB_EquipmentLimits.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\F_RangeAnd.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\ST_SocLimitSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\ST_RuleBitSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\ST_RuleValueSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="90_Project\ST_ModuleSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_GridMode.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\FB_PermitEval.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\60_Dispatch\FB_GroupState.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\60_Dispatch\FB_BatRequest.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\FB_BreakerCtrl.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\ST_UnitLimitSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\ST_UnitLimitItem.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\FB_UnitLimit.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\ST_BreakerSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\F_SocDerate.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\FB_SocLimit.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\FB_OutputReady.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\FB_SettingGuard.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\FB_ModuleList.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_LogSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\80_Report\FB_Report.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\E_DiagStage.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\ST_OutputDiag.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\E_TraceStep.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\ST_TraceStep.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\ST_PTrace.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\F_TxtPcsAction.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\F_TxtBatAction.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\F_TxtSeq.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\F_TxtRefuse.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\F_TxtLimitBy.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\F_TxtStage.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\F_TxtOpMode.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\F_TxtCoreReason.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\F_TxtNum.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\FB_LogAlarm.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\FB_LogMsg.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\FB_OutputDiag.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\FB_AliveRecorder.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\FB_EventLog.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\FB_ConfigCheck.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_StartMode.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_BatClose.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_SeqSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\60_Dispatch\E_UnitSeq.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\60_Dispatch\E_SeqRefuse.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\60_Dispatch\F_CmdReached.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\60_Dispatch\FB_UnitSeq.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\60_Dispatch\FB_BmsSeq.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\60_Dispatch\FB_Sequencer.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\60_Dispatch\FB_Dispatcher.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_DistBasis.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\50_Distribution\E_UnitLimitBy.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_CmdFilterSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_RedSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_RedRole.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_ModeSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\E_ModeSwitch.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\E_ModeStep.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\E_CmdRefuse.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\F_CmdOk.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\FB_ModeSwitch.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\FB_Gate.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\50_Distribution\ST_UnitDiag.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\50_Distribution\ST_DistDiag.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\50_Distribution\ST_DistPathDiag.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\50_Distribution\ST_BatDistDiag.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\50_Distribution\FB_Distributor.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_SelectMode.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_GroupSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_ManualPolicy.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\GVL_REASON.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\GVL_CORE.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_ModeApplies.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_RampStep.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\E_UnitRole.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\ST_Pick.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\ST_Range.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\ST_Clamp.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\ST_ShapeDiag.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\F_LimitKeepZero.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\F_RangeOpen.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\F_RangeAdd.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\F_RangeClamp.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\F_MakeLimit.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\F_SourceAllowed.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\F_StateRank.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\F_Better.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\FB_StateArbiter.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\FB_Select.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\FB_LimitEval.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\FB_ShapePath.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_UnitReq.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_BmsCfg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\ST_BmsProt.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\ST_BmsAvail.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\ST_BatGroupState.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\FB_BatGroup.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\30_Request\FB_GroupView.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\30_Request\FB_SourceHub.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_PcsAction.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_BatAction.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_ModeAction.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_ProtCfg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\ST_UnitProt.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\ST_UnitAvail.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\F_PcsRank.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\F_BatRank.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Standard\FB_ProtRespStd.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\FB_Protection.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\20_Protection\FB_UnitAvail.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_PointTerm.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_PointCfg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\10_Snapshot\ST_VirtualSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\10_Snapshot\FB_Snapshot.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\10_Snapshot\FB_Measure.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="90_Project\GVL_TEST.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_GroupState.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_LimitBasis.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_OpMode.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_ProtScope.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_RunState.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_SourceMode.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_BatState.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_GroupCfg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_GroupView.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_Limit.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_LimitOut.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_MeterState.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_ModuleReg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_PQ.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_PccMeas.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_RuleCfg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_SourceOutput.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_SourceReg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_PcsCmd.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_BatCmd.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_PcsCmd.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_BatCmd.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_PcsReq.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_BatReq.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_PcsSeqSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_BatSeqSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_ManualCmdSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\F_PcsCmdAllowed.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\40_Arbitration\F_BatCmdAllowed.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\F_TxtPcsCmd.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\70_Diag\F_TxtBatCmd.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_StateModeSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_PcsCmdMode.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_BatCmdMode.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_UnitCfg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_UnitState.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_Val.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_AuxDevice.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_OutputRule.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_OutputCfg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\60_Dispatch\FB_AuxOutput.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\FB_AuxIo.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_ProtReq.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_ProtView.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Standard\FB_ProtPcsFault.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Standard\FB_ProtPcsComm.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Standard\FB_ProtBmsFault.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Standard\FB_ProtBmsComm.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Standard\FB_ProtPccInvalid.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\FB_RuleBit.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\FB_RuleValue.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_Bms.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_CommandSource.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_Compensator.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_LimitRule.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_Meter.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_Module.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_Pcs.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_ReqDevice.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_ProtResponse.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_ProtectionRule.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_StartPermit.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\FB_Lpf.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\FB_PersistSave.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\FB_ReadTimer.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_CycleSec.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_IsStopped.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_IsLocal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\03_Base\FB_DeviceBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\03_Base\FB_ModuleBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\03_Base\FB_SourceBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\FB_MqttPublish.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\FB_MqttSubscribe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\F_MqttDistribute.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\PRG_PublishDeviceNo.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\ST_MqttCommand_Rx.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\ST_MqttCommandHeader.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\ST_MqttHeader.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\ST_MqttPubEntry.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\ST_MqttSubEntry.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_AirConditionerPublish_V1.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_BatPublish_V1.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_EssPublish_V1.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_PcsPublish_V1.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_PmsPublish_V1.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_PvPublish_V1.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_RackPublish_V1.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_TempPublish_V1.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_AirConditionerPublishData.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_BatPublishData.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_EssPublishData.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_PcsPublishData.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_PmsPublishData.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_PvPublishData.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_RackPublishData.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_TempPublishData.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Config\ST_BatConfig_Rx.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Config\ST_CommonConfig_REAL.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Config\ST_CommonConfig_UDINT.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Config\ST_PcsConfig_Rx.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Config\ST_ProtectionConfig_Rx.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Config\ST_BatConfigWirePacket.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Config\ST_PcsConfigWirePacket.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Config\ST_ProtectionConfigWirePacket.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="90_Project\GVL_MQTT.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Virtual\PRG_MqttTestData.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\ST_IfEmsCmd.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\FB_EmsCommand.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\FB_SrcEms.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\FB_MqttMain.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\ST_MqttBroker.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\ST_MqttSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\ST_IfReport.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\F_MqttTimeText.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Logger\FB_MqttLoggerListener.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Logger\F_Utf8ToWstring.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Logger\ST_LoggerHeader.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Logger\ST_LoggerPublish_V1.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Logger\ST_LoggerSlot.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Report\FB_RptEsolutionBat.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Report\FB_RptSebangUps.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Report\FB_RptPlaspoPcs.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Virtual\FB_BmsSim.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Virtual\FB_MeterSim.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Virtual\FB_PcsSim.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Virtual\FB_SrcTest.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_CtrlModeRefuse.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_CtrlModeStep.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_CtrlModeOut.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_CtrlModeSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\01_Interface\I_ControlMode.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\03_Base\FB_CtrlModeBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\30_Request\FB_CtrlModeMgr.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\ST_CmConstPowerSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\FB_CmConstPower.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\FB_CmStdSchedule.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\ST_CmExtCmd.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_LocalTime.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_CtrlModeView.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_TimeHhmm.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\F_SocLimitSetErr.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\FB_EmsConfigApply.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\FB_BrokerWatch.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\E_MqttBroker.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\ST_BrokerWatchSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\ST_IfEmsCfg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\ST_IfEmsCfgEcho.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_RealChanged.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_RealOk.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_RealToDint.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_HhmmOk.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_InHhmmWindow.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\ST_SchedSlot.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\ST_CmScheduleSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\FB_CmSchedule.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="99_Test\FB_TestTally.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="99_Test\PRG_TestCtrlMode.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="99_Test\PRG_TestSchedLive.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="99_Test\PRG_TestPeakLive.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\E_PccShare.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\00_Type\ST_UnitView.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\30_Request\FB_UnitView.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="99_Test\PRG_TestUnitMode.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="99_Test\PRG_TestStdLive.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="99_Test\PRG_TestLogger.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="99_Test\ST_LoggerTestReg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_MinutesTo.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\02_Util\F_IsFinite.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\GVL_CM_RSN.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\ST_CmDisWindow.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\ST_CmNoReverse.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\ST_CmCommonSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\ST_CmPeakCalcSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\ST_CmWindowSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\ST_CmPeakCutSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\ST_CmSchedPeakSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\F_CmVelocity.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\F_CmRoundTens.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\FB_CmTariffBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\FB_CmPeakCalc.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\FB_CmPeakCut.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\ControlMode\FB_CmSchedPeak.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\FB_LocalClock.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\Plaspo\ST_PlaspoPcsRaw.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\Plaspo\FB_PlaspoPcs.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Virtual\PRG_SimLink.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="90_Project\GVL_PARAM.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="90_Project\GVL_PERSIST.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="90_Project\GVL_SITE.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="90_Project\MAIN.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="90_Project\GVL_IF.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="90_Project\PRG_Mqtt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="90_Project\PRG_Fast.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\90_Redundancy\E_RedPeer.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\90_Redundancy\ST_RedHeartbeat.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\90_Redundancy\FB_RedPeerMonitor.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\90_Redundancy\FB_RedLink.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\90_Redundancy\E_RedState.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\90_Redundancy\FB_RedState.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\90_Redundancy\E_RedSwitch.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\90_Redundancy\ST_RedSyncCfg.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="10_Core\90_Redundancy\FB_RedSync.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="90_Project\PRG_Redundancy.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="RedundancyTask.TcTTO">
+      <SubType>Code</SubType>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="10_Core" />
+    <Folder Include="10_Core\00_Type" />
+    <Folder Include="10_Core\01_Interface" />
+    <Folder Include="10_Core\02_Util" />
+    <Folder Include="10_Core\03_Base" />
+    <Folder Include="10_Core\10_Snapshot" />
+    <Folder Include="10_Core\20_Protection" />
+    <Folder Include="10_Core\30_Request" />
+    <Folder Include="10_Core\40_Arbitration" />
+    <Folder Include="10_Core\50_Distribution" />
+    <Folder Include="10_Core\60_Dispatch" />
+    <Folder Include="10_Core\70_Diag" />
+    <Folder Include="10_Core\80_Report" />
+    <Folder Include="10_Core\90_Redundancy" />
+    <Folder Include="20_Module" />
+    <Folder Include="20_Module\Common" />
+    <Folder Include="20_Module\ControlMode" />
+    <Folder Include="20_Module\Driver" />
+    <Folder Include="20_Module\Standard" />
+    <Folder Include="20_Module\Driver\Plaspo" />
+    <Folder Include="20_Module\Mqtt" />
+    <Folder Include="20_Module\Report" />
+    <Folder Include="20_Module\Mqtt\Config" />
+    <Folder Include="20_Module\Mqtt\Publish" />
+    <Folder Include="20_Module\Mqtt\Logger" />
+    <Folder Include="20_Module\Virtual" />
+    <Folder Include="90_Project" />
+    <Folder Include="99_Test" />
+    <Folder Include="20_Module\Driver\Autonics" />
+    <Folder Include="20_Module\Driver\Bender" />
+    <Folder Include="20_Module\Driver\Rootech" />
+    <Folder Include="20_Module\Driver\LS" />
+    <Folder Include="20_Module\Driver\ITGuard" />
+    <Folder Include="20_Module\Driver\Woonyoung" />
+    <Folder Include="20_Module\Driver\Gasdna" />
+  </ItemGroup>
+  <ItemGroup>
+    <PlaceholderReference Include="Tc3_IotBase">
+      <DefaultResolution>Tc3_IotBase, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc3_IotBase</Namespace>
+    </PlaceholderReference>
+    <PlaceholderReference Include="Tc2_ModbusRTU">
+      <DefaultResolution>Tc2_ModbusRTU, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc2_ModbusRTU</Namespace>
+    </PlaceholderReference>
+    <PlaceholderReference Include="Tc2_ModbusSrv">
+      <DefaultResolution>Tc2_ModbusSrv, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc2_ModbusSrv</Namespace>
+    </PlaceholderReference>
+    <PlaceholderReference Include="Tc2_Standard">
+      <DefaultResolution>Tc2_Standard, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc2_Standard</Namespace>
+    </PlaceholderReference>
+    <PlaceholderReference Include="Tc2_System">
+      <DefaultResolution>Tc2_System, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc2_System</Namespace>
+    </PlaceholderReference>
+    <PlaceholderReference Include="Tc3_Module">
+      <DefaultResolution>Tc3_Module, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc3_Module</Namespace>
+    </PlaceholderReference>
+    <PlaceholderReference Include="Tc3_EventLogger">
+      <DefaultResolution>Tc3_EventLogger, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc3_EventLogger</Namespace>
+    </PlaceholderReference>
+    <PlaceholderReference Include="Tc2_Utilities">
+      <DefaultResolution>Tc2_Utilities, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc2_Utilities</Namespace>
+    </PlaceholderReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="PmsStd.tmc">
+      <SubType>Content</SubType>
+    </None>
+  </ItemGroup>
+  <ProjectExtensions>
+    <PlcProjectOptions>
+      <XmlArchive>
+        <Data>
+          <o xml:space="preserve" t="OptionKey">
+      <v n="Name">"&lt;ProjectRoot&gt;"</v>
+      <d n="SubKeys" t="Hashtable" ckt="String" cvt="OptionKey">
+        <v>{40450F57-0AA3-4216-96F3-5444ECB29763}</v>
+        <o>
+          <v n="Name">"{40450F57-0AA3-4216-96F3-5444ECB29763}"</v>
+          <d n="SubKeys" t="Hashtable" />
+          <d n="Values" t="Hashtable" ckt="String" cvt="String">
+            <v>ActiveVisuProfile</v>
+            <v>IR0whWr8bwfwBwAAiD2qpQAAAABVAgAA37x72QAAAAABAAAAAAAAAAEaUwB5AHMAdABlAG0ALgBTAHQAcgBpAG4AZwACTHsAZgA5ADUAYgBiADQAMgA2AC0ANQA1ADIANAAtADQAYgA0ADUALQA5ADQAMAAwAC0AZgBiADAAZgAyAGUANwA3AGUANQAxAGIAfQADCE4AYQBtAGUABDBUAHcAaQBuAEMAQQBUACAAMwAuADEAIABCAHUAaQBsAGQAIAA0ADAAMgA0AC4ANwAFFlAAcgBvAGYAaQBsAGUARABhAHQAYQAGTHsAMQA2AGUANQA1AGIANgAwAC0ANwAwADQAMwAtADQAYQA2ADMALQBiADYANQBiAC0ANgAxADQANwAxADMAOAA3ADgAZAA0ADIAfQAHEkwAaQBiAHIAYQByAGkAZQBzAAhMewAzAGIAZgBkADUANAA1ADkALQBiADAANwBmAC0ANABkADYAZQAtAGEAZQAxAGEALQBhADgAMwAzADUANgBhADUANQAxADQAMgB9AAlMewA5AGMAOQA1ADgAOQA2ADgALQAyAGMAOAA1AC0ANAAxAGIAYgAtADgAOAA3ADEALQA4ADkANQBmAGYAMQBmAGUAZABlADEAYQB9AAoOVgBlAHIAcwBpAG8AbgALBmkAbgB0AAwKVQBzAGEAZwBlAA0KVABpAHQAbABlAA4aVgBpAHMAdQBFAGwAZQBtAE0AZQB0AGUAcgAPDkMAbwBtAHAAYQBuAHkAEAxTAHkAcwB0AGUAbQARElYAaQBzAHUARQBsAGUAbQBzABIwVgBpAHMAdQBFAGwAZQBtAHMAUwBwAGUAYwBpAGEAbABDAG8AbgB0AHIAbwBsAHMAEyhWAGkAcwB1AEUAbABlAG0AcwBXAGkAbgBDAG8AbgB0AHIAbwBsAHMAFCRWAGkAcwB1AEUAbABlAG0AVABlAHgAdABFAGQAaQB0AG8AcgAVIlYAaQBzAHUATgBhAHQAaQB2AGUAQwBvAG4AdAByAG8AbAAWFHYAaQBzAHUAaQBuAHAAdQB0AHMAFwxzAHkAcwB0AGUAbQAYGFYAaQBzAHUARQBsAGUAbQBCAGEAcwBlABkmRABlAHYAUABsAGEAYwBlAGgAbwBsAGQAZQByAHMAVQBzAGUAZAAaCGIAbwBvAGwAGyJQAGwAdQBnAGkAbgBDAG8AbgBzAHQAcgBhAGkAbgB0AHMAHEx7ADQAMwBkADUAMgBiAGMAZQAtADkANAAyAGMALQA0ADQAZAA3AC0AOQBlADkANAAtADEAYgBmAGQAZgAzADEAMABlADYAMwBjAH0AHRxBAHQATABlAGEAcwB0AFYAZQByAHMAaQBvAG4AHhRQAGwAdQBnAGkAbgBHAHUAaQBkAB8WUwB5AHMAdABlAG0ALgBHAHUAaQBkACBIYQBmAGMAZAA1ADQANAA2AC0ANAA5ADEANAAtADQAZgBlADcALQBiAGIANwA4AC0AOQBiAGYAZgBlAGIANwAwAGYAZAAxADcAIRRVAHAAZABhAHQAZQBJAG4AZgBvACJMewBiADAAMwAzADYANgBhADgALQBiADUAYwAwAC0ANABiADkAYQAtAGEAMAAwAGUALQBlAGIAOAA2ADAAMQAxADEAMAA0AGMAMwB9ACMOVQBwAGQAYQB0AGUAcwAkTHsAMQA4ADYAOABmAGYAYwA5AC0AZQA0AGYAYwAtADQANQAzADIALQBhAGMAMAA2AC0AMQBlADMAOQBiAGIANQA1ADcAYgA2ADkAfQAlTHsAYQA1AGIAZAA0ADgAYwAzAC0AMABkADEANwAtADQAMQBiADUALQBiADEANgA0AC0ANQBmAGMANgBhAGQAMgBiADkANgBiADcAfQAmFk8AYgBqAGUAYwB0AHMAVAB5AHAAZQAnVFUAcABkAGEAdABlAEwAYQBuAGcAdQBhAGcAZQBNAG8AZABlAGwARgBvAHIAQwBvAG4AdgBlAHIAdABpAGIAbABlAEwAaQBiAHIAYQByAGkAZQBzACgQTABpAGIAVABpAHQAbABlACkUTABpAGIAQwBvAG0AcABhAG4AeQAqHlUAcABkAGEAdABlAFAAcgBvAHYAaQBkAGUAcgBzACs4UwB5AHMAdABlAG0ALgBDAG8AbABsAGUAYwB0AGkAbwBuAHMALgBIAGEAcwBoAHQAYQBiAGwAZQAsEnYAaQBzAHUAZQBsAGUAbQBzAC1INgBjAGIAMQBjAGQAZQAxAC0AZAA1AGQAYwAtADQAYQAzAGIALQA5ADAANQA0AC0AMgAxAGYAYQA3ADUANgBhADMAZgBhADQALihJAG4AdABlAHIAZgBhAGMAZQBWAGUAcgBzAGkAbwBuAEkAbgBmAG8AL0x7AGMANgAxADEAZQA0ADAAMAAtADcAZgBiADkALQA0AGMAMwA1AC0AYgA5AGEAYwAtADQAZQAzADEANABiADUAOQA5ADYANAAzAH0AMBhNAGEAagBvAHIAVgBlAHIAcwBpAG8AbgAxGE0AaQBuAG8AcgBWAGUAcgBzAGkAbwBuADIMTABlAGcAYQBjAHkAMzBMAGEAbgBnAHUAYQBnAGUATQBvAGQAZQBsAFYAZQByAHMAaQBvAG4ASQBuAGYAbwA0MEwAbwBhAGQATABpAGIAcgBhAHIAaQBlAHMASQBuAHQAbwBQAHIAbwBqAGUAYwB0ADUaQwBvAG0AcABhAHQAaQBiAGkAbABpAHQAeQDQAAIaA9ADAS0E0AUGGgfQBwgaAUUHCQjQAAkaBEUKCwQDAAAABQAAAA0AAAAAAAAA0AwLrQIAAADQDQEtDtAPAS0Q0AAJGgRFCgsEAwAAAAUAAAANAAAAKAAAANAMC60BAAAA0A0BLRHQDwEtENAACRoERQoLBAMAAAAFAAAADQAAAAAAAADQDAutAgAAANANAS0S0A8BLRDQAAkaBEUKCwQDAAAABQAAAA0AAAAUAAAA0AwLrQIAAADQDQEtE9APAS0Q0AAJGgRFCgsEAwAAAAUAAAANAAAAAAAAANAMC60CAAAA0A0BLRTQDwEtENAACRoERQoLBAMAAAAFAAAADQAAAAAAAADQDAutAgAAANANAS0V0A8BLRDQAAkaBEUKCwQDAAAABQAAAA0AAAAAAAAA0AwLrQIAAADQDQEtFtAPAS0X0AAJGgRFCgsEAwAAAAUAAAANAAAAKAAAANAMC60EAAAA0A0BLRjQDwEtENAZGq0BRRscAdAAHBoCRR0LBAMAAAAFAAAADQAAAAAAAADQHh8tINAhIhoCRSMkAtAAJRoFRQoLBAMAAAADAAAAAAAAAAoAAADQJgutAAAAANADAS0n0CgBLRHQKQEtENAAJRoFRQoLBAMAAAADAAAAAAAAAAoAAADQJgutAQAAANADAS0n0CgBLRHQKQEtEJoqKwFFAAEC0AABLSzQAAEtF9AAHy0t0C4vGgPQMAutAQAAANAxC60XAAAA0DIarQDQMy8aA9AwC60CAAAA0DELrQMAAADQMhqtANA0Gq0A0DUarQA=</v>
+          </d>
+        </o>
+      </d>
+      <d n="Values" t="Hashtable" />
+    </o>
+        </Data>
+        <TypeList>
+          <Type n="Hashtable">System.Collections.Hashtable</Type>
+          <Type n="OptionKey">{54dd0eac-a6d8-46f2-8c27-2f43c7e49861}</Type>
+          <Type n="String">System.String</Type>
+        </TypeList>
+      </XmlArchive>
+    </PlcProjectOptions>
+  </ProjectExtensions>
+  <ItemGroup><Compile Include="20_Module\Ups\E_UpsResult.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Driver\Sebang\E_UpsCommand.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Driver\Esolution\E_EsolutionOperation.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Driver\Sebang\ST_UpsRaw.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Ups\ST_UpsState.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Driver\Esolution\ST_EsolutionRaw.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Driver\Esolution\ST_EsolutionState.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Ups\F_UpsSignedWord.TcPOU"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Ups\F_UpsNextSeq.TcPOU"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Ups\FB_UpsConfigApply.TcPOU"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Ups\FB_UpsModbusJob.TcPOU"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Driver\Sebang\F_DecodeSebangUps.TcPOU"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Ups\I_Ups.TcIO"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Driver\Sebang\FB_SebangUps.TcPOU"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Driver\Esolution\FB_EsolutionBms.TcPOU"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Driver\Esolution\E_EsolutionControl.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Folder Include="20_Module\Ups" /></ItemGroup>
+  <ItemGroup><Folder Include="20_Module\Driver\Sebang" /></ItemGroup>
+  <ItemGroup><Folder Include="20_Module\Driver\Esolution" /></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Mqtt\Publish\ST_UpsPublish_V1.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Mqtt\Publish\ST_ModulePublish_V1.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Mqtt\Publish\ST_UpsPublishData.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Mqtt\Publish\ST_ModulePublishData.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Mqtt\Config\ST_UpsConfig_Rx.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Mqtt\Config\ST_UpsConfigWirePacket.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Mqtt\Config\ST_ScheduleWork_V1.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Mqtt\Config\ST_ScheduleHoliday_V1.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Mqtt\Config\ST_ScheduleDaily_V1.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Mqtt\Config\ST_ScheduleWeekly_V1.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup><Compile Include="20_Module\Mqtt\ST_IfUpsConfigRx.TcDUT"><SubType>Code</SubType></Compile></ItemGroup>
+  <ItemGroup>
+    <Compile Include="20_Module\Ups\E_UpsChargeAction.TcDUT"><SubType>Code</SubType></Compile>
+    <Compile Include="20_Module\Ups\E_UpsChargeMode.TcDUT"><SubType>Code</SubType></Compile>
+    <Compile Include="20_Module\Ups\E_UpsChargeStep.TcDUT"><SubType>Code</SubType></Compile>
+    <Compile Include="20_Module\Ups\FB_UpsChargeRequest.TcPOU"><SubType>Code</SubType></Compile>
+    <Compile Include="20_Module\Ups\FB_UpsChargeSequence.TcPOU"><SubType>Code</SubType></Compile>
+    <Compile Include="20_Module\Ups\FB_UpsTemperatureCharge.TcPOU"><SubType>Code</SubType></Compile>
+    <Compile Include="20_Module\Ups\ST_UpsChargeFeedback.TcDUT"><SubType>Code</SubType></Compile>
+    <Compile Include="20_Module\Ups\ST_UpsChargeRequest.TcDUT"><SubType>Code</SubType></Compile>
+    <Compile Include="20_Module\Ups\ST_UpsChargeSet.TcDUT"><SubType>Code</SubType></Compile>
+    <Compile Include="20_Module\Ups\FB_UpsSafetyStage.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Ups\ST_UpsDesiredSet.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Ups\ST_IfUpsCmd.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Ups\FB_UpsCommand.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\F_WordsToReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\Autonics\FB_AutonicsThd.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\Bender\FB_BenderIso685.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\Rootech\FB_RootechAcuraIo.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\LS\ST_LsImd1000State.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\LS\FB_LsImd1000.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Common\ST_TempHumState.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\ITGuard\FB_ItGuardIeSx.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\Woonyoung\FB_WoonyoungGfr.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\Gasdna\FB_GasdnaAsd57.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_ImdPublish_V1.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_ImdPublishData.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_FirePublish_V1.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Mqtt\Publish\ST_FirePublishData.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Report\FB_RptLsImd1000.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Report\FB_RptTempHum.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\Esolution\ST_BatRackCmd.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\Esolution\FB_BmsRackCommand.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+  </ItemGroup>
+</Project>

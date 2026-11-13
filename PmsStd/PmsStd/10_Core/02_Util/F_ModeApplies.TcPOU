@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_ModeApplies" Id="{e46b239c-4596-4df6-9883-199d09fe36d8}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_ModeApplies : BOOL		// 등록(bAuto·bManual)이 대상에 걸리는가: 대상 유닛 중 그 운전 모드 유닛이 하나라도 있으면. 유닛이 없는 대상(빈 버스)은 둘 중 하나라도 켜져 있으면
+// 보호 조치(유닛마다)·유닛 제한·버스 제한이 같이 씀. 유닛 하나면 nAuto·nManual 중 하나만 1
+VAR_INPUT
+	i_bAuto		: BOOL;		// 등록: Auto 유닛에 적용
+	i_bManual	: BOOL;		// 등록: Manual 유닛에 적용
+	i_nAuto		: UINT;		// 대상의 Auto 유닛 수
+	i_nManual	: UINT;		// 대상의 Manual 유닛 수
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_ModeApplies := (i_bAuto AND i_nAuto > 0) OR (i_bManual AND i_nManual > 0)
+	OR (i_nAuto + i_nManual = 0 AND (i_bAuto OR i_bManual));]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

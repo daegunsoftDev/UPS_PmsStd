@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_SourceAllowed" Id="{74e2ecc7-f54c-4ab2-85e1-b0fc46f46567}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_SourceAllowed : BOOL		// 지령원이 이 운전 모드에서 동작하나
+VAR_INPUT
+	i_eSrcMode	: E_SourceMode;
+	i_eOpMode	: E_OpMode;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_eSrcMode OF
+	E_SourceMode.Both:		F_SourceAllowed := TRUE;
+	E_SourceMode.Auto:		F_SourceAllowed := (i_eOpMode = E_OpMode.Auto);
+	E_SourceMode.Manual:	F_SourceAllowed := (i_eOpMode = E_OpMode.Manual);
+ELSE
+	F_SourceAllowed := FALSE;
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

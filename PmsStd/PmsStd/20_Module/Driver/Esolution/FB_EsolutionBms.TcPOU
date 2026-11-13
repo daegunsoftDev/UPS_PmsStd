@@ -1,0 +1,257 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<POU Name="FB_EsolutionBms" Id="{0efdf003-8c3c-44b9-b8f9-9aaa6456dec7}"><Declaration><![CDATA[FUNCTION_BLOCK FB_EsolutionBms EXTENDS FB_DeviceBase IMPLEMENTS I_Bms
+
+VAR_INPUT
+ i_bEnable : BOOL;
+ i_sIpAddr : STRING(15);
+ i_nPort : UINT := 502;
+ i_nUnitId : BYTE := 1;
+ i_tTimeout : TIME := T#1S;
+ i_bWritePermit : BOOL; // site dispatcher: config OK AND active PLC
+END_VAR
+VAR_OUTPUT
+ q_eRequestResult : E_UpsResult;
+ q_nTransportError : UDINT;
+END_VAR
+VAR
+ _fbJob : FB_UpsModbusJob;
+ _bLaunch : BOOL;
+ _bCurrentWrite : BOOL;
+ _bDiscardResponse : BOOL; // response started before a disable must not complete a new snapshot
+ _nFunction : UINT;
+ _nAddress : WORD;
+ _nQuantity : WORD;
+ _wValue : WORD;
+ _bPendingWrite : BOOL;
+ _nPendingAddress : WORD;
+ _wPendingValue : WORD;
+ _nPoll : UINT;
+ _nCopy : UINT;
+ _bReadDue : BOOL;
+END_VAR
+
+VAR_INPUT
+ i_nRackCount : UINT := 1; // configure actual installed count, max10
+ i_nModuleCount : UINT := GVL_PARAM.MODULES_PER_RACK; // installed modules; map stride remains 17 slots
+ i_bReadDetails : BOOL := FALSE; // enable after unused module-slot response is confirmed
+ i_tHeartbeatTimeout : TIME := T#10S;
+ i_tDetailTimeout : TIME := T#60S;
+END_VAR
+VAR_OUTPUT
+ q_stRaw : ST_EsolutionRaw;
+ q_stState : ST_EsolutionState;
+END_VAR
+VAR
+ _stWork : ST_EsolutionRaw;
+ _stBat : ST_BatState;
+ _nSampleSeq : UDINT;
+ _nRack : UINT;
+ _nOffset : UINT;
+ _nDetailRack : UINT := 1;
+ _nDetailOffset : UINT;
+ _nDetailChunk : UINT;
+ _wHeartbeat : WORD;
+ _bHeartbeatChanged : BOOL;
+ _tonHeartbeat : TON;
+ _atonDetail : ARRAY[1..10] OF TON;
+ _abDetailUpdated : ARRAY[1..10] OF BOOL;
+ _wInstalledMask : WORD;
+ _nLastRackCount : UINT;
+ _nLastCoreCmdSeq : UDINT;
+ _bHaveCoreCmd : BOOL;
+END_VAR]]></Declaration><Implementation><ST><![CDATA[]]></ST></Implementation><Method Name="M_Cycle" Id="{fb7c356b-848e-4322-a14d-8c75198ade19}"><Declaration><![CDATA[METHOD M_Cycle]]></Declaration><Implementation><ST><![CDATA[_bReadDue := M_IsReadTime();
+IF NOT i_bEnable THEN
+ _bDiscardResponse:=_bDiscardResponse OR _fbJob.q_bBusy;
+ _bLaunch:=FALSE;
+END_IF
+IF NOT i_bEnable OR NOT i_bWritePermit OR NOT GVL_PARAM.UPS_CONTROL_ENABLED THEN
+ _bPendingWrite := FALSE;
+ // A queued but not yet started FC06 must not survive a gate transition.
+ IF _bLaunch AND _bCurrentWrite THEN _bLaunch := FALSE; END_IF
+END_IF
+_fbJob(i_sIpAddr:=i_sIpAddr,i_nPort:=i_nPort,i_nUnitId:=i_nUnitId,i_tTimeout:=i_tTimeout,
+ i_bExecute:=_bLaunch,i_bWritePermit:=i_bWritePermit AND i_bEnable,
+ i_nFunction:=_nFunction,i_nAddress:=_nAddress,i_nQuantity:=_nQuantity,i_wValue:=_wValue);
+_bLaunch := FALSE;
+IF _fbJob.q_bDone THEN
+ q_nTransportError := _fbJob.q_nErrorId;
+ IF _bCurrentWrite THEN M_MarkWriteResult(NOT _fbJob.q_bError); END_IF
+END_IF
+
+IF i_nRackCount<1 OR i_nRackCount>10 OR i_nModuleCount<1 OR i_nModuleCount>17 THEN
+ _bLaunch:=FALSE; _bPendingWrite:=FALSE;
+ q_stState.bComm:=FALSE; q_stState.bValid:=FALSE; _stBat.bComm:=FALSE;
+ RETURN;
+END_IF
+IF _nLastRackCount<>i_nRackCount THEN
+ _nLastRackCount:=i_nRackCount; _nDetailRack:=1; _nDetailOffset:=0;
+ FOR _nRack:=1 TO 10 DO q_stState.abDetailValid[_nRack]:=FALSE; END_FOR
+END_IF
+_bHeartbeatChanged:=FALSE;
+FOR _nRack:=1 TO 10 DO _abDetailUpdated[_nRack]:=FALSE; END_FOR
+IF _fbJob.q_bDone AND _bDiscardResponse THEN
+ _bDiscardResponse:=FALSE; _nPoll:=0;
+ELSIF _fbJob.q_bDone AND NOT _bCurrentWrite THEN
+ IF _fbJob.q_bError THEN
+  IF _nPoll=3 THEN _nDetailOffset:=0; END_IF
+  _nPoll:=0;
+ ELSE
+  CASE _nPoll OF
+   0: FOR _nCopy:=0 TO 24 DO _stWork.awSystem[_nCopy]:=_fbJob.q_awData[_nCopy]; END_FOR
+   1: FOR _nCopy:=0 TO 39 DO _stWork.awRackAnalog[_nCopy]:=_fbJob.q_awData[_nCopy]; END_FOR
+   2:
+    FOR _nCopy:=0 TO 89 DO _stWork.awRackStatus[_nCopy]:=_fbJob.q_awData[_nCopy]; END_FOR
+    q_stRaw.awSystem:=_stWork.awSystem;
+    q_stRaw.awRackAnalog:=_stWork.awRackAnalog;
+    q_stRaw.awRackStatus:=_stWork.awRackStatus;
+    _bHeartbeatChanged:=_nSampleSeq=0 OR _wHeartbeat<>q_stRaw.awSystem[0];
+    _wHeartbeat:=q_stRaw.awSystem[0]; _nSampleSeq:=F_UpsNextSeq(_nSampleSeq); M_MarkAlive();
+   3:
+    FOR _nCopy:=0 TO _nDetailChunk-1 DO
+     _stWork.aawDetail[_nDetailRack,_nDetailOffset+_nCopy]:=_fbJob.q_awData[_nCopy];
+    END_FOR
+    IF _nDetailOffset+_nDetailChunk=406 THEN
+     FOR _nCopy:=0 TO 405 DO q_stRaw.aawDetail[_nDetailRack,_nCopy]:=_stWork.aawDetail[_nDetailRack,_nCopy]; END_FOR
+     q_stState.anDetailSeq[_nDetailRack]:=F_UpsNextSeq(q_stState.anDetailSeq[_nDetailRack]);
+     _abDetailUpdated[_nDetailRack]:=TRUE;
+     q_stState.abDetailValid[_nDetailRack]:=TRUE;
+     _nDetailOffset:=0;
+     IF _nDetailRack>=i_nRackCount THEN _nDetailRack:=1; ELSE _nDetailRack:=_nDetailRack+1; END_IF
+    ELSE _nDetailOffset:=_nDetailOffset+_nDetailChunk; END_IF
+  END_CASE
+  IF _nPoll=3 OR (_nPoll=2 AND NOT i_bReadDetails) THEN _nPoll:=0; ELSE _nPoll:=_nPoll+1; END_IF
+ END_IF
+END_IF
+M_UpdateComm();
+_tonHeartbeat(IN:=NOT _bHeartbeatChanged,PT:=i_tHeartbeatTimeout);
+// System Data 1~25
+q_stState.nHeartbeat:=q_stRaw.awSystem[0]; // 1. 하트비트
+q_stState.fVoltageV:=WORD_TO_REAL(q_stRaw.awSystem[1])*0.1; // 2. 전체 전압 (V)
+q_stState.fCurrentA:=F_UpsSignedWord(q_stRaw.awSystem[2])*0.1; // 3. 전체 전류 (A)
+q_stState.fSocPct:=WORD_TO_REAL(q_stRaw.awSystem[3])*0.1; // 4. 충전 상태 (%)
+q_stState.fSohPct:=WORD_TO_REAL(q_stRaw.awSystem[4]); // 5. 건강 상태 (%)
+q_stState.fChargePowerKw:=WORD_TO_REAL(q_stRaw.awSystem[5]); // 6. 충전 전력 (kW)
+q_stState.fDischargePowerKw:=WORD_TO_REAL(q_stRaw.awSystem[6]); // 7. 방전 전력 (kW)
+q_stState.fMaxCellVoltageMv:=WORD_TO_REAL(q_stRaw.awSystem[7]); // 8. 최대 셀 전압 (mV)
+q_stState.fMinCellVoltageMv:=WORD_TO_REAL(q_stRaw.awSystem[8]); // 9. 최소 셀 전압 (mV)
+q_stState.fAvgCellVoltageMv:=WORD_TO_REAL(q_stRaw.awSystem[9]); // 10. 평균 셀 전압 (mV)
+q_stState.nMaxCellVoltageLocation:=q_stRaw.awSystem[10]; // 11. 최대 셀 전압 위치
+q_stState.nMinCellVoltageLocation:=q_stRaw.awSystem[11]; // 12. 최소 셀 전압 위치
+q_stState.fMaxCellTemperatureC:=F_UpsSignedWord(q_stRaw.awSystem[12])*0.1; // 13. 최고 셀 온도 (℃)
+q_stState.fMinCellTemperatureC:=F_UpsSignedWord(q_stRaw.awSystem[13])*0.1; // 14. 최저 셀 온도 (℃)
+q_stState.fAvgCellTemperatureC:=F_UpsSignedWord(q_stRaw.awSystem[14])*0.1; // 15. 평균 셀 온도 (℃)
+q_stState.nMaxCellTemperatureLocation:=q_stRaw.awSystem[15]; // 16. 최고 셀 온도 위치
+q_stState.nMinCellTemperatureLocation:=q_stRaw.awSystem[16]; // 17. 최저 셀 온도 위치
+q_stState.fMaxRackSocPct:=WORD_TO_REAL(q_stRaw.awSystem[17])*0.1; // 18. 최대 랙 SOC (%)
+q_stState.fMinRackSocPct:=WORD_TO_REAL(q_stRaw.awSystem[18])*0.1; // 19. 최소 랙 SOC (%)
+q_stState.fMaxRackVoltageV:=WORD_TO_REAL(q_stRaw.awSystem[19])*0.1; // 20. 최대 랙 전압 (V)
+q_stState.fMinRackVoltageV:=WORD_TO_REAL(q_stRaw.awSystem[20])*0.1; // 21. 최소 랙 전압 (V)
+q_stState.fChargeLimitKw:=WORD_TO_REAL(q_stRaw.awSystem[21]); // 22. 충전 허용 전력 (kW)
+q_stState.fDischargeLimitKw:=WORD_TO_REAL(q_stRaw.awSystem[22]); // 23. 방전 허용 전력 (kW)
+q_stState.fChargeCurrentLimitA:=WORD_TO_REAL(q_stRaw.awSystem[23]); // 24. 충전 허용 전류 (A)
+q_stState.fDischargeCurrentLimitA:=WORD_TO_REAL(q_stRaw.awSystem[24]); // 25. 방전 허용 전류 (A)
+
+q_stState.bComm:=_bComm AND i_bEnable;
+q_stState.bFresh:=q_stState.bComm AND NOT _tonHeartbeat.Q;
+q_stState.bValid:=q_stState.bFresh AND _nSampleSeq<>0;
+q_stState.bWriteFail:=_bWriteFail;
+q_stState.nSampleSeq:=_nSampleSeq;
+q_stState.nRackCount:=i_nRackCount;
+q_stState.nModuleCount:=i_nModuleCount;
+q_stState.bWarn:=FALSE; q_stState.bFault:=FALSE; q_stState.bSystemLock:=FALSE;
+FOR _nRack:=1 TO 10 DO
+ _atonDetail[_nRack](IN:=NOT _abDetailUpdated[_nRack],PT:=i_tDetailTimeout);
+ IF _atonDetail[_nRack].Q OR NOT q_stState.bValid OR NOT i_bReadDetails OR _nRack>i_nRackCount THEN
+  q_stState.abDetailValid[_nRack]:=FALSE;
+ END_IF
+ IF _nRack<=i_nRackCount THEN
+  _nOffset:=(_nRack-1)*9;
+  q_stState.bWarn:=q_stState.bWarn OR (q_stRaw.awRackStatus[_nOffset] AND 16#01FF)<>0
+   OR (q_stRaw.awRackStatus[_nOffset+2] AND 16#03FF)<>0 OR q_stRaw.awRackStatus[_nOffset+4].9;
+  q_stState.bFault:=q_stState.bFault OR (q_stRaw.awRackStatus[_nOffset+3] AND 16#3FFF)<>0
+   OR (q_stRaw.awRackStatus[_nOffset+4] AND 16#05FF)<>0 OR q_stRaw.awRackStatus[_nOffset+5]<>0
+   OR (q_stRaw.awRackStatus[_nOffset+6] AND 16#00FF)<>0 OR (q_stRaw.awRackStatus[_nOffset+7] AND 16#8001)<>0;
+  q_stState.bSystemLock:=q_stState.bSystemLock OR q_stRaw.awRackStatus[_nOffset].8 OR q_stRaw.awRackStatus[_nOffset+3].13;
+ END_IF
+END_FOR
+// Physical contactor feedback is NOT inferred from a command or a generic operating mode.
+q_stState.bContactorFeedbackKnown:=FALSE;
+_stBat.bComm:=q_stState.bValid; _stBat.bContactorClosed:=FALSE;
+_stBat.bWarn:=q_stState.bWarn; _stBat.bFault:=q_stState.bFault; _stBat.bSysStop:=q_stState.bSystemLock;
+_stBat.stSoc.fValue:=q_stState.fSocPct;
+_stBat.stSoc.bValid:=q_stState.bValid AND q_stState.fSocPct>=0 AND q_stState.fSocPct<=100;
+_stBat.stSoh.fValue:=q_stState.fSohPct;
+_stBat.stSoh.bValid:=q_stState.bValid AND q_stState.fSohPct>=0 AND q_stState.fSohPct<=100;
+_stBat.fPChgMax:=SEL(q_stState.bValid,0.0,q_stState.fChargeLimitKw);
+_stBat.fPDisMax:=SEL(q_stState.bValid,0.0,q_stState.fDischargeLimitKw);
+_stBat.bWriteFail:=_bWriteFail;
+IF NOT _fbJob.q_bBusy AND NOT _fbJob.q_bDone AND i_bEnable AND i_sIpAddr<>'' THEN
+IF _bPendingWrite THEN
+ _nFunction:=6; _nAddress:=_nPendingAddress; _nQuantity:=1; _wValue:=_wPendingValue;
+ _bCurrentWrite:=TRUE; _bPendingWrite:=FALSE; _bLaunch:=TRUE;
+ELSIF _bReadDue THEN
+ _bCurrentWrite:=FALSE;
+
+ _nFunction:=4;
+ CASE _nPoll OF
+  0: _nAddress:=0; _nQuantity:=25;
+  1: _nAddress:=50; _nQuantity:=40;
+  2: _nAddress:=90; _nQuantity:=90;
+  3:
+   IF NOT i_bReadDetails THEN _nPoll:=0; _nAddress:=0; _nQuantity:=25;
+   ELSE
+    _nDetailChunk:=MIN(125,406-_nDetailOffset);
+    _nAddress:=UINT_TO_WORD(500+500*(_nDetailRack-1)+_nDetailOffset);
+    _nQuantity:=UINT_TO_WORD(_nDetailChunk);
+   END_IF
+ END_CASE
+ _bLaunch:=TRUE;
+ END_IF
+END_IF
+IF NOT i_bEnable THEN _nSampleSeq:=0; _nPoll:=0; _nDetailOffset:=0; _bLaunch:=FALSE; END_IF]]></ST></Implementation></Method><Property Name="BatState" Id="{a30686f7-6582-4fb1-bba9-3b001644fe4f}"><Declaration><![CDATA[PROPERTY BatState : ST_BatState]]></Declaration><Get Name="Get" Id="{a421f7e3-3c40-44d4-bd16-0d17360e283f}"><Declaration><![CDATA[]]></Declaration><Implementation><ST><![CDATA[BatState:=_stBat;]]></ST></Implementation></Get></Property><Method Name="M_QueueWrite" Id="{5424d895-20c6-40c8-8757-6010d2507221}"><Declaration><![CDATA[METHOD PRIVATE M_QueueWrite : BOOL
+VAR_INPUT i_nAddress : WORD; i_wValue : WORD; END_VAR]]></Declaration><Implementation><ST><![CDATA[q_eRequestResult := E_UpsResult.Disabled;
+IF NOT GVL_PARAM.UPS_CONTROL_ENABLED OR NOT i_bWritePermit OR NOT i_bEnable THEN RETURN; END_IF
+q_eRequestResult := E_UpsResult.CommUnavailable;
+IF NOT q_stState.bValid THEN RETURN; END_IF
+q_eRequestResult := E_UpsResult.Busy;
+IF _bPendingWrite OR _bCurrentWrite AND (_fbJob.q_bBusy OR _bLaunch) THEN RETURN; END_IF
+_nPendingAddress := i_nAddress; _wPendingValue := i_wValue; _bPendingWrite := TRUE;
+q_eRequestResult := E_UpsResult.Accepted;
+M_QueueWrite := TRUE;]]></ST></Implementation></Method><Method Name="M_SetRackMask" Id="{21aa261b-0519-4503-8b0c-678b38aa124a}"><Declaration><![CDATA[METHOD M_SetRackMask : BOOL
+// Whole installed-rack bitmap, not an individual-rack pulse. 0 disables ALL installed racks.
+VAR_INPUT i_wMask : WORD; END_VAR]]></Declaration><Implementation><ST><![CDATA[IF i_nRackCount<1 OR i_nRackCount>10 THEN q_eRequestResult:=E_UpsResult.BadConfig; RETURN; END_IF
+_wInstalledMask:=SHL(WORD#1,i_nRackCount)-1;
+IF (i_wMask AND NOT _wInstalledMask)<>0 THEN q_eRequestResult:=E_UpsResult.BadConfig; RETURN; END_IF
+M_SetRackMask:=M_QueueWrite(0,i_wMask);]]></ST></Implementation></Method><Method Name="M_RequestOperation" Id="{f9143782-cef1-4fce-b683-55ff1db3fe56}"><Declaration><![CDATA[METHOD M_RequestOperation : BOOL
+VAR_INPUT i_eOperation : E_EsolutionOperation; END_VAR]]></Declaration><Implementation><ST><![CDATA[IF TO_INT(i_eOperation)<0 OR TO_INT(i_eOperation)>9 THEN q_eRequestResult:=E_UpsResult.Unsupported; RETURN; END_IF
+M_RequestOperation:=M_QueueWrite(10,SHL(WORD#1,INT_TO_UINT(TO_INT(i_eOperation))));]]></ST></Implementation></Method><Method Name="M_SetStateCmd" Id="{128312a1-9dee-439b-a215-2688fcdb32ff}"><Declaration><![CDATA[METHOD M_SetStateCmd : BOOL
+VAR_INPUT i_stCmd : ST_BatCmd; END_VAR]]></Declaration><Implementation><ST><![CDATA[IF _bHaveCoreCmd AND _nLastCoreCmdSeq=i_stCmd.nSeq THEN
+ q_eRequestResult:=E_UpsResult.Duplicate; RETURN;
+END_IF
+CASE i_stCmd.eCmd OF
+ E_BatCmd.Close: M_SetStateCmd:=M_SetControl(E_EsolutionControl.SystemContactor,TRUE);
+ E_BatCmd.Open: M_SetStateCmd:=M_SetControl(E_EsolutionControl.SystemContactor,FALSE);
+ E_BatCmd.EStop: M_SetStateCmd:=M_SetControl(E_EsolutionControl.EmergencyShutdown,TRUE);
+ E_BatCmd.Reset: M_SetStateCmd:=M_QueueWrite(30,1);
+ELSE q_eRequestResult:=E_UpsResult.Unsupported;
+END_CASE
+IF M_SetStateCmd THEN _bHaveCoreCmd:=TRUE; _nLastCoreCmdSeq:=i_stCmd.nSeq; END_IF]]></ST></Implementation></Method><Method Name="M_SetControl" Id="{f742f337-89b4-4786-a96f-77c44f7a8888}"><Declaration><![CDATA[METHOD M_SetControl : BOOL
+// System protocol v1.3: 0-based holding addresses, uint16 values (NOT 0x55).
+VAR_INPUT i_eControl : E_EsolutionControl; i_bOn : BOOL; END_VAR]]></Declaration><Implementation><ST><![CDATA[CASE i_eControl OF
+ E_EsolutionControl.EmergencyShutdown:
+  IF NOT i_bOn THEN q_eRequestResult:=E_UpsResult.Unsupported; RETURN; END_IF;
+  M_SetControl:=M_QueueWrite(11,1);
+ E_EsolutionControl.SystemContactor, E_EsolutionControl.ChargeContactor, E_EsolutionControl.DischargeContactor:
+  M_SetControl:=M_QueueWrite(INT_TO_WORD(TO_INT(i_eControl)),BOOL_TO_WORD(i_bOn));
+ELSE q_eRequestResult:=E_UpsResult.Unsupported;
+END_CASE]]></ST></Implementation></Method><Method Name="M_CheckSet" Id="{93efe8f1-323e-444f-9b2e-5602b27ebc47}"><Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)]]></Declaration><Implementation><ST><![CDATA[M_CheckSet:="";
+IF i_bEnable THEN
+ IF i_sIpAddr='' OR i_nPort=0 THEN M_CheckSet:="TCP endpoint missing";
+ ELSIF i_tReadPeriod<=T#0MS OR i_tTimeout<=T#0MS OR i_tCommTimeout<=i_tReadPeriod THEN M_CheckSet:="Invalid timing";
+ END_IF
+END_IF
+IF i_nRackCount<1 OR i_nRackCount>10 OR i_nModuleCount<1 OR i_nModuleCount>17 THEN
+ M_CheckSet:="Rack/module range";
+END_IF]]></ST></Implementation></Method></POU>
+</TcPlcObject>

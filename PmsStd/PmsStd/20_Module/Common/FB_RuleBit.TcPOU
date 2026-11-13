@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_RuleBit" Id="{ae81d156-da8e-4c74-9260-f3a8e2b0563f}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_RuleBit EXTENDS FB_ModuleBase IMPLEMENTS I_ProtectionRule, I_OutputRule		// 디지털 접점 하나 → 조건 (화재·연기·비상정지·문 열림 등). 보호 규칙·출력 규칙 어느 쪽으로도 등록
+VAR_INPUT
+	i_ipAux			: I_AuxDevice;		// 읽을 보조 장비 (선언 때 지정)
+	i_nPoint		: UINT;				// 디지털 입력 점 번호
+	i_stSet			: ST_RuleBitSet;	// 설정: b접점, 통신 끊김 시 조건 (MAIN이 GVL_PERSIST.g_stModuleSet 칸을 매 스캔 넘김. 안 넘기면 기본값)
+END_VAR
+VAR
+	_bCond			: BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Evaluate" Id="{b45dd46c-4e85-4e15-aace-a43066bbfaaf}">
+      <Declaration><![CDATA[METHOD M_Evaluate : BOOL		// 보호 규칙으로 판단 (범위·대상과 관계없이 접점 하나)
+VAR_INPUT
+	i_stView	: ST_ProtView;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Evaluate := M_Check(i_fThreshold := i_stView.fThreshold);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Check" Id="{803346c2-5853-40ad-8912-c3b3847d4754}">
+      <Declaration><![CDATA[METHOD M_Check : BOOL		// 출력 규칙으로 판단. 보호 판단도 이것을 씀
+VAR_INPUT
+	i_fThreshold	: REAL;			// 안 씀
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_ipAux = 0 THEN
+	_bCond := FALSE;
+ELSIF NOT i_ipAux.Comm THEN
+	_bCond := i_stSet.bOnCommLoss;
+ELSE
+	_bCond := i_ipAux.M_GetBit(i_nPoint) XOR i_stSet.bInvert;
+END_IF
+M_Check := _bCond;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

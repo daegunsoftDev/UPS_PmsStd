@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BatSeqSet" Id="{2a253451-9d89-465a-a8e2-8d09385b9de4}">
+    <Declaration><![CDATA[TYPE ST_BatSeqSet :		// 배터리 시퀀스 설정
+STRUCT
+	eClose			: E_BatClose;			// 투입 시점 (OnStart / OnRequest). 새 기동·요청이 있어야 투입 (보호·고장으로 열린 뒤 저절로 다시 넣지 않음)
+	bOpenOnStop		: BOOL;					// 버스의 유닛이 모두 정지하면 개방 (기본: 투입 유지)
+	tConfirm		: TIME := T#60S;		// 투입 확인 시간. 지나면 실패 알람 (재시도 없음)
+	tOpenRetry		: TIME := T#5S;			// 개방·비상정지 확인 시간·재시도 간격
+	nOpenRetry		: UINT := 3;			// 보호 조치(개방·비상정지) 재시도 횟수. 넘으면 실패 알람만 (잠그지 않음)
+	// 보호 조치가 아닌 명령(지령원 요청·자동 투입·정지 시 개방)은 한 번만 보냄
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

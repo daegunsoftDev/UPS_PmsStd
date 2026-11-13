@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<DUT Name="E_EsolutionControl" Id="{e57cb7c1-a0f5-46f0-877c-93d8f0d593ed}"><Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_EsolutionControl : (
+	EmergencyShutdown := 11,
+	SystemContactor := 12,
+	ChargeContactor := 13,
+	DischargeContactor := 14
+) INT;
+END_TYPE]]></Declaration></DUT>
+</TcPlcObject>

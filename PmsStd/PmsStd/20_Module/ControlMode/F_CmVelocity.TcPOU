@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_CmVelocity" Id="{1b9b0f7d-d3ff-496f-808d-a8f488ab5de6}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_CmVelocity : REAL		// 피크 제어 속도 (Messis getVelocity): 넘는 양이 작을수록 크게. (log10(h + 100) − log10(h)) × 20, h ≤ 0이면 1
+VAR_INPUT
+	i_fH		: REAL;		// kW, 목표 또는 목표를 넘은 양
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF i_fH <= 0.0 THEN
+	F_CmVelocity := 1.0;
+ELSE
+	F_CmVelocity := (LOG(i_fH + 100.0) - LOG(i_fH)) * 20.0;
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

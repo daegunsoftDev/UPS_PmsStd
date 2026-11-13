@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_DistStd" Id="{9e6dd21b-8ec7-40de-971e-059189ec332c}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_DistStd EXTENDS FB_ModuleBase IMPLEMENTS I_DistPolicy	// 코어 기본 분배: 그룹 설정 eDistBasis (정격 비율 / SOC / 균등)]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Weight" Id="{1fdc7316-b6cf-412c-8970-dc548784855a}">
+      <Declaration><![CDATA[METHOD M_Weight : REAL
+VAR_INPUT
+	i_stView	: ST_DistView;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_stView.eBasis = E_DistBasis.Equal THEN
+	M_Weight := 1.0;
+ELSIF i_stView.eBasis = E_DistBasis.Soc AND NOT i_stView.bForQ AND i_stView.fSoc >= 0 THEN
+	IF i_stView.bPositive THEN
+		M_Weight := MAX(i_stView.fSoc, 1.0);			// 방전: SOC 높은 쪽
+	ELSE
+		M_Weight := MAX(100.0 - i_stView.fSoc, 1.0);	// 충전: SOC 낮은 쪽
+	END_IF
+ELSIF i_stView.bForQ THEN
+	M_Weight := i_stView.fQRated;
+ELSE
+	M_Weight := i_stView.fPRated;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

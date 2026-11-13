@@ -1,0 +1,158 @@
+{
+  "objects": {
+    "FB_UpsSafetyStage": {
+      "variant": "a6598f6d",
+      "code_hash": "a6598f6dd76797958e2fa443c78d69fce2a5d947",
+      "item": "20_Module\\Ups\\FB_UpsSafetyStage.TcPOU",
+      "pulled_from": "generated:../UPS/src/UpsSafety/FB_UpsSafetyStage.st",
+      "guid_reissued": false
+    },
+    "ST_UpsDesiredSet": {
+      "variant": "063bfaed",
+      "code_hash": "063bfaed20535db30cf3e0cabb14f4c1d6e425c8",
+      "item": "20_Module\\Ups\\ST_UpsDesiredSet.TcDUT",
+      "pulled_from": "generated:../UPS/src/UpsConfig/ST_UpsDesiredSet.st",
+      "guid_reissued": false
+    },
+    "ST_IfUpsCmd": {
+      "variant": "076f6882",
+      "code_hash": "076f6882531168607f2499151e345f7ab87c44c3",
+      "item": "20_Module\\Ups\\ST_IfUpsCmd.TcDUT",
+      "pulled_from": "generated:../UPS/src/UpsCommand/FB_UpsCommand.st",
+      "guid_reissued": false
+    },
+    "FB_UpsCommand": {
+      "variant": "5939d305",
+      "code_hash": "5939d305b370c1bdd9d97a04fbe37d6ac5c5d92c",
+      "item": "20_Module\\Ups\\FB_UpsCommand.TcPOU",
+      "pulled_from": "generated:../UPS/src/UpsCommand/FB_UpsCommand.st",
+      "guid_reissued": false
+    },
+    "F_WordsToReal": {
+      "variant": "fe8cb90d",
+      "code_hash": "fe8cb90d24a7fcce89cc9e5bbc55f1dd61bfe2af",
+      "item": "20_Module\\Common\\F_WordsToReal.TcPOU",
+      "pulled_from": "generated:../UPS/src/AuxDevice/F_WordsToReal.st",
+      "guid_reissued": false
+    },
+    "FB_AutonicsThd": {
+      "variant": "1db46558",
+      "code_hash": "1db46558db8d729c57d9b351b4dbfd9366323c9d",
+      "item": "20_Module\\Driver\\Autonics\\FB_AutonicsThd.TcPOU",
+      "pulled_from": "generated:../UPS/src/AuxDevice/FB_AutonicsThd.st",
+      "guid_reissued": false
+    },
+    "FB_BenderIso685": {
+      "variant": "9559ed79",
+      "code_hash": "9559ed7955ecf7a5b77083491e257c69ba66be02",
+      "item": "20_Module\\Driver\\Bender\\FB_BenderIso685.TcPOU",
+      "pulled_from": "generated:../UPS/src/AuxDevice/FB_BenderIso685.st",
+      "guid_reissued": false
+    },
+    "FB_RootechAcuraIo": {
+      "variant": "b5b89b35",
+      "code_hash": "b5b89b35f0a3bd82c28b3426ea460f44feb48adb",
+      "item": "20_Module\\Driver\\Rootech\\FB_RootechAcuraIo.TcPOU",
+      "pulled_from": "generated:../UPS/src/AuxDevice/FB_RootechAcuraIo.st",
+      "guid_reissued": false
+    },
+    "ST_LsImd1000State": {
+      "variant": "fc6d8072",
+      "code_hash": "fc6d80726258055138d4b3334a8a7c081577526f",
+      "item": "20_Module\\Driver\\LS\\ST_LsImd1000State.TcDUT",
+      "pulled_from": "generated:../UPS/src/AuxDevice/ST_LsImd1000State.st",
+      "guid_reissued": false
+    },
+    "FB_LsImd1000": {
+      "variant": "82bb52ad",
+      "code_hash": "82bb52addc79c8c8a77c1f576a1e2970a81ab3b8",
+      "item": "20_Module\\Driver\\LS\\FB_LsImd1000.TcPOU",
+      "pulled_from": "generated:../UPS/src/AuxDevice/FB_LsImd1000.st",
+      "guid_reissued": false
+    },
+    "ST_TempHumState": {
+      "variant": "1b3d93c8",
+      "code_hash": "1b3d93c8eaae1c3dcac909dcb3b776419fb51ced",
+      "item": "20_Module\\Common\\ST_TempHumState.TcDUT",
+      "pulled_from": "generated:../UPS/src/AuxDevice/ST_TempHumState.st",
+      "guid_reissued": false
+    },
+    "FB_ItGuardIeSx": {
+      "variant": "6637586d",
+      "code_hash": "6637586df8be53ab8cc8a43cb0928c08a5f7fec0",
+      "item": "20_Module\\Driver\\ITGuard\\FB_ItGuardIeSx.TcPOU",
+      "pulled_from": "generated:../UPS/src/AuxDevice/FB_ItGuardIeSx.st",
+      "guid_reissued": false
+    },
+    "FB_WoonyoungGfr": {
+      "variant": "ea11fbbf",
+      "code_hash": "ea11fbbfe42132b9fbbe14008443725d40d5e57a",
+      "item": "20_Module\\Driver\\Woonyoung\\FB_WoonyoungGfr.TcPOU",
+      "pulled_from": "generated:../UPS/src/AuxDevice/FB_WoonyoungGfr.st",
+      "guid_reissued": false
+    },
+    "FB_GasdnaAsd57": {
+      "variant": "c44f37e2",
+      "code_hash": "c44f37e2a0bd9e3e712db2606d6761dcd147627d",
+      "item": "20_Module\\Driver\\Gasdna\\FB_GasdnaAsd57.TcPOU",
+      "pulled_from": "generated:../UPS/src/AuxDevice/FB_GasdnaAsd57.st",
+      "guid_reissued": false
+    },
+    "ST_ImdPublish_V1": {
+      "variant": "19af4020",
+      "code_hash": "19af4020050107add7f1c07ac332b5e69ca191f5",
+      "item": "20_Module\\Mqtt\\Publish\\ST_ImdPublish_V1.TcDUT",
+      "pulled_from": "generated:../UPS/src/ImdReport/ST_ImdPublish_V1.st",
+      "guid_reissued": false
+    },
+    "ST_ImdPublishData": {
+      "variant": "89273616",
+      "code_hash": "892736168259f90d4c7fbf722273dea3a5802ba6",
+      "item": "20_Module\\Mqtt\\Publish\\ST_ImdPublishData.TcDUT",
+      "pulled_from": "generated:../UPS/src/ImdReport/ST_ImdPublishData.st",
+      "guid_reissued": false
+    },
+    "ST_FirePublish_V1": {
+      "variant": "24c21c69",
+      "code_hash": "24c21c690d5b2d9031ef59a547b3bf7806c136df",
+      "item": "20_Module\\Mqtt\\Publish\\ST_FirePublish_V1.TcDUT",
+      "pulled_from": "generated:../UPS/src/FireReport/ST_FirePublish_V1.st",
+      "guid_reissued": false
+    },
+    "ST_FirePublishData": {
+      "variant": "08a062ca",
+      "code_hash": "08a062ca9d05b832a3c4cde8ef3e2256061eff9d",
+      "item": "20_Module\\Mqtt\\Publish\\ST_FirePublishData.TcDUT",
+      "pulled_from": "generated:../UPS/src/FireReport/ST_FirePublishData.st",
+      "guid_reissued": false
+    },
+    "FB_RptLsImd1000": {
+      "variant": "0c14773b",
+      "code_hash": "0c14773b2ce7c97187c8584a94ae1b744e9c092f",
+      "item": "20_Module\\Report\\FB_RptLsImd1000.TcPOU",
+      "pulled_from": "generated:../UPS/src/ImdReport/FB_RptLsImd1000.st",
+      "guid_reissued": false
+    },
+    "FB_RptTempHum": {
+      "variant": "350872b4",
+      "code_hash": "350872b4a3b610630c3f373705804f30f7430a23",
+      "item": "20_Module\\Report\\FB_RptTempHum.TcPOU",
+      "pulled_from": "generated:../UPS/src/ImdReport/FB_RptTempHum.st",
+      "guid_reissued": false
+    },
+    "ST_BatRackCmd": {
+      "variant": "7884f2a5",
+      "code_hash": "7884f2a561f1c2f8d0fa09a4b8ad0dbe2724d168",
+      "item": "20_Module\\Driver\\Esolution\\ST_BatRackCmd.TcDUT",
+      "pulled_from": "generated:../UPS/src/BatRack/ST_BatRackCmd.st",
+      "guid_reissued": false
+    },
+    "FB_BmsRackCommand": {
+      "variant": "e1b3c34c",
+      "code_hash": "e1b3c34c1f3b8b4f6c866a623de352eb32a7a87b",
+      "item": "20_Module\\Driver\\Esolution\\FB_BmsRackCommand.TcPOU",
+      "pulled_from": "generated:../UPS/src/BatRack/FB_BmsRackCommand.st",
+      "guid_reissued": false
+    }
+  }
+}

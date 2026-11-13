@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_PcsCmdMode" Id="{77536822-b4fd-466a-9d12-93eac7e392e9}">
+    <Declaration><![CDATA[TYPE ST_PcsCmdMode :		// PCS(유닛) 상태 요청을 명령마다 어느 운전 모드에서 받나 (기본 Manual: Auto에서는 지령원 상태 요청을 받지 않음. 보호·코어 요청은 모드와 관계없음)
+STRUCT
+	eRun		: E_SourceMode := E_SourceMode.Manual;	// Run
+	eStandby	: E_SourceMode := E_SourceMode.Manual;	// Standby
+	eStop		: E_SourceMode := E_SourceMode.Manual;	// Stop
+	eEStop		: E_SourceMode := E_SourceMode.Manual;	// 비상정지
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

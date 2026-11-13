@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_RedSyncCfg" Id="{f18afe74-1757-4b56-b5be-31a92f539ca5}">
+    <Declaration><![CDATA[TYPE ST_RedSyncCfg :		// 동기화할 운영 설정 (GVL_PERSIST와 같은 모양. 모듈 설정 묶음 g_stModuleSet은 HMI가 두 PLC에 쓰므로 제외). 두 PLC가 EAP로 서로에게 매 스캔 보냄 (FB_RedSync). 필드를 바꾸면 두 PLC의 EAP 변수도 같이 바꿈
+STRUCT
+	nProtoVer		: UINT := 1;	// 형식 번호
+	nSeq			: UDINT;		// 보낼 때마다 1 증가. 상대가 이 값이 바뀌는지로 살아 있음을 봄
+	nModeReq1		: UINT;			// 제어 모드 요청 접속점 그룹 1 (GVL_SITE.g_fbCtrlMode1.i_nModeReq). [16번 수정 2026-11-09: nModeReq2(PCS2) 없앰]
+	aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;
+	astGroupSet		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupSet;
+	astManualPolicy	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_ManualPolicy;
+	astSourceReg	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceReg;
+	astLimitReg		: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF ST_ModuleReg;
+	astPermitReg	: ARRAY[1..GVL_PARAM.PERMIT_COUNT] OF ST_ModuleReg;
+	astCompReg		: ARRAY[1..GVL_PARAM.COMP_COUNT] OF ST_ModuleReg;
+	astRuleCfg		: ARRAY[1..GVL_PARAM.RULE_COUNT] OF ST_RuleCfg;
+	astOutputCfg	: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF ST_OutputCfg;
+	astUnitRuleReg	: ARRAY[1..GVL_PARAM.UNIT_RULE_COUNT] OF ST_RuleTargetReg;
+	astBatRuleReg	: ARRAY[1..GVL_PARAM.BAT_RULE_COUNT] OF ST_RuleTargetReg;
+	stCmdFilter		: ST_CmdFilterSet;
+	stManualCmdSet	: ST_ManualCmdSet;
+	stSeqSet		: ST_SeqSet;
+	stBrokerWatch	: ST_BrokerWatchSet;	// MQTT 브로커 끊김 감시 [9번 수정 2026-11-09: 추가]
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

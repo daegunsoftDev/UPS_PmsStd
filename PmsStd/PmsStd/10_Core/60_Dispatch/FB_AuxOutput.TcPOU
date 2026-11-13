@@ -1,0 +1,73 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_AuxOutput" Id="{d925c6e3-f47d-4057-87d1-a8650d68452f}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_AuxOutput		// 보조 장비 출력(DO)에 쓰는 유일한 곳: 출력 규칙 → 지연·유지 → 같은 점은 OR해서 한 번만 씀
+VAR_INPUT
+	i_bReset		: BOOL;			// 유지(bLatch) 출력 풀기 (MAIN bClearHoldDo)
+	i_bWriteEnable	: BOOL := TRUE;	// FALSE = 설정 오류: DO에 쓰지 않음
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astCfg		: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF ST_OutputCfg;
+END_VAR
+VAR_IN_OUT
+	iq_aipRule		: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF I_OutputRule;
+	iq_aipAux		: ARRAY[1..GVL_PARAM.AUX_COUNT] OF I_AuxDevice;
+END_VAR
+VAR_OUTPUT
+	q_abCond		: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF BOOL;		// 규칙 판단 (지연 전)
+	q_abOn			: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF BOOL;		// 이 규칙의 출력 (지연·유지 후)
+END_VAR
+VAR
+	_atonOn			: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF TON;
+	_atofOff		: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF TOF;
+	_abLatched		: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF BOOL;
+	_abPointOut		: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF BOOL;		// 이 칸의 점에 쓸 값 (같은 점 규칙 OR, 진단. 쓰기 허가가 없으면 계산만 하고 안 씀)
+END_VAR
+VAR_TEMP
+	i				: UINT;
+	k				: UINT;
+	nAux			: UINT;
+	bFirst			: BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 1) 규칙마다: 판단 → 켜짐 지연 → 꺼짐 지연 → 유지 *)
+FOR i := 1 TO GVL_PARAM.OUTPUT_COUNT DO
+	q_abCond[i] := FALSE;
+	IF iq_aipRule[i] <> 0 AND_THEN iq_astCfg[i].bEnable THEN
+		q_abCond[i] := iq_aipRule[i].M_Check(iq_astCfg[i].fThreshold);
+	END_IF
+	_atonOn[i](IN := q_abCond[i], PT := iq_astCfg[i].tOnDelay);
+	_atofOff[i](IN := _atonOn[i].Q, PT := iq_astCfg[i].tOffDelay);
+
+	IF _atonOn[i].Q AND iq_astCfg[i].bLatch THEN
+		_abLatched[i] := TRUE;
+	END_IF
+	IF (i_bReset AND NOT _atonOn[i].Q) OR NOT iq_astCfg[i].bEnable OR NOT iq_astCfg[i].bLatch THEN
+		_abLatched[i] := FALSE;
+	END_IF
+	q_abOn[i] := _atofOff[i].Q OR _abLatched[i];
+END_FOR
+
+(* 2) 같은 장비·점에 걸린 규칙은 OR. 점마다 첫 칸에서 한 번만 씀 *)
+FOR i := 1 TO GVL_PARAM.OUTPUT_COUNT DO
+	_abPointOut[i] := FALSE;
+	nAux := iq_astCfg[i].nAux;
+	IF nAux >= 1 AND nAux <= GVL_PARAM.AUX_COUNT AND iq_astCfg[i].nPoint >= 1 AND_THEN iq_aipAux[nAux] <> 0 THEN
+		bFirst := TRUE;
+		FOR k := 1 TO GVL_PARAM.OUTPUT_COUNT DO
+			IF iq_astCfg[k].nAux = nAux AND iq_astCfg[k].nPoint = iq_astCfg[i].nPoint THEN
+				_abPointOut[i] := _abPointOut[i] OR q_abOn[k];
+				IF k < i THEN
+					bFirst := FALSE;
+				END_IF
+			END_IF
+		END_FOR
+		// 쓰기 허가가 없으면(설정 오류·대기 PLC) 켜는 쓰기만 막고 끄는 쓰기는 함: 펄스 출력(차단기 코일 등)이 켜진 채 남지 않게
+		IF bFirst AND (i_bWriteEnable OR NOT _abPointOut[i]) THEN
+			iq_aipAux[nAux].M_SetBit(i_nPoint := iq_astCfg[i].nPoint, i_bValue := _abPointOut[i]);
+		END_IF
+	END_IF
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

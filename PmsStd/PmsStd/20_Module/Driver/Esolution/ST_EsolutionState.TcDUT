@@ -1,0 +1,50 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<DUT Name="ST_EsolutionState" Id="{7873e654-8fa4-4ffa-bce1-f2f3ca966112}"><Declaration><![CDATA[TYPE ST_EsolutionState :
+STRUCT
+
+// System Data 1~25
+ nHeartbeat : WORD; // 1. 하트비트
+ fVoltageV : REAL; // 2. 전체 전압 (V)
+ fCurrentA : REAL; // 3. 전체 전류 (A)
+ fSocPct : REAL; // 4. 충전 상태 (%)
+ fSohPct : REAL; // 5. 건강 상태 (%)
+ fChargePowerKw : REAL; // 6. 충전 전력 (kW)
+ fDischargePowerKw : REAL; // 7. 방전 전력 (kW)
+ fMaxCellVoltageMv : REAL; // 8. 최대 셀 전압 (mV)
+ fMinCellVoltageMv : REAL; // 9. 최소 셀 전압 (mV)
+ fAvgCellVoltageMv : REAL; // 10. 평균 셀 전압 (mV)
+ nMaxCellVoltageLocation : WORD; // 11. 최대 셀 전압 위치
+ nMinCellVoltageLocation : WORD; // 12. 최소 셀 전압 위치
+ fMaxCellTemperatureC : REAL; // 13. 최고 셀 온도 (℃)
+ fMinCellTemperatureC : REAL; // 14. 최저 셀 온도 (℃)
+ fAvgCellTemperatureC : REAL; // 15. 평균 셀 온도 (℃)
+ nMaxCellTemperatureLocation : WORD; // 16. 최고 셀 온도 위치
+ nMinCellTemperatureLocation : WORD; // 17. 최저 셀 온도 위치
+ fMaxRackSocPct : REAL; // 18. 최대 랙 SOC (%)
+ fMinRackSocPct : REAL; // 19. 최소 랙 SOC (%)
+ fMaxRackVoltageV : REAL; // 20. 최대 랙 전압 (V)
+ fMinRackVoltageV : REAL; // 21. 최소 랙 전압 (V)
+ fChargeLimitKw : REAL; // 22. 충전 허용 전력 (kW)
+ fDischargeLimitKw : REAL; // 23. 방전 허용 전력 (kW)
+ fChargeCurrentLimitA : REAL; // 24. 충전 허용 전류 (A)
+ fDischargeCurrentLimitA : REAL; // 25. 방전 허용 전류 (A)
+
+// 프로그램 상태
+ bComm : BOOL; // 통신 정상
+ bFresh : BOOL; // 데이터 갱신 정상
+ bValid : BOOL; // 데이터 유효
+ bWriteFail : BOOL; // 쓰기 실패
+ bContactorFeedbackKnown : BOOL; // 접촉기 피드백 의미 확인 여부
+ bWarn : BOOL; // 경보 발생
+ bFault : BOOL; // 고장 발생
+ bSystemLock : BOOL; // 시스템 잠금
+ nSampleSeq : UDINT; // 표본 갱신 번호
+ nRackCount : UINT; // 설치 랙 수
+ nModuleCount : UINT; // 랙당 설치 모듈 수
+ abDetailValid : ARRAY[1..10] OF BOOL; // 랙 상세 데이터 유효
+ anDetailSeq : ARRAY[1..10] OF UDINT; // 랙 상세 갱신 번호
+
+END_STRUCT
+END_TYPE]]></Declaration></DUT>
+</TcPlcObject>

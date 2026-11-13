@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_CycleSec" Id="{8a7384bc-b606-4438-bdf5-f5576645071c}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_CycleSec : REAL		// 지금 태스크의 주기 (s)
+VAR
+	nTask		: DINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[nTask := GETCURTASKINDEXEX();
+F_CycleSec := UDINT_TO_REAL(TwinCAT_SystemInfoVarList._TaskInfo[nTask].CycleTime) * 1.0E-7;	// 100 ns 단위]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

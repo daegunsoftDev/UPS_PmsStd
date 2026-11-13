@@ -1,0 +1,275 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_EquipmentLimits" Id="{470d1586-6928-45fe-9134-3ac9a70554a7}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_EquipmentLimits	// 설비 한도: 유닛(정격 × Derate ∩ 유닛 제한 모듈), 배터리 버스(BMS 한도 ∩ 버스 제한 모듈), 그룹 설비 범위. 스캔당 한 번
+// 성형(그룹 설비 범위)과 분배(유닛·버스 한도)가 이 결과를 같이 씀: 같은 한도를 두 곳에서 따로 계산하지 않음
+// 모듈은 범위를 좁히기만 함 (넓힐 수 없음). 0은 항상 범위 안 (모듈이 출력을 강제하지 못함)
+// 유닛 제한은 유닛의 실제 운전 모드에 맞는 등록(bAuto·bManual)만, 버스 제한은 그 버스에 대상 모드 유닛이 하나라도 있으면 버스 전체에 건다
+VAR_IN_OUT CONSTANT
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astUnit	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	iq_astAvail	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitAvail;
+	iq_astUnitProt	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitProt;	// 보호 Derate
+	iq_aeOpMode	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;	// 실제 운전 모드
+	iq_astBatGroup	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatGroupState;
+	iq_astUnitRuleReg	: ARRAY[1..GVL_PARAM.UNIT_RULE_COUNT] OF ST_RuleTargetReg;
+	iq_astBatRuleReg	: ARRAY[1..GVL_PARAM.BAT_RULE_COUNT] OF ST_RuleTargetReg;
+END_VAR
+VAR_IN_OUT
+	iq_aipUnitRule	: ARRAY[1..GVL_PARAM.UNIT_RULE_COUNT] OF I_UnitLimitRule;
+	iq_aipBatRule	: ARRAY[1..GVL_PARAM.BAT_RULE_COUNT] OF I_BatLimitRule;
+END_VAR
+VAR_OUTPUT
+	q_astUnitEnv	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitEnvelope;	// 유닛 한도 (분배)
+	q_astBatEnv	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatEnvelope;	// 버스 한도 (분배)
+	q_astGroupEnv	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupEnvelope;	// 그룹 설비 범위 (성형)
+END_VAR
+VAR
+	(* 반복 변수·임시값: 본문과 액션(A_)이 함께 씀. 액션이 본문의 VAR_TEMP를 못 볼 수 있어 VAR에 둠 *)
+	_u	: UINT;
+	_b	: UINT;
+	_g	: UINT;
+	_i	: UINT;
+	_bManual	: BOOL;
+	_fRatio	: REAL;
+	_fSP	: REAL;		// kW, 보호 P 상한 (정격 × P%). 피상전력 상한 계산용
+	_fSQ	: REAL;		// kvar, 보호 Q 상한 (정격 × Q%). 피상전력 상한 계산용
+	_stUnitView	: ST_UnitLimitView;
+	_stBatView	: ST_BatLimitView;
+	_stLimOut	: ST_LimitOut;
+	_stBatOut	: ST_BatLimitOut;
+	_stEnv	: ST_UnitEnvelope;
+	_stEnvNone	: ST_UnitEnvelope;
+	_stBatEnv	: ST_BatEnvelope;
+	_stBatNone	: ST_BatEnvelope;
+	_stGrp	: ST_GroupEnvelope;
+	_stGrpNone	: ST_GroupEnvelope;
+	_stNew	: ST_Range;
+	_stNoVal	: ST_Val;
+	_anAuto	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF UINT;	// 버스의 Auto 유닛 수
+	_anManual	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF UINT;	// 버스의 Manual 유닛 수
+	_afBusOut	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;	// 버스 유닛 실측 P 합
+	_afBusMax	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;	// 이 그룹 가용 유닛 P 상한 합 (버스별)
+	_afBusMin	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;
+	_abBusIn	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;	// 이 그룹 가용 유닛이 쓰는 버스
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[A_CountBusUnit();		// 버스마다 운전 모드별 유닛 수, 출력 합
+A_CalcBusLimit();		// 버스 한도: BMS 한도 합 ∩ 버스 제한 모듈
+A_CalcUnitLimit();		// 유닛 한도: 정격 × Derate ∩ 유닛 제한 모듈
+A_CalcGroupRange();		// 그룹 설비 범위 (가용 유닛)]]></ST>
+    </Implementation>
+    <Action Name="A_CountBusUnit" Id="{b5f6d24f-3962-4f77-ae03-5149c51c0cbf}">
+      <Implementation>
+        <ST><![CDATA[(* 1) 버스마다 운전 모드별 유닛 수, 출력 합 *)
+FOR _b := 1 TO GVL_PARAM.BAT_COUNT DO
+	_anAuto[_b]	:= 0;
+	_anManual[_b]	:= 0;
+	_afBusOut[_b]	:= 0;
+END_FOR
+FOR _u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	_b := iq_astUnitCfg[_u].nBatGroup;
+	IF _b >= 1 AND _b <= GVL_PARAM.BAT_COUNT THEN
+		IF iq_aeOpMode[_u] = E_OpMode.Manual THEN
+			_anManual[_b] := _anManual[_b] + 1;
+		ELSE
+			_anAuto[_b] := _anAuto[_b] + 1;
+		END_IF
+		IF iq_astUnit[_u].stP.bValid THEN
+			_afBusOut[_b] := _afBusOut[_b] + iq_astUnit[_u].stP.fValue;
+		END_IF
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_CalcBusLimit" Id="{9c225748-e2ba-4b27-bf89-1a62df207298}">
+      <Implementation>
+        <ST><![CDATA[(* 2) 버스 한도: BMS 한도 합 ∩ 버스 제한 모듈 *)
+FOR _b := 1 TO GVL_PARAM.BAT_COUNT DO
+	_stBatEnv	:= _stBatNone;
+	_stBatEnv.stP	:= F_RangeAdd(F_RangeOpen(), F_MakeLimit(MAX(iq_astBatGroup[_b].fPDisMax, 0.0), -MAX(iq_astBatGroup[_b].fPChgMax, 0.0), GVL_REASON.RSN_BAT), 0);
+	_stBatView.nBatGroup	:= _b;
+	_stBatView.bUsable	:= iq_astBatGroup[_b].bUsable;
+	_stBatView.stSoc	:= iq_astBatGroup[_b].stSoc;
+	_stBatView.stSocMin	:= iq_astBatGroup[_b].stSocMin;
+	_stBatView.stSocMax	:= iq_astBatGroup[_b].stSocMax;
+	_stBatView.fPChgMax	:= iq_astBatGroup[_b].fPChgMax;
+	_stBatView.fPDisMax	:= iq_astBatGroup[_b].fPDisMax;
+	_stBatView.fPOut	:= _afBusOut[_b];
+	_stBatView.nUnitAuto	:= _anAuto[_b];
+	_stBatView.nUnitManual	:= _anManual[_b];
+	FOR _i := 1 TO GVL_PARAM.BAT_RULE_COUNT DO
+		IF iq_aipBatRule[_i] <> 0 AND_THEN (iq_astBatRuleReg[_i].bEnable
+			AND (iq_astBatRuleReg[_i].nTarget = 0 OR iq_astBatRuleReg[_i].nTarget = _b)
+			AND F_ModeApplies(iq_astBatRuleReg[_i].bAuto, iq_astBatRuleReg[_i].bManual, _anAuto[_b], _anManual[_b])) THEN
+			_stBatOut	:= iq_aipBatRule[_i].M_Evaluate(_stBatView);
+			_stBatEnv.stP	:= F_RangeAdd(_stBatEnv.stP, _stBatOut.stP, iq_aipBatRule[_i].ModuleId);
+			_stBatEnv.bResume	:= _stBatEnv.bResume OR _stBatOut.bResume;
+		END_IF
+	END_FOR
+	_stBatEnv.stP.fMax	:= MAX(_stBatEnv.stP.fMax, 0.0);	// 0은 항상 범위 안
+	_stBatEnv.stP.fMin	:= MIN(_stBatEnv.stP.fMin, 0.0);
+	q_astBatEnv[_b]	:= _stBatEnv;
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_CalcUnitLimit" Id="{631c7600-a896-4326-86bf-41b3a22765f0}">
+      <Implementation>
+        <ST><![CDATA[(* 3) 유닛 한도: 정격 × Derate ∩ 유닛 제한 모듈 *)
+FOR _u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	_stEnv	:= _stEnvNone;
+	_b	:= iq_astUnitCfg[_u].nBatGroup;
+	_bManual	:= iq_aeOpMode[_u] = E_OpMode.Manual;
+	// 보호 상한 (P·Q 따로, 정격 대비 %). 100이면 정격
+	_stEnv.bDerated	:= iq_astUnitProt[_u].fPPct < 100.0 OR iq_astUnitProt[_u].fQPct < 100.0;
+	IF iq_astUnitProt[_u].fPPct < 100.0 THEN
+		_fRatio	:= LIMIT(0.0, iq_astUnitProt[_u].fPPct, 100.0) / 100.0;
+		_stEnv.stP	:= F_RangeAdd(F_RangeOpen(), F_MakeLimit(iq_astUnitCfg[_u].fPRated * _fRatio, -iq_astUnitCfg[_u].fPRated * _fRatio, GVL_REASON.RSN_DERATE), 0);
+		_stEnv.ePMaxBy	:= E_UnitLimitBy.Derate;
+		_stEnv.ePMinBy	:= E_UnitLimitBy.Derate;
+	ELSE
+		_stEnv.stP	:= F_RangeAdd(F_RangeOpen(), F_MakeLimit(iq_astUnitCfg[_u].fPRated, -iq_astUnitCfg[_u].fPRated, GVL_REASON.RSN_RATING), 0);
+		_stEnv.ePMaxBy	:= E_UnitLimitBy.Rating;
+		_stEnv.ePMinBy	:= E_UnitLimitBy.Rating;
+	END_IF
+	IF iq_astUnitProt[_u].fQPct < 100.0 THEN
+		_fRatio	:= LIMIT(0.0, iq_astUnitProt[_u].fQPct, 100.0) / 100.0;
+		_stEnv.stQ	:= F_RangeAdd(F_RangeOpen(), F_MakeLimit(iq_astUnitCfg[_u].fQRated * _fRatio, -iq_astUnitCfg[_u].fQRated * _fRatio, GVL_REASON.RSN_DERATE), 0);
+		_stEnv.eQMaxBy	:= E_UnitLimitBy.Derate;
+		_stEnv.eQMinBy	:= E_UnitLimitBy.Derate;
+	ELSE
+		_stEnv.stQ	:= F_RangeAdd(F_RangeOpen(), F_MakeLimit(iq_astUnitCfg[_u].fQRated, -iq_astUnitCfg[_u].fQRated, GVL_REASON.RSN_RATING_Q), 0);
+		_stEnv.eQMaxBy	:= E_UnitLimitBy.Rating;
+		_stEnv.eQMinBy	:= E_UnitLimitBy.Rating;
+	END_IF
+	// 피상전력 상한 = MIN(정격 S, √(P 상한² + Q 상한²)). P·Q 상한이 따로이므로 한쪽만 줄여도 다른 쪽은 묶지 않음 (둘 다 100이면 보통 정격 S)
+	_fSP			:= iq_astUnitCfg[_u].fPRated * LIMIT(0.0, iq_astUnitProt[_u].fPPct, 100.0) / 100.0;
+	_fSQ			:= iq_astUnitCfg[_u].fQRated * LIMIT(0.0, iq_astUnitProt[_u].fQPct, 100.0) / 100.0;
+	_stEnv.fSMax	:= MIN(iq_astUnitCfg[_u].fSRated, SQRT(_fSP * _fSP + _fSQ * _fSQ));
+	_stEnv.stPRule	:= F_RangeOpen();
+	_stEnv.stQRule	:= F_RangeOpen();
+
+	_stUnitView.nUnit	:= _u;
+	_stUnitView.eOpMode	:= iq_aeOpMode[_u];
+	_stUnitView.bAvail	:= iq_astAvail[_u].bAvail;
+	_stUnitView.eRunState	:= iq_astUnit[_u].eRunState;
+	_stUnitView.stP	:= iq_astUnit[_u].stP;
+	_stUnitView.stQ	:= iq_astUnit[_u].stQ;
+	_stUnitView.fPRated	:= iq_astUnitCfg[_u].fPRated;
+	_stUnitView.fQRated	:= iq_astUnitCfg[_u].fQRated;
+	_stUnitView.nBatGroup	:= _b;
+	_stUnitView.stSoc	:= _stNoVal;
+	IF _b >= 1 AND _b <= GVL_PARAM.BAT_COUNT THEN
+		_stUnitView.stSoc := iq_astBatGroup[_b].stSoc;
+	END_IF
+	FOR _i := 1 TO GVL_PARAM.UNIT_RULE_COUNT DO
+		IF iq_aipUnitRule[_i] <> 0 AND_THEN (iq_astUnitRuleReg[_i].bEnable
+			AND (iq_astUnitRuleReg[_i].nTarget = 0 OR iq_astUnitRuleReg[_i].nTarget = _u)
+			AND F_ModeApplies(iq_astUnitRuleReg[_i].bAuto, iq_astUnitRuleReg[_i].bManual, BOOL_TO_UINT(NOT _bManual), BOOL_TO_UINT(_bManual))) THEN
+			_stLimOut	:= iq_aipUnitRule[_i].M_Evaluate(_stUnitView);
+			_stEnv.stPRule	:= F_RangeAdd(_stEnv.stPRule, _stLimOut.stP, iq_aipUnitRule[_i].ModuleId);
+			_stEnv.stQRule	:= F_RangeAdd(_stEnv.stQRule, _stLimOut.stQ, iq_aipUnitRule[_i].ModuleId);
+			_stEnv.bResume	:= _stEnv.bResume OR _stLimOut.bResume;
+		END_IF
+	END_FOR
+	// 0은 항상 범위 안 (모듈이 출력을 강제하지 못함)
+	_stEnv.stPRule.fMax	:= MAX(_stEnv.stPRule.fMax, 0.0);
+	_stEnv.stPRule.fMin	:= MIN(_stEnv.stPRule.fMin, 0.0);
+	_stEnv.stQRule.fMax	:= MAX(_stEnv.stQRule.fMax, 0.0);
+	_stEnv.stQRule.fMin	:= MIN(_stEnv.stQRule.fMin, 0.0);
+	_stNew := F_RangeAnd(_stEnv.stP, _stEnv.stPRule);
+	IF _stNew.fMax < _stEnv.stP.fMax THEN _stEnv.ePMaxBy := E_UnitLimitBy.UnitRule; END_IF
+	IF _stNew.fMin > _stEnv.stP.fMin THEN _stEnv.ePMinBy := E_UnitLimitBy.UnitRule; END_IF
+	_stEnv.stP := _stNew;
+	_stNew := F_RangeAnd(_stEnv.stQ, _stEnv.stQRule);
+	IF _stNew.fMax < _stEnv.stQ.fMax THEN _stEnv.eQMaxBy := E_UnitLimitBy.UnitRule; END_IF
+	IF _stNew.fMin > _stEnv.stQ.fMin THEN _stEnv.eQMinBy := E_UnitLimitBy.UnitRule; END_IF
+	_stEnv.stQ := _stNew;
+	q_astUnitEnv[_u] := _stEnv;
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_CalcGroupRange" Id="{9f3ae6c9-161e-45a3-bfe1-25c8574a2fa1}">
+      <Implementation>
+        <ST><![CDATA[(* 4) 그룹 설비 범위 (가용 유닛). 정격 = 유닛 한도 합. 배터리 = 버스마다 min(버스 한도, 그 버스 가용 유닛 한도 합) + 배터리 없는 유닛 한도
+   버스 하나를 여러 그룹이 같이 쓰면 그룹마다 버스 전체 한도를 봄 (실제 나눔은 분배가 버스 남은 한도로 맞춤) *)
+FOR _g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	_stGrp := _stGrpNone;
+	_stGrp.stRating.nMaxReason	:= GVL_REASON.RSN_RATING;
+	_stGrp.stRating.nMinReason	:= GVL_REASON.RSN_RATING;
+	_stGrp.stBattery.nMaxReason	:= GVL_REASON.RSN_BAT;
+	_stGrp.stBattery.nMinReason	:= GVL_REASON.RSN_BAT;
+	_stGrp.stQ.nMaxReason	:= GVL_REASON.RSN_RATING_Q;
+	_stGrp.stQ.nMinReason	:= GVL_REASON.RSN_RATING_Q;
+	FOR _b := 1 TO GVL_PARAM.BAT_COUNT DO
+		_afBusMax[_b]	:= 0;
+		_afBusMin[_b]	:= 0;
+		_abBusIn[_b]	:= FALSE;
+	END_FOR
+	FOR _u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		IF iq_astUnitCfg[_u].nGroup = _g AND iq_astAvail[_u].bAvail THEN
+			_stEnv := q_astUnitEnv[_u];
+			_stGrp.stRating.fMax	:= _stGrp.stRating.fMax + _stEnv.stP.fMax;
+			_stGrp.stRating.fMin	:= _stGrp.stRating.fMin + _stEnv.stP.fMin;
+			_stGrp.stQ.fMax	:= _stGrp.stQ.fMax + _stEnv.stQ.fMax;
+			_stGrp.stQ.fMin	:= _stGrp.stQ.fMin + _stEnv.stQ.fMin;
+			_stGrp.fSMax	:= _stGrp.fSMax + _stEnv.fSMax;
+			_stGrp.bResume	:= _stGrp.bResume OR _stEnv.bResume;
+			// 정한 주체: 유닛 제한 모듈이 처음 찾은 것, 아니면 Derate, 아니면 정격
+			IF _stGrp.stRating.nMaxModule = 0 THEN
+				IF _stEnv.ePMaxBy = E_UnitLimitBy.UnitRule THEN
+					_stGrp.stRating.nMaxModule	:= _stEnv.stP.nMaxModule;
+					_stGrp.stRating.nMaxReason	:= _stEnv.stP.nMaxReason;
+				ELSIF _stEnv.ePMaxBy = E_UnitLimitBy.Derate THEN
+					_stGrp.stRating.nMaxReason	:= GVL_REASON.RSN_DERATE;
+				END_IF
+			END_IF
+			IF _stGrp.stRating.nMinModule = 0 THEN
+				IF _stEnv.ePMinBy = E_UnitLimitBy.UnitRule THEN
+					_stGrp.stRating.nMinModule	:= _stEnv.stP.nMinModule;
+					_stGrp.stRating.nMinReason	:= _stEnv.stP.nMinReason;
+				ELSIF _stEnv.ePMinBy = E_UnitLimitBy.Derate THEN
+					_stGrp.stRating.nMinReason	:= GVL_REASON.RSN_DERATE;
+				END_IF
+			END_IF
+			_b := iq_astUnitCfg[_u].nBatGroup;
+			IF _b >= 1 AND _b <= GVL_PARAM.BAT_COUNT THEN
+				_afBusMax[_b]	:= _afBusMax[_b] + _stEnv.stP.fMax;
+				_afBusMin[_b]	:= _afBusMin[_b] + _stEnv.stP.fMin;
+				_abBusIn[_b]	:= TRUE;
+			ELSE
+				// 배터리 없는 유닛: 배터리 한도로 자르지 않고 자기 한도
+				_stGrp.stBattery.fMax	:= _stGrp.stBattery.fMax + _stEnv.stP.fMax;
+				_stGrp.stBattery.fMin	:= _stGrp.stBattery.fMin + _stEnv.stP.fMin;
+			END_IF
+		END_IF
+	END_FOR
+	FOR _b := 1 TO GVL_PARAM.BAT_COUNT DO
+		IF _abBusIn[_b] THEN
+			IF q_astBatEnv[_b].stP.fMax < _afBusMax[_b] THEN
+				_stGrp.stBattery.fMax := _stGrp.stBattery.fMax + q_astBatEnv[_b].stP.fMax;
+				IF q_astBatEnv[_b].stP.nMaxModule <> 0 AND _stGrp.stBattery.nMaxModule = 0 THEN
+					_stGrp.stBattery.nMaxModule	:= q_astBatEnv[_b].stP.nMaxModule;
+					_stGrp.stBattery.nMaxReason	:= q_astBatEnv[_b].stP.nMaxReason;
+				END_IF
+			ELSE
+				_stGrp.stBattery.fMax := _stGrp.stBattery.fMax + _afBusMax[_b];
+			END_IF
+			IF q_astBatEnv[_b].stP.fMin > _afBusMin[_b] THEN
+				_stGrp.stBattery.fMin := _stGrp.stBattery.fMin + q_astBatEnv[_b].stP.fMin;
+				IF q_astBatEnv[_b].stP.nMinModule <> 0 AND _stGrp.stBattery.nMinModule = 0 THEN
+					_stGrp.stBattery.nMinModule	:= q_astBatEnv[_b].stP.nMinModule;
+					_stGrp.stBattery.nMinReason	:= q_astBatEnv[_b].stP.nMinReason;
+				END_IF
+			ELSE
+				_stGrp.stBattery.fMin := _stGrp.stBattery.fMin + _afBusMin[_b];
+			END_IF
+			_stGrp.bResume := _stGrp.bResume OR q_astBatEnv[_b].bResume;
+		END_IF
+	END_FOR
+	q_astGroupEnv[_g] := _stGrp;
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+  </POU>
+</TcPlcObject>

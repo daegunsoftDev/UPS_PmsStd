@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_AirConditionerPublish_V1" Id="{5b2ff0d5-8a7b-44b9-8b0d-7d1dcd2590a9}">
+    <Declaration><![CDATA[(* 공조기(에어컨) 발행 레코드 1대 (명세: 21._Airconditioner.xlsx 시트 V1). 필드 이름·순서·형식은 명세 그대로 *)
+{attribute 'pack_mode' := '1'}
+TYPE ST_AirConditionerPublish_V1 :
+STRUCT
+	DeviceIndex			:	UDINT;		// 장치 인덱스
+	Status				:	UDINT;		// 상태 (bit) b0 통신 이상, b1 정지, b2 운전, b3 알람
+	ModeState			:	UDINT;		// 에어컨 모드 (enum) 0 Cooling, 2 Normal, 3 Auto, 4 Heating, 5 Dry, 6 Fan
+	WindMode			:	UDINT;		// 바람 모드 (enum) 0 Normal, 1 Low, 2 Middle, 3 High, 4 Auto
+	RoomTemperature		:	REAL;		// 실내 온도 ℃ (-1000 ~ 1000)
+	ControlTemperature	:	REAL;		// 설정 온도 ℃ (-1000 ~ 1000)
+	Fault1				:	UDINT;		// 고장 (bit) b0 실내 공기 온도 센서, b1 배관 입구 온도 센서, b2 유선 리모컨 통신, b3 Drain pump, b4 배관 출구 온도 센서, b5 EEPROM, b6 팬 Lock
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

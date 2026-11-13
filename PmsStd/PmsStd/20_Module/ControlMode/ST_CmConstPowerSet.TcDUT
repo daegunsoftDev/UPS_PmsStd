@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CmConstPowerSet" Id="{a38e4665-2194-4a3a-b3e8-f056d9b9caf3}">
+    <Declaration><![CDATA[TYPE ST_CmConstPowerSet :	// 정출력 모드 설정
+STRUCT
+	fPSet		: REAL;			// kW, 접속점 기준 (방전 +, 충전 -)
+	bQSet		: BOOL;			// Q도 냄 (FALSE = Q는 다른 지령원에 맡김)
+	fQSet		: REAL;			// kvar, 접속점 기준 (공급 +)
+	tDuration	: TIME;			// 운전 시간. T#0S = 끝없이 (요청이 바뀔 때까지)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

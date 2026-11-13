@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtPcsCmd" Id="{a457cd0c-3a50-44b0-857a-a1988151ef9c}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtPcsCmd : WSTRING(31)
+VAR_INPUT
+	i_e		: E_PcsCmd;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_e OF
+	E_PcsCmd.None:		F_TxtPcsCmd := "없음";
+	E_PcsCmd.Run:		F_TxtPcsCmd := "Run";
+	E_PcsCmd.Standby:	F_TxtPcsCmd := "Standby";
+	E_PcsCmd.Stop:		F_TxtPcsCmd := "Stop";
+	E_PcsCmd.Reset:		F_TxtPcsCmd := "Reset";
+	E_PcsCmd.EStop:		F_TxtPcsCmd := "EStop";
+ELSE
+	F_TxtPcsCmd := "?";
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

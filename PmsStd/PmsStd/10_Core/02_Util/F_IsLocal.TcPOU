@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_IsLocal" Id="{c66082f8-60df-4a84-8e53-d05e1ad37341}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_IsLocal : BOOL		// PCS가 로컬(PMS 제어 안 받음)인가. 통신이 끊긴 건 로컬로 보지 않음
+VAR_INPUT
+	i_stUnit	: ST_UnitState;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_IsLocal := i_stUnit.bComm AND NOT i_stUnit.bCtrlReady;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

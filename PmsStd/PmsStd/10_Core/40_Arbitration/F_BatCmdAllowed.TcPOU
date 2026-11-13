@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_BatCmdAllowed" Id="{c01d7f2f-e1af-4508-a0c3-50b1d6db0534}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_BatCmdAllowed : BOOL		// 지령원의 배터리 요청을 이 운전 모드에서 받나 (명령마다 등록값)
+VAR_INPUT
+	i_stSet		: ST_BatCmdMode;
+	i_eCmd		: E_BatCmd;
+	i_eOpMode	: E_OpMode;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_eCmd OF
+	E_BatCmd.Close:		F_BatCmdAllowed := F_SourceAllowed(i_stSet.eClose, i_eOpMode);
+	E_BatCmd.Open:		F_BatCmdAllowed := F_SourceAllowed(i_stSet.eOpen, i_eOpMode);
+ELSE
+	F_BatCmdAllowed := FALSE;		// None, 지령원이 보내지 않는 명령
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

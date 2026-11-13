@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_ProtReq" Id="{ba4c3c3c-16e8-4fa9-855e-a20e1b295203}">
+    <Declaration><![CDATA[TYPE ST_ProtReq :		// 보호 대응이 내는 요청 (보호 칸 하나·대상 하나). 코어가 대응을 부르기 전에 비우고, 부른 뒤 장비마다 합침 (센 쪽·낮은 쪽)
+// 칸은 추가만 함 (새 칸의 기본값은 '요청 없음'이라 있던 대응 모듈은 그대로 동작)
+STRUCT
+	aePcs		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_PcsAction;		// 유닛 PCS 조치: Standby = 출력 0 (명령 없음), Stop·EStop = 명령
+	abToManual	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;			// 유닛 요청 모드를 Manual로 (걸려 있는 동안. 풀려도 Manual 유지)
+	afPPct		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;	// 유닛 P 상한 (정격 대비 %, 100 = 없음. 코어가 비울 때 100으로 채움)
+	afQPct		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;	// 유닛 Q 상한 (정격 대비 %, 100 = 없음. 코어가 비울 때 100으로 채움)
+	aeBat		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF E_BatAction;		// BMS 조치 (시퀀서가 버스 PCS 정지 확인 뒤 보냄)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_OutputReady" Id="{2f44e72b-d7c4-46f7-a8cf-0fd60dca7a84}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_OutputReady	// 유닛마다 지금 출력(P·Q)을 낼 수 있는지 한 번 정함. 성형(램프 기준)·분배(대상)·디스패처(Manual 쓰기 시점)는 이 결과만 씀
+// 출력 가능 = 가용 + 장비 활성(Run·대기) + 정지 진행 중 아님 + 모드 전환 아님 + Manual 새 지령 대기 아님
+VAR_IN_OUT CONSTANT
+	iq_astAvail	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitAvail;	// FB_UnitAvail
+	iq_astUnit	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;	// 장비 실제 상태
+	iq_abStopping	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 정지 진행 중 (fbSequencer.q_abStopping, 지난 스캔)
+	iq_abSwitching	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 모드 전환 중 (FB_ModeSwitch)
+	iq_abManualWaitNewCmd	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// Manual 새 지령 대기 (fbManualGate)
+END_VAR
+VAR_OUTPUT
+	q_abReady	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 출력 가능
+	q_aeNotReadyBy	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_UnitLimitBy;	// 못 내는 이유 (None = 출력 가능): NotAvail / ModeSwitch / WaitManualCmd / NotRun
+END_VAR
+VAR_TEMP
+	u	: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF NOT iq_astAvail[u].bAvail THEN
+		q_aeNotReadyBy[u] := E_UnitLimitBy.NotAvail;
+	ELSIF iq_abSwitching[u] THEN
+		q_aeNotReadyBy[u] := E_UnitLimitBy.ModeSwitch;
+	ELSIF iq_abManualWaitNewCmd[u] THEN
+		q_aeNotReadyBy[u] := E_UnitLimitBy.WaitManualCmd;
+	ELSIF iq_abStopping[u] OR NOT (iq_astUnit[u].eRunState = E_RunState.Run OR iq_astUnit[u].eRunState = E_RunState.Standby) THEN
+		q_aeNotReadyBy[u] := E_UnitLimitBy.NotRun;
+	ELSE
+		q_aeNotReadyBy[u] := E_UnitLimitBy.None;
+	END_IF
+	q_abReady[u] := q_aeNotReadyBy[u] = E_UnitLimitBy.None;
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

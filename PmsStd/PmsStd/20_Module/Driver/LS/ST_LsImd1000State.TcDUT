@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="ST_LsImd1000State" Id="{a05f1d8e-fda6-41d0-bd69-8cb838b498c8}">
+    <Declaration><![CDATA[(* LS IMD1000 읽은 값 (FB_LsImd1000.q_stState → FB_RptLsImd1000). 2026-11-09.
+   맵: 인터페이스\(MM-20210721) IMD1000 Modbus-Setting_v1_0_0.pdf 3.6.2·3.6.3. 주소는 프로토콜 주소(0 기준, 맵 Addr 열) *)
+TYPE ST_LsImd1000State :
+STRUCT
+	bValid		: BOOL;		// 통신 정상이고 측정 영역을 한 번 이상 읽음
+	fInsulation	: REAL;		// 절연저항 kΩ (IR 224~225 FLOAT32, 앞 = 상위 워드)
+	wDiState	: WORD;		// IR 206 기기 DI 입력 상태 (b0 버튼 Self Test, b1 DI Self Test, b2 DI Stand-By)
+	wSelfDiag	: WORD;		// IR 209 자가진단-기기 Error 상태#2 (b0 메모리, b1 RTC, b2 교정)
+	wAlarm		: WORD;		// IR 210 절연저항 측정 alarm 상태 (b0 Ins. Alarm, b1~b3 Pre Alarm#1~#3 동작)
+	wConnect	: WORD;		// IR 211 기기 & 계통 연결 상태 (b0 PE 연결, b1 Device, b2 System 연결, b8 측정 전압 이상)
+	wSelfTest	: WORD;		// IR 215 Self Test 전체 진행 상태 (0 없음, 1 진행, 2 완료, 5 정지)
+	bSetValid	: BOOL;		// 설정 영역을 한 번 이상 읽음
+	nInsPickup	: UDINT;	// HR 40~41 Ins. Alarm Pick-up kΩ (UINT32, 앞 = 상위 워드)
+	nPre1Pickup	: UDINT;	// HR 46~47 Pre Alarm#1 Pick-up kΩ
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_TraceStep" Id="{6d21f4a8-0e93-4b5c-8f27-a1c4e5d79b03}">
+    <Declaration><![CDATA[TYPE ST_TraceStep :		// 출력 추적표 한 줄
+STRUCT
+	eStep		: E_TraceStep;
+	fValue		: REAL;			// kW, 이 단계를 지난 값
+	bCut		: BOOL;			// 이 단계에서 값이 바뀜
+	nModule		: UINT;			// 바꾼 모듈 (0 = 코어). Request 줄은 지령원 모듈
+	nReason		: UINT;			// 이유 코드
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

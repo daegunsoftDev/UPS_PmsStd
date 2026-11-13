@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_SeqSet" Id="{4751dc1b-67ce-46a2-b153-e5465dcbe12a}">
+    <Declaration><![CDATA[TYPE ST_SeqSet :
+STRUCT
+	tWritePeriod	: TIME := T#200MS;		// Auto 유닛 P·Q 쓰기 주기 (Manual 유닛의 램프·설비 제한 추종도 이 주기)
+	stPcs			: ST_PcsSeqSet;			// PCS(유닛) 시퀀스
+	stBat			: ST_BatSeqSet;			// 배터리 시퀀스
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

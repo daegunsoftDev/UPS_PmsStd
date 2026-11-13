@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_SchedSlot" Id="{2b905330-6807-4e8c-a4f9-a08e47b936ff}">
+    <Declaration><![CDATA[TYPE ST_SchedSlot :		// 시간표 한 칸
+STRUCT
+	nStart		: UINT;		// HHMM, 시작 (포함)
+	nEnd		: UINT;		// HHMM, 끝 (미포함. 2400 = 자정까지). 시작 = 끝 = 빈 칸. 자정을 넘는 운전은 두 칸으로 (그날 ~2400, 다음날 0000~)
+	fP			: REAL;		// kW, 접속점 기준 (방전 +, 충전 -). Messis 값(충전 +)과 부호가 반대
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

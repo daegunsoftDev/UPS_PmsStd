@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="ST_PcsConfig_Rx" Id="{9001f91f-f7c6-4702-b16b-a32b0276625f}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_PcsConfig_Rx :
+STRUCT
+	DeviceId			:	UDINT;
+	ChargePowerLimit	:	ST_CommonConfig_UDINT;	// kW
+	DisChargePowerLimit	:	ST_CommonConfig_UDINT;	// kW
+	PvMarginRate		:	ST_CommonConfig_UDINT;	// %
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

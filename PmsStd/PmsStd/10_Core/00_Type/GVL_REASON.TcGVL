@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <GVL Name="GVL_REASON" Id="{f7361514-c4e7-4891-ae90-09b141f2ff81}">
+    <Declaration><![CDATA[VAR_GLOBAL CONSTANT
+	(* 코어가 낸 제한의 이유 코드 (모듈 ID = 0일 때)
+	   - 모듈 ID ≠ 0이면 이유 코드는 그 모듈이 정한 것. 지령원이 낸 제한은 이유 0 *)
+	RSN_RATING		: UINT := 1;		// 가용 유닛 P 정격 합
+	RSN_BAT			: UINT := 2;		// 배터리 충·방전 한도 합
+	RSN_RATING_Q	: UINT := 3;	// 가용 유닛 Q 정격 합
+	RSN_DERATE	: UINT := 4;	// 보호 Derate (유닛 정격 × Derate)
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

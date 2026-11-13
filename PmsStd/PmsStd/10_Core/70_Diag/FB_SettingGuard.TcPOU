@@ -1,0 +1,341 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_SettingGuard" Id="{0ea2818c-f392-4416-a5ce-4e8e6e27b72d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_SettingGuard	// 운전 중 바꾸는 설정 값 지키기: 잘못된 값은 받지 않고 마지막 정상값으로 되돌림 (GVL_PERSIST에 다시 씀 → 화면·저장값도 정상값)
+// 대상: 코어 설정(명령 필터·Manual 지령 거르기·시퀀스), 등록·출력·규칙 설정(번호 범위, 묶음 통째로), 현장 모듈 설정 묶음(각 모듈 M_CheckSet)
+// 처음부터(PMS 시작 때) 잘못이면 되돌릴 정상값이 없으므로 q_bNoGood → FB_ConfigCheck가 설정 오류로 올림 (고치면 그 값이 정상값이 됨)
+// 모듈 설정은 묶음 통째로 되돌림 (같은 때 바꾼 다른 모듈 값도 되돌아감). 되돌린 스캔은 q_bRestored → MAIN이 모듈에 다시 넘김
+// MAIN ⓪에서 모듈 설정 넘기기·모듈 목록 다음, FB_ConfigCheck 앞에 부름
+VAR_INPUT
+	i_pModuleSet	: PVOID;		// 현장 모듈 설정 묶음 주소 (ADR(GVL_PERSIST.g_stModuleSet))
+	i_nModuleSetSize	: UDINT;	// 그 크기. GVL_PARAM.MODULE_SET_BYTES보다 크면 모듈 설정은 되돌리지 않음 (설정 오류는 FB_ConfigCheck)
+END_VAR
+VAR_IN_OUT
+	iq_stCmdFilter	: ST_CmdFilterSet;		// GVL_PERSIST.g_stCmdFilter (잘못이면 되돌려 씀)
+	iq_stManualCmdSet	: ST_ManualCmdSet;	// GVL_PERSIST.g_stManualCmdSet
+	iq_stSeqSet		: ST_SeqSet;			// GVL_PERSIST.g_stSeqSet
+	iq_astGroupSet	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupSet;	// GVL_PERSIST.g_astGroupSet (램프율이 숫자가 아니면 되돌림). [결함 13 수정 2026-11-04: 추가]
+	iq_aipModule	: ARRAY[1..GVL_PARAM.MODULE_MAX] OF I_Module;	// 등록된 모듈 (FB_ModuleList)
+	(* 등록·출력·규칙 설정 (GVL_PERSIST, 운전 중 HMI로 바꿈): 번호가 범위 밖이면 묶음 통째로 되돌림 *)
+	iq_astOutputCfg	: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF ST_OutputCfg;
+	iq_astRuleCfg	: ARRAY[1..GVL_PARAM.RULE_COUNT] OF ST_RuleCfg;
+	iq_astSourceReg	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceReg;
+	iq_astLimitReg	: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF ST_ModuleReg;
+	iq_astPermitReg	: ARRAY[1..GVL_PARAM.PERMIT_COUNT] OF ST_ModuleReg;
+	iq_astCompReg	: ARRAY[1..GVL_PARAM.COMP_COUNT] OF ST_ModuleReg;
+	iq_astUnitRuleReg	: ARRAY[1..GVL_PARAM.UNIT_RULE_COUNT] OF ST_RuleTargetReg;
+	iq_astBatRuleReg	: ARRAY[1..GVL_PARAM.BAT_RULE_COUNT] OF ST_RuleTargetReg;
+	(* 위 점검에 쓰는 등록 배열 (모듈이 등록된 칸만 봄) *)
+	iq_aipLimit		: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF I_LimitRule;
+	iq_aipPermit	: ARRAY[1..GVL_PARAM.PERMIT_COUNT] OF I_StartPermit;
+	iq_aipComp		: ARRAY[1..GVL_PARAM.COMP_COUNT] OF I_Compensator;
+	iq_aipRule		: ARRAY[1..GVL_PARAM.RULE_COUNT] OF I_ProtectionRule;
+END_VAR
+VAR_OUTPUT
+	q_bRejected		: BOOL;			// 이번 스캔에 잘못된 값을 되돌림 (1스캔, 기록용)
+	q_sRejected		: WSTRING(63);	// 되돌린 설정과 이유 (마지막)
+	q_bRestored		: BOOL;			// 이번 스캔에 모듈 설정 묶음을 되돌림 → MAIN이 모듈에 다시 넘김
+	q_bNoGood		: BOOL;			// 잘못된 값인데 되돌릴 정상값이 없음 (시작부터 잘못) → 설정 오류
+	q_sNoGood		: WSTRING(63);	// 그 설정과 이유
+	q_bModuleSetTooBig	: BOOL;		// 모듈 설정 묶음이 GVL_PARAM.MODULE_SET_BYTES보다 큼 (되돌리기·바로 저장 안 됨) → FB_ConfigCheck가 설정 오류로 올림
+END_VAR
+VAR
+	_stCmdFilter	: ST_CmdFilterSet;		// 마지막 정상값
+	_stManualCmdSet	: ST_ManualCmdSet;
+	_stSeqSet		: ST_SeqSet;
+	_abModuleSet	: ARRAY[0..GVL_PARAM.MODULE_SET_BYTES - 1] OF BYTE;
+	_bGoodCmdFilter	: BOOL;			// 정상값을 가진 적 있음
+	_bGoodManualCmdSet	: BOOL;
+	_bGoodSeqSet	: BOOL;
+	_astGroupSet	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupSet;	// 마지막 정상값 [결함 13 수정 2026-11-04: 추가]
+	_bGoodGroupSet	: BOOL;
+	_bGoodModuleSet	: BOOL;
+	(* 등록·출력·규칙 설정 마지막 정상값 *)
+	_astOutputCfg	: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF ST_OutputCfg;
+	_astRuleCfg		: ARRAY[1..GVL_PARAM.RULE_COUNT] OF ST_RuleCfg;
+	_astSourceReg	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceReg;
+	_astLimitReg	: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF ST_ModuleReg;
+	_astPermitReg	: ARRAY[1..GVL_PARAM.PERMIT_COUNT] OF ST_ModuleReg;
+	_astCompReg		: ARRAY[1..GVL_PARAM.COMP_COUNT] OF ST_ModuleReg;
+	_astUnitRuleReg	: ARRAY[1..GVL_PARAM.UNIT_RULE_COUNT] OF ST_RuleTargetReg;
+	_astBatRuleReg	: ARRAY[1..GVL_PARAM.BAT_RULE_COUNT] OF ST_RuleTargetReg;
+	_bGoodReg		: BOOL;
+	(* A_CheckReg가 씀 (액션은 VAR에 둔 값만 씀) *)
+	_sRegErr		: WSTRING(63);	// 등록·출력·규칙 설정 오류 문구 (빈 문구 = 정상, 처음 걸린 것 하나)
+	_nRegIdx		: UINT;
+	_nRegMax		: UINT;			// 보호 규칙 대상 번호 상한 (범위마다)
+END_VAR
+VAR_TEMP
+	i		: UINT;
+	sErr	: WSTRING(63);
+	bModuleSetOk	: BOOL;		// 묶음 크기가 되돌릴 수 있는 크기
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[q_bRejected	:= FALSE;
+q_bRestored	:= FALSE;
+q_bNoGood	:= FALSE;
+q_sNoGood	:= "";
+
+(* 코어 설정 *)
+sErr := M_CheckCmdFilter(iq_stCmdFilter);
+IF sErr = "" THEN
+	_stCmdFilter := iq_stCmdFilter;	_bGoodCmdFilter := TRUE;
+ELSIF _bGoodCmdFilter THEN
+	iq_stCmdFilter := _stCmdFilter;	M_Reject(WCONCAT("명령 필터: ", sErr));
+ELSE
+	M_NoGood(WCONCAT("g_stCmdFilter ", sErr));
+END_IF
+
+sErr := M_CheckManualCmdSet(iq_stManualCmdSet);
+IF sErr = "" THEN
+	_stManualCmdSet := iq_stManualCmdSet;	_bGoodManualCmdSet := TRUE;
+ELSIF _bGoodManualCmdSet THEN
+	iq_stManualCmdSet := _stManualCmdSet;	M_Reject(WCONCAT("Manual 지령 거르기: ", sErr));
+ELSE
+	M_NoGood(WCONCAT("g_stManualCmdSet ", sErr));
+END_IF
+
+sErr := M_CheckSeqSet(iq_stSeqSet);
+IF sErr = "" THEN
+	_stSeqSet := iq_stSeqSet;	_bGoodSeqSet := TRUE;
+ELSIF _bGoodSeqSet THEN
+	iq_stSeqSet := _stSeqSet;	M_Reject(WCONCAT("시퀀스: ", sErr));
+ELSE
+	M_NoGood(WCONCAT("g_stSeqSet ", sErr));
+END_IF
+
+(* 그룹 설정: 램프율 REAL이 숫자인지 ([결함 13 수정 2026-11-04: 추가. 범위는 FB_ShapePath가 씀)] *)
+sErr := "";
+FOR i := 1 TO GVL_PARAM.GROUP_COUNT DO
+	IF sErr = "" AND NOT (F_RealOk(iq_astGroupSet[i].fRampUp) AND F_RealOk(iq_astGroupSet[i].fRampDn) AND F_RealOk(iq_astGroupSet[i].fRampResume)) THEN
+		sErr := F_TxtNum("램프율 숫자 아님: 그룹 ", i);
+	END_IF
+END_FOR
+IF sErr = "" THEN
+	_astGroupSet := iq_astGroupSet;	_bGoodGroupSet := TRUE;
+ELSIF _bGoodGroupSet THEN
+	iq_astGroupSet := _astGroupSet;	M_Reject(WCONCAT("그룹 설정: ", sErr));
+ELSE
+	FOR i := 1 TO GVL_PARAM.GROUP_COUNT DO	// 되돌릴 값이 없으면 숫자 아닌 칸만 0 (램프 없음)으로
+		IF NOT F_RealOk(iq_astGroupSet[i].fRampUp) THEN iq_astGroupSet[i].fRampUp := 0; END_IF
+		IF NOT F_RealOk(iq_astGroupSet[i].fRampDn) THEN iq_astGroupSet[i].fRampDn := 0; END_IF
+		IF NOT F_RealOk(iq_astGroupSet[i].fRampResume) THEN iq_astGroupSet[i].fRampResume := 0; END_IF
+	END_FOR
+	M_NoGood(WCONCAT("g_astGroupSet ", sErr));
+END_IF
+
+(* 등록·출력·규칙 설정: 번호 범위 (틀리면 묶음 통째로 되돌림) *)
+A_CheckReg();
+sErr := _sRegErr;
+IF sErr = "" THEN
+	A_SaveReg();	_bGoodReg := TRUE;
+ELSIF _bGoodReg THEN
+	A_RestoreReg();	M_Reject(sErr);
+ELSE
+	M_NoGood(sErr);
+END_IF
+
+(* 모듈 설정: 모듈이 스스로 점검 (MAIN이 이 스캔에 넘긴 값). 처음 걸린 모듈 문구 *)
+sErr := "";
+FOR i := 1 TO GVL_PARAM.MODULE_MAX DO
+	IF sErr = "" AND iq_aipModule[i] <> 0 THEN
+		sErr := iq_aipModule[i].M_CheckSet();
+		IF sErr <> "" THEN
+			sErr := WCONCAT(WCONCAT(STRING_TO_WSTRING(iq_aipModule[i].ModuleName), ": "), sErr);
+		END_IF
+	END_IF
+END_FOR
+q_bModuleSetTooBig := i_nModuleSetSize > GVL_PARAM.MODULE_SET_BYTES;
+bModuleSetOk := i_pModuleSet <> 0 AND i_nModuleSetSize > 0 AND NOT q_bModuleSetTooBig;
+IF sErr = "" THEN
+	IF bModuleSetOk THEN
+		MEMCPY(ADR(_abModuleSet), i_pModuleSet, i_nModuleSetSize);
+		_bGoodModuleSet := TRUE;
+	END_IF
+ELSIF bModuleSetOk AND _bGoodModuleSet THEN
+	MEMCPY(i_pModuleSet, ADR(_abModuleSet), i_nModuleSetSize);
+	q_bRestored := TRUE;
+	M_Reject(sErr);
+ELSE
+	M_NoGood(sErr);
+END_IF]]></ST>
+    </Implementation>
+    <Method Name="M_Reject" Id="{2b8ee022-2d93-4c97-9417-62c7610f514c}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Reject	// 잘못된 값을 되돌림 (기록용 출력)
+VAR_INPUT
+	i_sText	: WSTRING(63);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[q_bRejected	:= TRUE;
+q_sRejected	:= i_sText;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_NoGood" Id="{c885e7fe-f69a-4b0c-9d86-5d1a0dd53ed6}">
+      <Declaration><![CDATA[METHOD PRIVATE M_NoGood	// 잘못됐는데 되돌릴 정상값이 없음 → 설정 오류
+VAR_INPUT
+	i_sText	: WSTRING(63);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT q_bNoGood THEN
+	q_sNoGood := i_sText;		// 처음 것 하나
+END_IF
+q_bNoGood := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckCmdFilter" Id="{46164eef-5c69-49fb-adb3-23b16b1b729c}">
+      <Declaration><![CDATA[METHOD PRIVATE M_CheckCmdFilter : WSTRING(63)	// 빈 문구 = 정상
+VAR_INPUT
+	i_stSet	: ST_CmdFilterSet;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckCmdFilter := "";
+IF NOT F_RealOk(i_stSet.fBadFactor) THEN	// [결함 13 수정 2026-11-04: 숫자 아님(NaN·무한대)은 비교 전에 거름]
+	M_CheckCmdFilter := "fBadFactor 숫자 아님";
+ELSIF i_stSet.bBadValue AND i_stSet.fBadFactor <= 1.0 THEN
+	M_CheckCmdFilter := "fBadFactor 1 이하";
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckManualCmdSet" Id="{46cb65a8-7deb-41ca-8742-53a944fc68db}">
+      <Declaration><![CDATA[METHOD PRIVATE M_CheckManualCmdSet : WSTRING(63)	// 빈 문구 = 정상
+VAR_INPUT
+	i_stSet	: ST_ManualCmdSet;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckManualCmdSet := "";
+IF NOT F_RealOk(i_stSet.fDirBand) THEN	// [결함 13 수정 2026-11-04]
+	M_CheckManualCmdSet := "fDirBand 숫자 아님";
+ELSIF i_stSet.fDirBand < 0.0 OR i_stSet.fDirBand > 100.0 THEN
+	M_CheckManualCmdSet := "fDirBand 범위 밖 (0~100 %)";
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckSeqSet" Id="{d4b6ac7d-e4f4-4fab-989f-a1601056bed9}">
+      <Declaration><![CDATA[METHOD PRIVATE M_CheckSeqSet : WSTRING(63)	// 빈 문구 = 정상
+VAR_INPUT
+	i_stSet	: ST_SeqSet;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckSeqSet := "";
+IF i_stSet.tWritePeriod = T#0S THEN
+	M_CheckSeqSet := "tWritePeriod 0";
+ELSIF i_stSet.stPcs.tCmdConfirm = T#0S OR i_stSet.stPcs.tStopRetry = T#0S THEN
+	M_CheckSeqSet := "PCS 확인 시간 0 (tCmdConfirm·tStopRetry)";
+ELSIF NOT F_RealOk(i_stSet.stPcs.fStopDonePct) THEN	// [결함 13 수정 2026-11-04]
+	M_CheckSeqSet := "fStopDonePct 숫자 아님";
+ELSIF i_stSet.stPcs.fStopDonePct < 0.0 OR i_stSet.stPcs.fStopDonePct > 100.0 THEN
+	M_CheckSeqSet := "fStopDonePct 범위 밖 (0~100 %)";
+ELSIF i_stSet.stPcs.bStopRamp AND i_stSet.stPcs.tStopRampMax = T#0S THEN
+	M_CheckSeqSet := "tStopRampMax 0 (정지 램프 켬)";
+ELSIF i_stSet.stBat.tConfirm = T#0S OR i_stSet.stBat.tOpenRetry = T#0S THEN
+	M_CheckSeqSet := "배터리 확인 시간 0 (tConfirm·tOpenRetry)";
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Action Name="A_CheckReg" Id="{71a10b15-5f10-42f9-8031-7b834dd29534}">
+      <Implementation>
+        <ST><![CDATA[// 등록·출력·규칙 설정의 번호 범위 → _sRegErr (빈 문구 = 정상, 처음 걸린 것 하나)
+_sRegErr := "";
+// [결함 13 수정 2026-11-04: 규칙·출력 칸 REAL(fThreshold, stProt.fPPct·fQPct)이 숫자인지 먼저 (아래 범위 비교·규칙 판단에서 NaN이면 FPU 예외)]
+FOR _nRegIdx := 1 TO GVL_PARAM.RULE_COUNT DO
+	IF _sRegErr = "" AND NOT (F_RealOk(iq_astRuleCfg[_nRegIdx].fThreshold) AND F_RealOk(iq_astRuleCfg[_nRegIdx].stProt.fPPct) AND F_RealOk(iq_astRuleCfg[_nRegIdx].stProt.fQPct)) THEN
+		_sRegErr := F_TxtNum("g_astRuleCfg 값 숫자 아님: 규칙 ", _nRegIdx);
+	END_IF
+END_FOR
+FOR _nRegIdx := 1 TO GVL_PARAM.OUTPUT_COUNT DO
+	IF _sRegErr = "" AND NOT F_RealOk(iq_astOutputCfg[_nRegIdx].fThreshold) THEN _sRegErr := F_TxtNum("g_astOutputCfg fThreshold 숫자 아님: 출력 ", _nRegIdx); END_IF
+END_FOR
+// 보조 출력 칸: 장비·점 번호
+FOR _nRegIdx := 1 TO GVL_PARAM.OUTPUT_COUNT DO
+	IF _sRegErr = "" AND iq_astOutputCfg[_nRegIdx].nAux > GVL_PARAM.AUX_COUNT THEN _sRegErr := F_TxtNum("g_astOutputCfg nAux 범위 밖: 출력 ", _nRegIdx); END_IF
+	IF _sRegErr = "" AND iq_astOutputCfg[_nRegIdx].nAux > 0 AND (iq_astOutputCfg[_nRegIdx].nPoint < 1 OR iq_astOutputCfg[_nRegIdx].nPoint > GVL_PARAM.AUX_DO_MAX) THEN
+		_sRegErr := F_TxtNum("g_astOutputCfg nPoint 범위 밖: 출력 ", _nRegIdx);
+	END_IF
+END_FOR
+// 보호 규칙 대상: 범위에 맞는 번호인지 (0 = 범위 안 전부. 틀리면 보호가 걸려도 조치 대상이 없음)
+FOR _nRegIdx := 1 TO GVL_PARAM.RULE_COUNT DO
+	IF _sRegErr = "" AND iq_aipRule[_nRegIdx] <> 0 AND_THEN (iq_astRuleCfg[_nRegIdx].stProt.bAuto OR iq_astRuleCfg[_nRegIdx].stProt.bManual) THEN
+		CASE iq_astRuleCfg[_nRegIdx].eScope OF
+			E_ProtScope.Unit:		_nRegMax := GVL_PARAM.UNIT_COUNT;
+			E_ProtScope.Bms:		_nRegMax := GVL_PARAM.BMS_COUNT;
+			E_ProtScope.BatGroup:	_nRegMax := GVL_PARAM.BAT_COUNT;
+			E_ProtScope.Group:		_nRegMax := GVL_PARAM.GROUP_COUNT;
+		ELSE
+			_nRegMax := 0;				// Site: 대상 번호 안 씀
+		END_CASE
+		IF _nRegMax > 0 AND iq_astRuleCfg[_nRegIdx].nTarget > _nRegMax THEN
+			_sRegErr := F_TxtNum("g_astRuleCfg nTarget 범위 밖: 규칙 ", _nRegIdx);
+		END_IF
+		// 표준 대응 조치: 배터리 조치는 PCS 정지·비상정지와만 (시퀀서가 PCS 정지 확인 뒤 배터리를 엶), P·Q 상한은 0~100 %
+		IF _sRegErr = "" AND iq_astRuleCfg[_nRegIdx].stProt.eBatAction <> E_BatAction.None
+			AND NOT (iq_astRuleCfg[_nRegIdx].stProt.ePcsAction = E_PcsAction.Stop OR iq_astRuleCfg[_nRegIdx].stProt.ePcsAction = E_PcsAction.EStop) THEN
+			_sRegErr := F_TxtNum("g_astRuleCfg 배터리 조치는 PCS 정지·비상정지와만: 규칙 ", _nRegIdx);
+		END_IF
+		IF _sRegErr = "" AND (iq_astRuleCfg[_nRegIdx].stProt.fPPct < 0.0 OR iq_astRuleCfg[_nRegIdx].stProt.fPPct > 100.0
+			OR iq_astRuleCfg[_nRegIdx].stProt.fQPct < 0.0 OR iq_astRuleCfg[_nRegIdx].stProt.fQPct > 100.0) THEN
+			_sRegErr := F_TxtNum("g_astRuleCfg P·Q 상한 0~100 % 밖: 규칙 ", _nRegIdx);
+		END_IF
+	END_IF
+END_FOR
+// 등록의 대상 제어 그룹 (0 = 모든 그룹)
+FOR _nRegIdx := 1 TO GVL_PARAM.SOURCE_COUNT DO
+	IF _sRegErr = "" AND iq_astSourceReg[_nRegIdx].nGroup > GVL_PARAM.GROUP_COUNT THEN _sRegErr := F_TxtNum("g_astSourceReg nGroup 범위 밖: 칸 ", _nRegIdx); END_IF
+END_FOR
+FOR _nRegIdx := 1 TO GVL_PARAM.LIMIT_COUNT DO
+	IF _sRegErr = "" AND iq_astLimitReg[_nRegIdx].nGroup > GVL_PARAM.GROUP_COUNT THEN _sRegErr := F_TxtNum("g_astLimitReg nGroup 범위 밖: 칸 ", _nRegIdx); END_IF
+END_FOR
+FOR _nRegIdx := 1 TO GVL_PARAM.PERMIT_COUNT DO
+	IF _sRegErr = "" AND iq_astPermitReg[_nRegIdx].nGroup > GVL_PARAM.GROUP_COUNT THEN _sRegErr := F_TxtNum("g_astPermitReg nGroup 범위 밖: 칸 ", _nRegIdx); END_IF
+END_FOR
+FOR _nRegIdx := 1 TO GVL_PARAM.COMP_COUNT DO
+	IF _sRegErr = "" AND iq_astCompReg[_nRegIdx].nGroup > GVL_PARAM.GROUP_COUNT THEN _sRegErr := F_TxtNum("g_astCompReg nGroup 범위 밖: 칸 ", _nRegIdx); END_IF
+END_FOR
+// 유닛 제한·버스 제한의 대상 번호 (0 = 전체)
+FOR _nRegIdx := 1 TO GVL_PARAM.UNIT_RULE_COUNT DO
+	IF _sRegErr = "" AND iq_astUnitRuleReg[_nRegIdx].nTarget > GVL_PARAM.UNIT_COUNT THEN _sRegErr := F_TxtNum("g_astUnitRuleReg nTarget 범위 밖: 칸 ", _nRegIdx); END_IF
+END_FOR
+FOR _nRegIdx := 1 TO GVL_PARAM.BAT_RULE_COUNT DO
+	IF _sRegErr = "" AND iq_astBatRuleReg[_nRegIdx].nTarget > GVL_PARAM.BAT_COUNT THEN _sRegErr := F_TxtNum("g_astBatRuleReg nTarget 범위 밖: 칸 ", _nRegIdx); END_IF
+END_FOR
+// 제어 그룹이 2개 이상이면 제한·보정·기동 조건 모듈은 그룹을 지정해야 함 (nGroup 0이면 한 인스턴스가 그룹마다 평가돼 모듈 안 타이머·상태가 섞임 → 그룹마다 인스턴스를 따로 둠)
+IF GVL_PARAM.GROUP_COUNT > 1 THEN
+	FOR _nRegIdx := 1 TO GVL_PARAM.LIMIT_COUNT DO
+		IF _sRegErr = "" AND iq_aipLimit[_nRegIdx] <> 0 AND_THEN (iq_astLimitReg[_nRegIdx].bEnable AND iq_astLimitReg[_nRegIdx].nGroup = 0) THEN _sRegErr := F_TxtNum("g_astLimitReg nGroup 0 (그룹 지정 필요): 칸 ", _nRegIdx); END_IF
+	END_FOR
+	FOR _nRegIdx := 1 TO GVL_PARAM.PERMIT_COUNT DO
+		IF _sRegErr = "" AND iq_aipPermit[_nRegIdx] <> 0 AND_THEN (iq_astPermitReg[_nRegIdx].bEnable AND iq_astPermitReg[_nRegIdx].nGroup = 0) THEN _sRegErr := F_TxtNum("g_astPermitReg nGroup 0 (그룹 지정 필요): 칸 ", _nRegIdx); END_IF
+	END_FOR
+	FOR _nRegIdx := 1 TO GVL_PARAM.COMP_COUNT DO
+		IF _sRegErr = "" AND iq_aipComp[_nRegIdx] <> 0 AND_THEN (iq_astCompReg[_nRegIdx].bEnable AND iq_astCompReg[_nRegIdx].nGroup = 0) THEN _sRegErr := F_TxtNum("g_astCompReg nGroup 0 (그룹 지정 필요): 칸 ", _nRegIdx); END_IF
+	END_FOR
+END_IF]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_SaveReg" Id="{9f883396-f657-47f2-8233-ea35a6c1dc83}">
+      <Implementation>
+        <ST><![CDATA[// 등록·출력·규칙 설정을 마지막 정상값으로 저장
+_astOutputCfg		:= iq_astOutputCfg;
+_astRuleCfg			:= iq_astRuleCfg;
+_astSourceReg		:= iq_astSourceReg;
+_astLimitReg		:= iq_astLimitReg;
+_astPermitReg		:= iq_astPermitReg;
+_astCompReg			:= iq_astCompReg;
+_astUnitRuleReg		:= iq_astUnitRuleReg;
+_astBatRuleReg		:= iq_astBatRuleReg;]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_RestoreReg" Id="{d79983df-3144-46ad-b8c8-d9498a7f51fc}">
+      <Implementation>
+        <ST><![CDATA[// 등록·출력·규칙 설정을 마지막 정상값으로 되돌림 (GVL_PERSIST에 다시 씀)
+iq_astOutputCfg		:= _astOutputCfg;
+iq_astRuleCfg		:= _astRuleCfg;
+iq_astSourceReg		:= _astSourceReg;
+iq_astLimitReg		:= _astLimitReg;
+iq_astPermitReg		:= _astPermitReg;
+iq_astCompReg		:= _astCompReg;
+iq_astUnitRuleReg	:= _astUnitRuleReg;
+iq_astBatRuleReg	:= _astBatRuleReg;]]></ST>
+      </Implementation>
+    </Action>
+  </POU>
+</TcPlcObject>

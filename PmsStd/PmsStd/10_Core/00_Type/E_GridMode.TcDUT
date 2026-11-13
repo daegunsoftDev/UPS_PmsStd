@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_GridMode" Id="{774cf249-6145-4064-a838-0dc06e1e7ece}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_GridMode :		// PCS 계통 제어 방식 (유닛 속성. Auto/Manual처럼 경로를 가르지 않음)
+(
+	Unknown		:= 0,	// 모름
+	Gfl			:= 1,	// 계통 추종 (Grid Following, 기본)
+	Gfm			:= 2	// 계통 형성 (Grid Forming). 계통 연계 중에는 PMS 계산이 같음 (P·Q 지령, 전압·주파수 드룹은 PCS가 처리)
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

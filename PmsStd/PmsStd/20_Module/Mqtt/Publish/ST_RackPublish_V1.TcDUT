@@ -1,0 +1,56 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.9">
+  <DUT Name="ST_RackPublish_V1" Id="{d57be00c-4e2f-4803-ac2e-843f252e8c3b}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_RackPublish_V1 :
+STRUCT
+ DeviceIndex : UDINT;
+ BatIndex : UDINT;
+ Status : UDINT;
+ ModuleCount : UDINT;
+ Soc : REAL;
+ Soh : REAL;
+ DcVoltage : REAL;
+ DcCurrent : REAL;
+ ChargeCurrentLimit : REAL;
+ DischargeCurrentLimit : REAL;
+ ChargePowerLimit : REAL;
+ DischargePowerLimit : REAL;
+ AvgCellVoltage : REAL;
+ MaxCellVoltage : REAL;
+ MinCellVoltage : REAL;
+ AvgModuleTemp : REAL;
+ MaxModuleTemp : REAL;
+ MinModuleTemp : REAL;
+ MaxCellVoltageLocationFromModule : UDINT;
+ MaxCellVoltageLocationFromCell : UDINT;
+ MinCellVoltageLocationFromModule : UDINT;
+ MinCellVoltageLocationFromCell : UDINT;
+ MaxModuleTempLocationFromModule : UDINT;
+ MaxModuleTempLocationFromCell : UDINT;
+ MinModuleTempLocationFromModule : UDINT;
+ MinModuleTempLocationFromCell : UDINT;
+ Warning1 : UDINT;
+ Warning2 : UDINT;
+ Warning3 : UDINT;
+ Warning4 : UDINT;
+ Warning5 : UDINT;
+ Warning6 : UDINT;
+ Warning7 : UDINT;
+ Warning8 : UDINT;
+ Warning9 : UDINT;
+ Warning10 : UDINT;
+ Fault1 : UDINT;
+ Fault2 : UDINT;
+ Fault3 : UDINT;
+ Fault4 : UDINT;
+ Fault5 : UDINT;
+ Fault6 : UDINT;
+ Fault7 : UDINT;
+ Fault8 : UDINT;
+ Fault9 : UDINT;
+ Fault10 : UDINT;
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

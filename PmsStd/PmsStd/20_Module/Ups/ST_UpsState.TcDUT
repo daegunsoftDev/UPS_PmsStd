@@ -1,0 +1,86 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<DUT Name="ST_UpsState" Id="{e2561c7a-7c99-4d72-87de-ee21b134a5c0}"><Declaration><![CDATA[// UPS에서 읽어 공학 단위로 변환한 현재 상태.
+// F_DecodeSebangUps가 ST_UpsRaw를 변환해 채우고, 알고리즘과 보고가 이 구조체를 읽는다.
+TYPE ST_UpsState :
+STRUCT
+
+// UPS Metering Data 주소 순서
+ fInputVoltageRV : REAL; // 0. 입력 선간 전압 R (V)
+ fInputVoltageSV : REAL; // 1. 입력 선간 전압 S (V)
+ fInputVoltageTV : REAL; // 2. 입력 선간 전압 T (V)
+ fInputFrequencyHz : REAL; // 3. 입력 주파수 (Hz)
+ fInputCurrentRA : REAL; // 4. 입력 전류 R (A)
+ fInputCurrentSA : REAL; // 5. 입력 전류 S (A)
+ fInputCurrentTA : REAL; // 6. 입력 전류 T (A)
+ fInverterVoltageRV : REAL; // 7. 인버터 선간 전압 R (V)
+ fInverterVoltageSV : REAL; // 8. 인버터 선간 전압 S (V)
+ fInverterVoltageTV : REAL; // 9. 인버터 선간 전압 T (V)
+ fInverterCurrentRA : REAL; // 10. 인버터 전류 R (A)
+ fInverterCurrentSA : REAL; // 11. 인버터 전류 S (A)
+ fInverterCurrentTA : REAL; // 12. 인버터 전류 T (A)
+ fBypassVoltageRV : REAL; // 13. 바이패스 선간 전압 R (V)
+ fBypassVoltageSV : REAL; // 14. 바이패스 선간 전압 S (V)
+ fBypassVoltageTV : REAL; // 15. 바이패스 선간 전압 T (V)
+ fBypassFrequencyHz : REAL; // 16. 바이패스 주파수 (Hz)
+ fOutputVoltageRV : REAL; // 17. 출력 선간 전압 R (V)
+ fOutputVoltageSV : REAL; // 18. 출력 선간 전압 S (V)
+ fOutputVoltageTV : REAL; // 19. 출력 선간 전압 T (V)
+ fOutputFrequencyHz : REAL; // 20. 출력 주파수 (Hz)
+ fOutputCurrentRA : REAL; // 21. 출력 전류 R (A)
+ fOutputCurrentSA : REAL; // 22. 출력 전류 S (A)
+ fOutputCurrentTA : REAL; // 23. 출력 전류 T (A)
+ fDcLinkVoltageV : REAL; // 24. DC 링크 전압 (V)
+ fDcLinkHighVoltageV : REAL; // 25. DC 링크 상단 전압 (V)
+ fDcLinkLowVoltageV : REAL; // 26. DC 링크 하단 전압 (V)
+ fBatteryVoltageV : REAL; // 27. 배터리 전압 (V)
+ fBatteryCurrentA : REAL; // 28. 배터리 전류 (A)
+ fMpiCurrentAA : REAL; // 29. MPI A상 전류 (A)
+ fMpiCurrentBA : REAL; // 30. MPI B상 전류 (A)
+ fMpiCurrentCA : REAL; // 31. MPI C상 전류 (A)
+ fInputApparentPowerKva : REAL; // 32. 입력 피상 전력 (kVA)
+ fOutputApparentPowerKva : REAL; // 33. 출력 피상 전력 (kVA)
+ fOutputActivePowerKw : REAL; // 34. 출력 유효 전력 (kW)
+ // 주소 35~37: 예약 영역
+ fTemperature1C : REAL; // 38. 온도 1 (℃)
+ fTemperature2C : REAL; // 39. 온도 2 (℃)
+ fTemperature3C : REAL; // 40. 온도 3 (℃)
+ fTemperature4C : REAL; // 41. 온도 4 (℃)
+ fTemperature5C : REAL; // 42. 온도 5 (℃)
+ fBatteryRoomTemperatureC : REAL; // 43. 온도 6 / 배터리실 온도 (℃)
+ wInputAlarm : WORD; // 44. 입력 알람
+ wRectAlarm : WORD; // 45. 정류기 알람
+ wBbcAlarm : WORD; // 46. 배터리 컨버터 알람
+ wOutputAlarm : WORD; // 47. 출력 알람
+ wInverterAlarm : WORD; // 48. 인버터 알람
+ wBypassAlarm : WORD; // 49. 바이패스 알람
+ wStatus1 : WORD; // 50. 상태 워드 1
+ wStatus2 : WORD; // 51. 상태 워드 2
+ fHmiVersion : REAL; // 52. HMI 버전
+ fDspVersion : REAL; // 53. DSP 버전
+
+// 해석한 운전 상태
+ nBatMode : UINT; // 배터리 운전 모드
+ bRectOn : BOOL; // 정류기 운전
+ bRectNormal : BOOL; // 정류기 정상
+ bBbcOn : BOOL; // 배터리 컨버터 운전
+ bBbcNormal : BOOL; // 배터리 컨버터 정상
+ bInverterOn : BOOL; // 인버터 운전
+ bInverterNormal : BOOL; // 인버터 정상
+ bOnBypass : BOOL; // 바이패스 공급
+ bOnInverter : BOOL; // 인버터 공급
+ bTemperatureEnabled : BOOL; // 온도보상 활성
+ bBmsMinor : BOOL; // BMS 경고장
+ bBmsMajor : BOOL; // BMS 중고장
+ bEmergencyStop : BOOL; // 비상 정지
+ awAlarmStatus : ARRAY[0..7] OF WORD; // 주소 44~51 알람·상태 묶음
+
+// 프로그램 상태
+ bComm : BOOL; // 통신 정상
+ bValid : BOOL; // 데이터 유효
+ bWriteFail : BOOL; // 쓰기 실패
+ nSampleSeq : UDINT; // 표본 갱신 번호
+
+END_STRUCT
+END_TYPE]]></Declaration></DUT>
+</TcPlcObject>

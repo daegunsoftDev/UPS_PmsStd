@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_CmdOk" Id="{428f6445-f79f-45b5-b5ed-7e15f800a5aa}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_CmdOk : BOOL		// 지령값이 쓸 만한가: NaN·무한대가 아니고, 한도가 있으면 |값| ≤ 한도
+VAR_INPUT
+	i_fValue	: REAL;
+	i_fLimit	: REAL;			// 0 이하 = 한도 검사 안 함
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// NaN·무한대는 비트로 먼저 거름 (NaN을 크기 비교하면 PLC가 멈춤). 크기 비교는 보통 숫자일 때만
+// [2026-11-05 머지: main의 F_IsFinite 방식 + 1.0E30 상한은 원래 코드대로 남김. 통합시험 결함 9 수정(비트 검사·dwBits)은 이 방식으로 합침]
+F_CmdOk := F_IsFinite(i_fValue) AND_THEN ABS(i_fValue) < 1.0E30;
+IF F_CmdOk AND i_fLimit > 0 THEN
+	F_CmdOk := ABS(i_fValue) <= i_fLimit;
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

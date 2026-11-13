@@ -1,0 +1,82 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_SrcTest" Id="{31be1af7-b7d2-4d51-802f-f11922e2ba44}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_SrcTest EXTENDS FB_SourceBase		// 시험 지령원: 온라인으로 값을 써서 시험
+VAR_INPUT
+	i_ePcsReq			: E_PcsCmd;		// PCS 요청. 쓰면 1스캔 요청으로 나가고 None으로 돌아감
+	i_nPcsUnit			: UINT;			// 0 = 그룹 전체, n = 유닛 n
+	i_eBatReq			: E_BatCmd;		// 배터리 요청 (Close / Open). 쓰면 1스캔 요청으로 나가고 None으로 돌아감
+	i_nBatGroup			: UINT;			// 0 = 전체, n = 배터리 그룹 n
+	i_bPSetActive		: BOOL;
+	i_fPSet				: REAL;			// kW, 접속점 기준 (방전 +)
+	i_bQSetActive		: BOOL;
+	i_fQSet				: REAL;			// kvar, 접속점 기준 (공급 +)
+	i_bPLimActive		: BOOL;			// 지령원 P 제한 시험
+	i_fPMax				: REAL;			// kW
+	i_fPMin				: REAL;
+	i_bQLimActive		: BOOL;			// 지령원 Q 제한 시험
+	i_fQMax				: REAL;			// kvar
+	i_fQMin				: REAL;
+	(* 유닛별 값 시험 (유닛 하나) *)
+	i_nUnit				: UINT;			// 0 = 안 씀
+	i_bUnitPSetActive	: BOOL;
+	i_fUnitPSet			: REAL;			// kW, 유닛 출력
+	i_bSend				: BOOL;			// 같은 값을 다시 보낼 때 TRUE (값을 바꾸면 자동으로 새 지령)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_UpdateOutput" Id="{261e467e-bd77-4991-ab00-70fe62e6b65a}">
+      <Declaration><![CDATA[METHOD M_UpdateOutput : BOOL
+VAR
+	u		: UINT;
+	stOld	: ST_SourceOutput;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[stOld := _stOut;
+
+_stOut.bPSetActive	:= i_bPSetActive;
+_stOut.fPSet		:= i_fPSet;
+_stOut.bQSetActive	:= i_bQSetActive;
+_stOut.fQSet		:= i_fQSet;
+_stOut.bPLimActive	:= i_bPLimActive;
+_stOut.fPMax		:= i_fPMax;
+_stOut.fPMin		:= i_fPMin;
+_stOut.bQLimActive	:= i_bQLimActive;
+_stOut.fQMax		:= i_fQMax;
+_stOut.fQMin		:= i_fQMin;
+IF i_ePcsReq <> E_PcsCmd.None THEN
+	_stOut.stPcsReq.eCmd	:= i_ePcsReq;
+	_stOut.stPcsReq.nUnit	:= i_nPcsUnit;
+	i_ePcsReq				:= E_PcsCmd.None;
+END_IF
+IF i_eBatReq <> E_BatCmd.None THEN
+	_stOut.stBatReq.eCmd		:= i_eBatReq;
+	_stOut.stBatReq.nBatGroup	:= i_nBatGroup;
+	i_eBatReq					:= E_BatCmd.None;
+END_IF
+
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	_stOut.astUnit[u].bPSetActive := FALSE;
+END_FOR
+IF i_nUnit >= 1 AND i_nUnit <= GVL_PARAM.UNIT_COUNT THEN
+	_stOut.astUnit[i_nUnit].bPSetActive	:= i_bUnitPSetActive;
+	_stOut.astUnit[i_nUnit].fPSet		:= i_fUnitPSet;
+END_IF
+// 새 지령: 값이 바뀌었거나 i_bSend
+// [결함 13 수정 2026-11-04: 값 비교를 비트로 (운전원이 NaN을 넣어도 여기서 멈추지 않고 고르기에서 이상값으로 거름). 원래 _stOut.fPSet <> stOld.fPSet, _stOut.fQSet <> stOld.fQSet, …fPSet <> stOld.astUnit[u].fPSet]
+_stOut.bNewSet := i_bSend
+	OR _stOut.bPSetActive <> stOld.bPSetActive OR F_RealChanged(_stOut.fPSet, stOld.fPSet)
+	OR _stOut.bQSetActive <> stOld.bQSetActive OR F_RealChanged(_stOut.fQSet, stOld.fQSet);
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	_stOut.bNewSet := _stOut.bNewSet
+		OR _stOut.astUnit[u].bPSetActive <> stOld.astUnit[u].bPSetActive
+		OR F_RealChanged(_stOut.astUnit[u].fPSet, stOld.astUnit[u].fPSet);
+END_FOR
+i_bSend := FALSE;
+
+M_UpdateOutput := TRUE;		// 시험용: 항상 살아 있음 (만료 없음)]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

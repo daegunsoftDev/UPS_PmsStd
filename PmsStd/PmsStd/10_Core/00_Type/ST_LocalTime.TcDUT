@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_LocalTime" Id="{4dcb2f21-0a68-4786-8963-50303fd3ec03}">
+    <Declaration><![CDATA[TYPE ST_LocalTime :		// 현지 시각 (플랫폼과 무관한 모양. TwinCAT은 20_Module\Common\FB_LocalClock이 채움)
+STRUCT
+	bValid		: BOOL;		// 시각을 믿을 수 있음 (첫 동기 뒤). FALSE면 아래 값을 쓰지 않음
+	nYear		: UINT;
+	nMonth		: UINT;		// 1~12
+	nDay		: UINT;		// 1~31
+	nDayOfWeek	: UINT;		// 0 = 일요일 ~ 6 = 토요일
+	nHour		: UINT;		// 0~23
+	nMinute		: UINT;		// 0~59
+	nSecond		: UINT;		// 0~59
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_SelectPolicy" Id="{7c920c08-09ab-4875-a733-dc9345a2afeb}">
+    <Declaration><![CDATA[INTERFACE I_SelectPolicy EXTENDS I_Module	// 고르기 정책: 지령원 후보 중 값 하나를 정함 (고르기·합치기). 그룹마다 한 칸 (GVL_SITE.g_aipSelectPolicy), 비우면 코어 기본 FB_SelectStd]]></Declaration>
+    <Method Name="M_Select" Id="{85ee95c2-95ef-4b75-b76a-0bb7b0d79fb6}">
+      <Declaration><![CDATA[METHOD M_Select : ST_Pick		// 고른 값. bActive = FALSE면 값 없음. 같은 입력이면 같은 결과 (한 스캔에 여러 번 부름, 상태를 바꾸지 않음)
+VAR_INPUT
+	i_stView	: ST_SelectView;
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

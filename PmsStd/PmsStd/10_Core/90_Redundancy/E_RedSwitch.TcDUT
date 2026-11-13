@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_RedSwitch" Id="{a0ca9c4e-907d-417f-afc8-a21a15e43963}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_RedSwitch :		// Active가 바뀐 마지막 이유 (FB_RedState)
+(
+	None		:= 0,	// 아직 없음
+	Start		:= 1,	// 시작하면서 Active가 됨 (상대가 Active가 아님)
+	PeerLost	:= 2,	// 절체: 상대가 Lost라 Secondary가 Active가 됨
+	Failback	:= 3,	// 복귀: Primary가 Secondary에게서 Active를 넘겨받음
+	Yield		:= 4	// 양보: Secondary가 Active를 내려놓음 (Primary가 돌아옴·동시 Active)
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

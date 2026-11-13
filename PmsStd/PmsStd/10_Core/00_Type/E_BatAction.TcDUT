@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_BatAction" Id="{26b719d4-f0a5-434e-84da-c6991787c180}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_BatAction :
+(
+	None		:= 0,	// 조치 없음
+	Stop		:= 1,	// 정지 (접촉기 개방). 잠금 없음. 다시 투입하려면 새 기동·투입 요청 필요
+	EStop		:= 2	// 비상정지. 재투입 조건은 Stop과 같음
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

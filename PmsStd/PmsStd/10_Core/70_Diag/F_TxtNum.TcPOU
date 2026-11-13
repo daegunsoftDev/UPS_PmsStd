@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtNum" Id="{e332eee7-edef-4f2c-b9f5-211cb026d366}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtNum : WSTRING(63)		// 앞말 + 번호 (예: "유닛 2")
+VAR_INPUT
+	i_sPrefix	: WSTRING(47);			// 설정 오류 문구처럼 긴 앞말도 받음
+	i_nNum		: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_TxtNum := WCONCAT(i_sPrefix, TO_WSTRING(i_nNum));]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

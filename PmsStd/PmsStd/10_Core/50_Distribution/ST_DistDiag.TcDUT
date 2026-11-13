@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_DistDiag" Id="{bfb80151-0952-4317-9631-6ad59ae84eec}">
+    <Declaration><![CDATA[TYPE ST_DistDiag :		// 분배 진단 (그룹 하나): Manual을 먼저 나누고, Auto는 Manual이 덜 나간 만큼 더해서 나눔
+STRUCT
+	stAutoP		: ST_DistPathDiag;		// kW
+	stManualP	: ST_DistPathDiag;
+	stAutoQ		: ST_DistPathDiag;		// kvar
+	stManualQ	: ST_DistPathDiag;
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

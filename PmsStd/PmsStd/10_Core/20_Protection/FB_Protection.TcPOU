@@ -1,0 +1,157 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_Protection" Id="{3aa14c74-e1c8-43c9-864a-6122c22e22b1}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Protection		// 등록된 보호 칸마다 대상마다: 조건 모듈 판단 → 같은 칸 대응 모듈 → 유닛·BMS마다 요청 합치기 (센 조치·낮은 상한, 건 모듈 ID). 요청만, 장비에 직접 명령하지 않음
+// 지연 없음: 통신 에러·고장은 장비 쪽(드라이버)이 판정해 올림. 현장 접점·아날로그의 떨림 방지는 조건 모듈 설정에
+// 보호는 조건이 있는 동안만 걸림 (래치 없음). 다시 돌지 않아야 하면 정지나 Manual 전환을 씀
+VAR_IN_OUT CONSTANT
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	iq_astBms		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatState;
+	iq_astPcc		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_PccMeas;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astBmsCfg	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsCfg;
+	iq_astRuleCfg	: ARRAY[1..GVL_PARAM.RULE_COUNT] OF ST_RuleCfg;
+	iq_abUnitInstalled	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 미설치(칸 비어 있음)는 모듈에 bInstalled = FALSE로 넘김 (FB_ModuleList)
+	iq_abBmsInstalled	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF BOOL;
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;		// 실제 운전 모드 (대응이 그 모드 유닛에 조치를 걸지 봄)
+END_VAR
+VAR_IN_OUT
+	iq_aipRule		: ARRAY[1..GVL_PARAM.RULE_COUNT] OF I_ProtectionRule;	// 조건 모듈
+	iq_aipResp		: ARRAY[1..GVL_PARAM.RULE_COUNT] OF I_ProtResponse;	// 대응 모듈 (같은 칸). 비우면 조치 없음 (알람만)
+END_VAR
+VAR_OUTPUT
+	q_astUnitProt	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitProt;		// 유닛별 가장 센 PCS 조치·가장 낮은 P·Q 상한·Manual 전환
+	q_astBmsProt	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsProt;		// BMS별 가장 센 배터리 조치
+	q_aabRule		: ARRAY[1..GVL_PARAM.RULE_COUNT, 1..GVL_PARAM.PROT_TARGET_MAX] OF BOOL;	// 보호 발생 [규칙 칸, 대상 번호] (온라인 확인·로그용). Site는 대상 1
+END_VAR
+VAR
+	_aatonActive	: ARRAY[1..GVL_PARAM.RULE_COUNT, 1..GVL_PARAM.PROT_TARGET_MAX] OF TON;	// 조건이 이어진 시간 (대응에 넘김)
+	_stView			: ST_ProtView;		// 마지막으로 조건 모듈에 넘긴 정보 (온라인 확인용)
+	_stReq			: ST_ProtReq;		// 마지막 대응 요청 (온라인 확인용)
+	_stNoReq		: ST_ProtReq;		// 요청 없음 (비우기용. 처음 한 번 P·Q 상한을 100으로)
+	_bInit			: BOOL;
+END_VAR
+VAR_TEMP
+	i				: UINT;		// 규칙 칸
+	t				: UINT;		// 대상 번호
+	nTargetCount	: UINT;		// 이 규칙 범위의 대상 수
+	bInRange		: BOOL;		// 이 대상을 보는가
+	bCond			: BOOL;
+	nModule			: UINT;
+	stNoUnit		: ST_UnitProt;
+	stNoBms			: ST_BmsProt;
+	stNoView		: ST_ProtView;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 0) 이번 스캔 결과 비우기 *)
+IF NOT _bInit THEN
+	FOR i := 1 TO GVL_PARAM.UNIT_COUNT DO
+		_stNoReq.afPPct[i] := 100.0;
+		_stNoReq.afQPct[i] := 100.0;
+	END_FOR
+	_bInit := TRUE;
+END_IF
+FOR i := 1 TO GVL_PARAM.UNIT_COUNT DO
+	q_astUnitProt[i] := stNoUnit;
+END_FOR
+FOR i := 1 TO GVL_PARAM.BMS_COUNT DO
+	q_astBmsProt[i] := stNoBms;
+END_FOR
+(* 1) 보호 규칙 칸마다, 범위 안 대상마다: 조건 모듈 → 대응 → 합치기
+   대상 번호(nTarget) 0 = 범위 안 대상 전부를 하나씩 (유닛 범위면 유닛 1..UNIT_COUNT). Site는 대상 1 하나 *)
+FOR i := 1 TO GVL_PARAM.RULE_COUNT DO
+	CASE iq_astRuleCfg[i].eScope OF
+		E_ProtScope.Unit:		nTargetCount := GVL_PARAM.UNIT_COUNT;
+		E_ProtScope.Bms:		nTargetCount := GVL_PARAM.BMS_COUNT;
+		E_ProtScope.BatGroup:	nTargetCount := GVL_PARAM.BAT_COUNT;
+		E_ProtScope.Group:		nTargetCount := GVL_PARAM.GROUP_COUNT;
+	ELSE
+		nTargetCount := 1;		// Site
+	END_CASE
+	nModule := 0;
+	IF iq_aipRule[i] <> 0 THEN
+		nModule := iq_aipRule[i].ModuleId;
+	END_IF
+	FOR t := 1 TO GVL_PARAM.PROT_TARGET_MAX DO
+		bInRange := iq_aipRule[i] <> 0 AND t <= nTargetCount
+			AND (iq_astRuleCfg[i].nTarget = 0 OR iq_astRuleCfg[i].nTarget = t OR iq_astRuleCfg[i].eScope = E_ProtScope.Site);
+		bCond := FALSE;
+		IF bInRange THEN
+			// 조건 모듈에 넘길 정보: 범위·대상 번호·임계값과 그 대상의 상태
+			_stView				:= stNoView;
+			_stView.eScope		:= iq_astRuleCfg[i].eScope;
+			_stView.nTarget		:= t;
+			_stView.fThreshold	:= iq_astRuleCfg[i].fThreshold;
+			_stView.bInstalled	:= TRUE;
+			CASE iq_astRuleCfg[i].eScope OF
+				E_ProtScope.Unit:
+					_stView.bInstalled	:= iq_abUnitInstalled[t];
+					_stView.stUnit		:= iq_astUnit[t];
+					_stView.eOpMode		:= iq_aeOpMode[t];
+					_stView.nGroup		:= iq_astUnitCfg[t].nGroup;
+					_stView.nBatGroup	:= iq_astUnitCfg[t].nBatGroup;
+				E_ProtScope.Bms:
+					_stView.bInstalled	:= iq_abBmsInstalled[t];
+					_stView.stBms		:= iq_astBms[t];
+					_stView.nBatGroup	:= iq_astBmsCfg[t].nBatGroup;
+				E_ProtScope.BatGroup:
+					_stView.nBatGroup	:= t;
+				E_ProtScope.Group:
+					_stView.stPcc		:= iq_astPcc[t];
+					_stView.nGroup		:= t;
+			END_CASE
+			// 등록 bAuto·bManual 중 하나라도 켜져 있어야 감지 (둘 다 끄면 이 보호를 안 씀)
+			bCond := (iq_astRuleCfg[i].stProt.bAuto OR iq_astRuleCfg[i].stProt.bManual) AND iq_aipRule[i].M_Evaluate(_stView);
+		END_IF
+		q_aabRule[i, t] := bCond;
+		_aatonActive[i, t](IN := bCond, PT := T#24D);
+		// 대응: 매 스캔 부름 (조건이 없을 때도: 단계 대응이 풀린 뒤 상태를 정리할 수 있게). 대응 칸이 비면 조치 없음 (알람만)
+		IF bInRange AND iq_aipResp[i] <> 0 THEN
+			_stReq := _stNoReq;
+			iq_aipResp[i].M_Respond(i_bActive := bCond, i_tActive := _aatonActive[i, t].ET, i_nTarget := t, i_stRule := iq_astRuleCfg[i],
+				iq_astUnit := iq_astUnit, iq_astBms := iq_astBms, iq_astUnitCfg := iq_astUnitCfg, iq_astBmsCfg := iq_astBmsCfg,
+				iq_aeOpMode := iq_aeOpMode, iq_stReq := _stReq);
+			M_Merge(nModule);
+		END_IF
+	END_FOR
+END_FOR]]></ST>
+    </Implementation>
+    <Method Name="M_Merge" Id="{0523cdb4-b0b8-4031-885e-d1d73c54b4e0}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Merge		// 대응 요청(_stReq)을 장비마다 합침: PCS·배터리는 센 쪽, P·Q 상한은 낮은 쪽, Manual 전환은 하나라도. 건 모듈 = 조건 모듈 ID
+VAR_INPUT
+	i_nModule	: UINT;
+END_VAR
+VAR
+	u			: UINT;
+	m			: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF F_PcsRank(_stReq.aePcs[u]) > F_PcsRank(q_astUnitProt[u].ePcsAction) THEN
+		q_astUnitProt[u].ePcsAction	:= _stReq.aePcs[u];
+		q_astUnitProt[u].nModule	:= i_nModule;
+	END_IF
+	IF _stReq.abToManual[u] AND NOT q_astUnitProt[u].bModeManualReq THEN
+		q_astUnitProt[u].bModeManualReq	:= TRUE;
+		q_astUnitProt[u].nModeModule	:= i_nModule;
+	END_IF
+	IF _stReq.afPPct[u] < q_astUnitProt[u].fPPct THEN
+		q_astUnitProt[u].fPPct		:= _stReq.afPPct[u];
+		q_astUnitProt[u].nPModule	:= i_nModule;
+	END_IF
+	IF _stReq.afQPct[u] < q_astUnitProt[u].fQPct THEN
+		q_astUnitProt[u].fQPct		:= _stReq.afQPct[u];
+		q_astUnitProt[u].nQModule	:= i_nModule;
+	END_IF
+END_FOR
+FOR m := 1 TO GVL_PARAM.BMS_COUNT DO
+	IF F_BatRank(_stReq.aeBat[m]) > F_BatRank(q_astBmsProt[m].eBatAction) THEN
+		q_astBmsProt[m].eBatAction	:= _stReq.aeBat[m];
+		q_astBmsProt[m].nModule		:= i_nModule;
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

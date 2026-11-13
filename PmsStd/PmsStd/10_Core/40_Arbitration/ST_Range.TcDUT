@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_Range" Id="{c0c005f7-1898-47a5-8708-cc8f522bfbda}">
+    <Declaration><![CDATA[TYPE ST_Range :
+STRUCT
+	fMax		: REAL;		// 상한
+	fMin		: REAL;		// 하한
+	nMaxModule	: UINT;		// 상한을 정한 모듈 (0 = 코어)
+	nMaxReason	: UINT;
+	nMinModule	: UINT;		// 하한을 정한 모듈
+	nMinReason	: UINT;
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

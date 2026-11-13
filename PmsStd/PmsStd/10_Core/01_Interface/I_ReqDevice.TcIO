@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_ReqDevice" Id="{e7854f7d-4080-42a1-8bd1-7115c11e5543}">
+    <Declaration><![CDATA[INTERFACE I_ReqDevice EXTENDS I_Module		// 요청을 받는 새 장비 종류 (PCS·BMS·DO가 아닌 장비. 모양만 정함: 등록·코어 연결은 장비가 생길 때)
+// 코어는 명령 내용을 모름: 장비마다 요청을 모아 센 쪽(M_CmdRank) 하나를 M_Request로 넘기고 요청 주체를 남김
+// 장비 쓰기는 이 장비 모듈 한 곳 (R2: 장비 종류마다 한 곳). 장비 사이 순서(예: PCS 정지 확인 뒤 차단기 개방)는 보호 대응이 상태를 보고 진행]]></Declaration>
+    <Method Name="M_CmdRank" Id="{5c795221-c327-4f3d-a499-4a473d8dd584}">
+      <Declaration><![CDATA[METHOD M_CmdRank : INT		// 명령 세기 (클수록 셈. 0 이하 = 요청 없음). 같은 장비에 요청이 겹치면 코어가 센 쪽 하나를 고름
+VAR_INPUT
+	i_nCmd		: UINT;		// 이 장비 모듈이 정한 명령 코드 (0 = 요청 없음)
+END_VAR]]></Declaration>
+    </Method>
+    <Method Name="M_Request" Id="{9426926e-5a79-4aeb-abde-0dfa6ac137a4}">
+      <Declaration><![CDATA[METHOD M_Request		// 코어가 합친 이번 스캔 요청 하나를 넘김 (요청 없으면 0). 명령·확인·재시도·실패 판단과 장비 쓰기는 장비 모듈이 함
+VAR_INPUT
+	i_nCmd		: UINT;		// 명령 코드 (0 = 요청 없음)
+	i_nOrigin	: UINT;		// 요청한 모듈 ID (기록용)
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

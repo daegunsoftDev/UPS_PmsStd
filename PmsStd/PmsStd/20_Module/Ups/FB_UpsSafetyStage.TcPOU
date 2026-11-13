@@ -1,0 +1,111 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_UpsSafetyStage" Id="{5bd31c92-5c17-41dd-a2a8-87310af043e4}" SpecialFunc="None">
+    <Declaration><![CDATA[(* LiB-UPS 사고·고장 단계 판정 (④보호 표시 / 장치: UPS·BAT). 2026-11-05.
+   기반 없음(신규). 동작시퀀스 7쪽(이솔루션 2026-10-23) 단계표를 따른다.
+   변경: 2026-11-09 UPS 경고·고장 4번 칸을 없앰. STATUS 비트를 Warning3 하위·Fault3 상위에서 읽음 (명세 RD-UPS-02 v1.6)
+   부호·단위: 해당 없음. 명세: C:\gil\UPS\명세서\UPS_명세서.md SQ-01, WR-SQ-01
+   차단·정지는 UPS(UMS)와 BMS가 스스로 한다. 이 FB는 판정과 표시만 하고 장비에 아무것도 쓰지 않는다. *)
+FUNCTION_BLOCK FB_UpsSafetyStage
+VAR_INPUT
+	i_stUps			: ST_UpsPublish_V1;	// UPS 보고값 (FB_RptSebangUps.q_stUps)
+	i_bUpsValid		: BOOL;				// UPS 데이터 유효 (통신 정상)
+	i_stBat			: ST_BatPublish_V1;	// 짝 BAT 보고값 (FB_RptEsolutionBat.q_stBat)
+	i_bBatValid		: BOOL;				// BAT 데이터 유효 (통신 정상)
+	i_bAck			: BOOL;				// Fault 단계 확인 (상승 에지). 원인이 해소된 Fault 표시만 내린다 (WR-SQ-01)
+END_VAR
+VAR_OUTPUT
+	q_nStage		: UINT;				// 대표 단계 0~6 (걸린 단계 중 가장 높은 것)
+	q_wStageMask	: WORD;				// 걸린 단계 목록. bit n = n단계 (n = 1~6). 높은 순서로 모두 표시할 때 사용
+	q_nCause		: UDINT;			// 원인 비트 (아래 CAUSE_* 표). 지금 걸린 원인 + 확인 전인 Fault 원인
+	q_nActiveCause	: UDINT;			// 지금 실제로 걸린 원인만
+	q_bAckPending	: BOOL;				// 원인은 해소됐지만 운영자 확인 전인 Fault 원인이 있음
+	q_bUpsCommFault	: BOOL;				// UPS 통신장애 (단계와 별도 상태). 끊긴 동안 UPS 원인은 마지막 값을 유지
+	q_bBatCommFault	: BOOL;				// BAT 통신장애 (단계와 별도 상태). 끊긴 동안 BAT 원인은 마지막 값을 유지
+END_VAR
+VAR
+	_rtAck			: R_TRIG;
+	_nUpsCause		: UDINT;			// UPS에서 나온 원인 (통신이 끊기면 마지막 값 유지)
+	_nBatCause		: UDINT;			// BAT에서 나온 원인 (통신이 끊기면 마지막 값 유지)
+	_nLatched		: UDINT;			// 확인 전까지 유지하는 Fault 원인
+	_i				: INT;
+END_VAR
+VAR CONSTANT
+	(* 원인 비트 → 단계. 순서 = 비트 번호 *)
+	CAUSE_STAGE		: ARRAY[0..12] OF UINT := [
+		1,	// b0  AC·DC SPD (I51 b8·b9)
+		1,	// b1  UPS 경고장 (SPD·BMS Minor 제외)
+		2,	// b2  BMS Minor (I51 b10)
+		3,	// b3  BMS Major (I51 b11)
+		3,	// b4  UPS 입력·정류부 중고장 (Fault1)
+		3,	// b5  UPS 출력 중고장 (Fault2 상위)
+		3,	// b6  UPS 인버터 중고장 (Fault3 하위)
+		3,	// b7  배터리 DC 전로 지락 1단계 = RCD 1단계 (I51 b12, 추정)
+		4,	// b8  배터리 컨버터(BBC) 중고장 (Fault2 하위)
+		4,	// b9  지락 2단계 = RCD 2단계 (I51 b13, 추정)
+		5,	// b10 BMS Level 3 (BAT Status b9 System Lock)
+		5,	// b11 화재 (I51 b14)
+		6];	// b12 ESD (I50 b0)
+	FAULT_CAUSE_MASK : UDINT := 16#00001F00;	// 4~6단계 원인 (b8~b12): 확인 전까지 유지
+	(* UPS 보고 칸 안의 비트 (명세 RD-UPS-02 v1.6). Warning3 하위 16비트 = I51 경고, Fault3 상위 16비트 = I50 고장 OR I51 고장 *)
+	W3_SPD			: UDINT := 16#00000300;	// Warning3: I51 b8 AC SPD, b9 DC SPD
+	W3_BMS_MINOR	: UDINT := 16#00000400;	// Warning3: I51 b10
+	F3_BMS_MAJOR	: UDINT := 16#08000000;	// Fault3: I51 b11
+	F3_RCD1			: UDINT := 16#10000000;	// Fault3: I51 b12
+	F3_RCD2			: UDINT := 16#20000000;	// Fault3: I51 b13
+	F3_FIRE			: UDINT := 16#40000000;	// Fault3: I51 b14
+	F3_ESD			: UDINT := 16#00010000;	// Fault3: I50 b0
+	LOWER_WORD		: UDINT := 16#0000FFFF;
+	UPPER_WORD		: UDINT := 16#FFFF0000;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// 1) UPS 원인. 통신이 끊기면 마지막 값을 그대로 둔다 (단계를 내리지 않음)
+q_bUpsCommFault := NOT i_bUpsValid;
+IF i_bUpsValid THEN
+	_nUpsCause := 0;
+	IF (i_stUps.Warning3 AND W3_SPD) <> 0 THEN _nUpsCause := _nUpsCause OR 16#0001; END_IF
+	IF (i_stUps.Warning1 OR i_stUps.Warning2 OR (i_stUps.Warning3 AND NOT (W3_SPD OR W3_BMS_MINOR))) <> 0 THEN _nUpsCause := _nUpsCause OR 16#0002; END_IF
+	IF (i_stUps.Warning3 AND W3_BMS_MINOR) <> 0 THEN _nUpsCause := _nUpsCause OR 16#0004; END_IF
+	IF (i_stUps.Fault3 AND F3_BMS_MAJOR) <> 0 THEN _nUpsCause := _nUpsCause OR 16#0008; END_IF
+	IF i_stUps.Fault1 <> 0 THEN _nUpsCause := _nUpsCause OR 16#0010; END_IF
+	IF (i_stUps.Fault2 AND UPPER_WORD) <> 0 THEN _nUpsCause := _nUpsCause OR 16#0020; END_IF
+	IF (i_stUps.Fault3 AND LOWER_WORD) <> 0 THEN _nUpsCause := _nUpsCause OR 16#0040; END_IF
+	IF (i_stUps.Fault3 AND F3_RCD1) <> 0 THEN _nUpsCause := _nUpsCause OR 16#0080; END_IF
+	IF (i_stUps.Fault2 AND LOWER_WORD) <> 0 THEN _nUpsCause := _nUpsCause OR 16#0100; END_IF
+	IF (i_stUps.Fault3 AND F3_RCD2) <> 0 THEN _nUpsCause := _nUpsCause OR 16#0200; END_IF
+	IF (i_stUps.Fault3 AND F3_FIRE) <> 0 THEN _nUpsCause := _nUpsCause OR 16#0800; END_IF
+	IF (i_stUps.Fault3 AND F3_ESD) <> 0 THEN _nUpsCause := _nUpsCause OR 16#1000; END_IF
+END_IF
+
+// 2) BAT 원인
+q_bBatCommFault := NOT i_bBatValid;
+IF i_bBatValid THEN
+	_nBatCause := 0;
+	IF i_stBat.Status.9 THEN _nBatCause := _nBatCause OR 16#0400; END_IF	// BMS Level 3 (System Lock)
+END_IF
+
+q_nActiveCause := _nUpsCause OR _nBatCause;
+
+// 3) Fault(4~6단계)는 원인이 사라져도 확인 전까지 유지. 확인하면 해소된 것만 내림
+_nLatched := _nLatched OR (q_nActiveCause AND FAULT_CAUSE_MASK);
+_rtAck(CLK := i_bAck);
+IF _rtAck.Q THEN
+	_nLatched := _nLatched AND q_nActiveCause;
+END_IF
+q_nCause := q_nActiveCause OR _nLatched;
+q_bAckPending := (_nLatched AND NOT q_nActiveCause) <> 0;
+
+// 4) 단계 목록과 대표 단계
+q_wStageMask := 0;
+q_nStage := 0;
+FOR _i := 0 TO 12 DO
+	IF (q_nCause AND SHL(UDINT#1, _i)) <> 0 THEN
+		q_wStageMask := q_wStageMask OR SHL(WORD#1, CAUSE_STAGE[_i]);
+		q_nStage := MAX(q_nStage, CAUSE_STAGE[_i]);
+	END_IF
+END_FOR
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

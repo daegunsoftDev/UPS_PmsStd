@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_SourceMode" Id="{e8edd101-a21e-49ea-8c00-bc19a1d83bcd}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_SourceMode :
+(
+	Auto		:= 0,	// 자동 모드에서만 동작
+	Manual		:= 1,	// 수동 모드에서만 동작
+	Both		:= 2,	// 운전 모드와 관계없이 동작
+	None		:= 3	// 받지 않음
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15"><DUT Name="ST_ModulePublish_V1" Id="{7db861d9-d6c7-44d2-9f7d-0047f2dac843}"><Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_ModulePublish_V1 :
+STRUCT
+ BatIndex : UDINT;
+ RackIndex : UDINT;
+ DeviceIndex : UDINT;
+ ModuleTemp1 : REAL;
+ ModuleTemp2 : REAL;
+ ModuleTemp3 : REAL;
+ CellVoltage1 : REAL;
+ CellVoltage2 : REAL;
+ CellVoltage3 : REAL;
+ CellVoltage4 : REAL;
+ CellVoltage5 : REAL;
+ CellVoltage6 : REAL;
+ CellVoltage7 : REAL;
+ CellVoltage8 : REAL;
+ CellVoltage9 : REAL;
+ CellVoltage10 : REAL;
+ CellVoltage11 : REAL;
+ CellVoltage12 : REAL;
+ CellVoltage13 : REAL;
+ CellVoltage14 : REAL;
+ CellVoltage15 : REAL;
+ CellVoltage16 : REAL;
+ CellVoltage17 : REAL;
+ CellVoltage18 : REAL;
+ CellVoltage19 : REAL;
+ CellVoltage20 : REAL;
+END_STRUCT
+END_TYPE]]></Declaration></DUT></TcPlcObject>

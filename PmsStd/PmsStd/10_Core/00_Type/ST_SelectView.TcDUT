@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_SelectView" Id="{b5bddbef-7164-4d49-b019-b336218541f9}">
+    <Declaration><![CDATA[TYPE ST_SelectView :	// 고르기 정책에 넘기는 것 (I_SelectPolicy.M_Select). 후보는 지령원 칸 순서
+STRUCT
+	nGroup		: UINT;			// 제어 그룹
+	nUnit		: UINT;			// 0 = 그룹 값, n = 유닛 n의 유닛별 값
+	bForQ		: BOOL;			// FALSE = P, TRUE = Q
+	eOpMode		: E_OpMode;		// 경로 (Auto / Manual). 유닛별 값이면 그 유닛의 운전 모드
+	eSel		: E_SelectMode;	// 그룹 설정 eSelP·eSelQ (기본 정책이 씀)
+	nCand		: UINT;			// 후보 수
+	astCand		: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SelectCand;	// 1..nCand만 유효
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

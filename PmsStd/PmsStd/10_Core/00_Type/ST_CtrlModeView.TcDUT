@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CtrlModeView" Id="{77457111-b65f-4b39-aa3a-4159b10d1aa1}">
+    <Declaration><![CDATA[TYPE ST_CtrlModeView :		// 제어 모드에 넘기는 값 (FB_CtrlModeMgr가 매 스캔 채움). 필요한 값이 늘면 칸을 더함 (모드는 고치지 않아도 됨)
+STRUCT
+	stGroup		: ST_GroupView;		// 대상 그룹 값 (접속점 계측·정격·가용·SOC·실제 출력)
+	stTime		: ST_LocalTime;		// 현지 시각
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

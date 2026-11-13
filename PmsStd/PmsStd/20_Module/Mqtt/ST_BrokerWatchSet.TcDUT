@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BrokerWatchSet" Id="{74ea6ad3-1467-467c-83d2-b6dbaa676655}">
+    <Declaration><![CDATA[TYPE ST_BrokerWatchSet :		// MQTT 브로커 끊김 감시 설정 (GVL_PERSIST.g_stBrokerWatch, 운전 중 바꿈·이중화 동기화) [9번 수정 2026-11-09: 추가]
+STRUCT
+	eBroker		: E_MqttBroker := E_MqttBroker.Local;	// 감시할 브로커. MQTT_SET에서 쓰지 않는(bUse FALSE) 브로커를 고르면 감시하지 않음
+	tLostDelay	: TIME := T#30S;		// 접속이 이 시간 넘게 끊기면 '브로커 끊김' 알람 + 운전 모드 요청을 모두 Manual로 (끊김마다 한 번)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_PmsPublishData" Id="{cbe9c4d4-df5f-48ef-9037-9f91f2a00be6}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_PmsPublishData :
+STRUCT
+	Header		:	ST_MqttHeader;
+	Devices		:	ARRAY[0..0] OF ST_PmsPublish_V1;
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

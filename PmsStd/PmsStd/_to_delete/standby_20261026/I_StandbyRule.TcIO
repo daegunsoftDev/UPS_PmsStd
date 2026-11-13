@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_StandbyRule" Id="{ef2c0702-1643-4668-a85e-1ac7db7a380d}">
+    <Declaration><![CDATA[INTERFACE I_StandbyRule EXTENDS I_Module]]></Declaration>
+    <Method Name="M_Evaluate" Id="{9813e08c-9572-465c-947a-9e91f3c143b9}">
+      <Declaration><![CDATA[METHOD M_Evaluate : BOOL	// TRUE = 이번 스캔에 이 유닛 Standby 요청 (지연·한 번만 보내기는 모듈이 정함). 유닛마다 스캔당 한 번 불림
+VAR_INPUT
+	i_stView	: ST_StandbyView;
+END_VAR]]></Declaration>
+    </Method>
+    <Method Name="M_CheckResume" Id="{28066f4d-6529-4d56-8fe7-6aa420cacc31}">
+      <Declaration><![CDATA[METHOD M_CheckResume : BOOL	// TRUE = 이 모듈이 건 Standby를 풀고 Run을 다시 요청 (재개 조건·유지 시간·다시 요청할 간격은 모듈이 정함). 유닛마다 스캔당 한 번 불림
+// i_stView.bResumeWait = FALSE(코어가 들고 있는 이 모듈의 Standby가 없음)면 재개 상태를 풀고 FALSE를 돌려줌. 재개를 안 쓰는 모듈은 항상 FALSE
+VAR_INPUT
+	i_stView	: ST_StandbyView;
+END_VAR]]></Declaration>
+    </Method>
+    <Property Name="Reason" Id="{dc7eec9a-bc01-4d17-ab3a-a4b8688d5ca3}">
+      <Declaration><![CDATA[PROPERTY Reason : UINT	// 마지막 M_Evaluate가 요청한 이유 코드. 0 = 없음]]></Declaration>
+      <Get Name="Get" Id="{b155662a-568b-434c-89ef-e11d2e76737f}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_RangeClamp" Id="{e7c92f47-84b9-4e37-b469-f001249f33dc}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_RangeClamp : ST_Clamp		// 값을 범위 안으로. 상·하한이 겹치면 상한이 이김
+VAR_INPUT
+	i_fIn		: REAL;
+	i_stRange	: ST_Range;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_RangeClamp.fIn	:= i_fIn;
+F_RangeClamp.fOut	:= i_fIn;
+IF F_RangeClamp.fOut < i_stRange.fMin THEN
+	F_RangeClamp.fOut		:= i_stRange.fMin;
+	F_RangeClamp.bClamped	:= TRUE;
+	F_RangeClamp.nModule	:= i_stRange.nMinModule;
+	F_RangeClamp.nReason	:= i_stRange.nMinReason;
+END_IF
+IF F_RangeClamp.fOut > i_stRange.fMax THEN
+	F_RangeClamp.fOut		:= i_stRange.fMax;
+	F_RangeClamp.bClamped	:= TRUE;
+	F_RangeClamp.nModule	:= i_stRange.nMaxModule;
+	F_RangeClamp.nReason	:= i_stRange.nMaxReason;
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

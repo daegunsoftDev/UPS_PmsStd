@@ -1,0 +1,206 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_LsImd1000" Id="{f5599d19-c0c8-45a1-9c72-f1ee6abbba7b}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_LsImd1000 EXTENDS FB_DeviceBase IMPLEMENTS I_AuxDevice		// LS IMD1000 절연감시장치(IMD) (Modbus TCP, RS485 게이트웨이 경유), 읽기 전용
+(* ---------------------------------------------------------------
+   기반: MESSIS(TC2) FB_LsIMD1000. 주소는 LS 맵으로 고침. 2026-11-09
+   맵: 인터페이스\(MM-20210721) IMD1000 Modbus-Setting_v1_0_0.pdf (장비는 RS485 RTU 전용 → 현장은 RS485-TCP 게이트웨이, 사용자 결정)
+   읽기 (프로토콜 주소, 0 기준 = 맵 Addr 열)
+     측정: Input Register(FC4) 199부터 36개 (MESSIS와 같은 범위)
+       @MAP IR 206 U16  기기 DI 입력 상태
+       @MAP IR 209 U16  자가진단 Error #2
+       @MAP IR 210 U16  절연저항 alarm 상태
+       @MAP IR 211 U16  기기 & 계통 연결 상태
+       @MAP IR 215 U16  Self Test 진행 상태
+       @MAP IR 224~225 F32(앞 = 상위)  절연저항 kΩ
+       MESSIS는 223~224를 읽어 한 칸 어긋나 있었다(223 = 커패시턴스 상태). 상위 워드가 맞아 값은 거의 같게 보였음
+     설정: Holding Register(FC3) 40부터 8개, 측정 SET_EVERY번에 한 번
+       @MAP HR 40~41 U32(앞 = 상위)  Ins. Alarm Pick-up kΩ
+       @MAP HR 46~47 U32  Pre Alarm#1 Pick-up kΩ
+   점 (I_AuxDevice). DI 2는 Bender ISO685 드라이버와 같은 "보호용 경보"
+     AI 1 절연저항, 2 Ins. Alarm 설정값, 3 Pre Alarm#1 설정값
+     DI 1 경고 (Pre#1 OR Pre#2), 2 절연 경보 (Ins. Alarm), 3 시험 중, 4 사전경고 (Pre#3), 5 기기 고장 (자가진단·Device), 6 계통 연결 이상, 7 접지(PE) 연결 이상
+   쓰기 없음 (릴레이·Self Test 제어는 하지 않음)
+   --------------------------------------------------------------- *)
+VAR_INPUT
+	i_bEnable		: BOOL;					// FALSE면 통신하지 않음 (장비 미설치)
+	i_sIpAddr		: STRING(15);			// 게이트웨이 주소
+	i_nPort			: UINT := 502;
+	i_nUnitId		: BYTE := 1;			// IMD1000 국번 (장비 초기값 1)
+	i_tTimeout		: TIME := T#1S;
+END_VAR
+VAR_OUTPUT
+	q_stState		: ST_LsImd1000State;	// 읽은 값 (보고 매핑 FB_RptLsImd1000이 씀)
+END_VAR
+VAR
+	_fbIr			: FB_MBReadInputRegs;	// 측정 (FC4)
+	_fbHr			: FB_MBReadRegs;		// 설정 (FC3)
+	_awIr			: ARRAY[0..35] OF WORD;	// IR 199..234
+	_awSet			: ARRAY[0..7] OF WORD;	// HR 40..47
+	_bReadDue		: BOOL;					// 읽을 때가 됨 (매 스캔 M_IsReadTime)
+	_bReading		: BOOL;
+	_bSetBlock		: BOOL;					// 이번 읽기가 설정 영역
+	_bBusy			: BOOL;
+	_bError			: BOOL;
+	_nReadCnt		: UINT;					// 0이면 설정 영역을 읽음 (부팅 직후 먼저)
+	_bMeasOk		: BOOL;					// 측정 영역을 한 번 이상 읽음
+END_VAR
+VAR CONSTANT
+	IR_ADDR			: UINT := 199;
+	IR_QTY			: UINT := 36;
+	SET_ADDR		: UINT := 40;
+	SET_QTY			: UINT := 8;
+	SET_EVERY		: UINT := 10;			// 설정 영역은 읽기 10번에 한 번
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[
+]]></ST>
+    </Implementation>
+    <Action Name="A_MapMeas" Id="{cbfc79fb-c2ea-4e2f-ab97-08dd6181cd77}">
+      <Implementation>
+        <ST><![CDATA[q_stState.wDiState		:= _awIr[7];		// @MAP IR 206
+q_stState.wSelfDiag		:= _awIr[10];		// @MAP IR 209
+q_stState.wAlarm		:= _awIr[11];		// @MAP IR 210
+q_stState.wConnect		:= _awIr[12];		// @MAP IR 211
+q_stState.wSelfTest		:= _awIr[16];		// @MAP IR 215
+q_stState.fInsulation	:= F_WordsToReal(i_wHigh := _awIr[25], i_wLow := _awIr[26]);	// @MAP IR 224(상위)·225(하위) F32 kΩ
+_bMeasOk := TRUE;
+]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_MapSet" Id="{62a2c2c5-baf1-4fba-a1e0-74d402b7db7e}">
+      <Implementation>
+        <ST><![CDATA[q_stState.nInsPickup	:= SHL(WORD_TO_UDINT(_awSet[0]), 16) OR WORD_TO_UDINT(_awSet[1]);	// @MAP HR 40~41 U32
+q_stState.nPre1Pickup	:= SHL(WORD_TO_UDINT(_awSet[6]), 16) OR WORD_TO_UDINT(_awSet[7]);	// @MAP HR 46~47 U32
+q_stState.bSetValid		:= TRUE;
+]]></ST>
+      </Implementation>
+    </Action>
+    <Method Name="M_Cycle" Id="{6816a57e-0013-45e2-bdba-1ea133651d72}">
+      <Declaration><![CDATA[METHOD M_Cycle
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_bReadDue := M_IsReadTime();
+IF NOT _bReading THEN
+	IF i_bEnable AND i_sIpAddr <> '' AND _bReadDue THEN
+		_bSetBlock := _nReadCnt = 0;
+		IF _bSetBlock THEN
+			_fbHr(sIPAddr := i_sIpAddr, nTCPPort := i_nPort, nUnitID := i_nUnitId,
+				nQuantity := SET_QTY, nMBAddr := SET_ADDR, cbLength := SIZEOF(_awSet),
+				pDestAddr := ADR(_awSet), tTimeout := i_tTimeout, bExecute := TRUE);
+		ELSE
+			_fbIr(sIPAddr := i_sIpAddr, nTCPPort := i_nPort, nUnitID := i_nUnitId,
+				nQuantity := IR_QTY, nMBAddr := IR_ADDR, cbLength := SIZEOF(_awIr),
+				pDestAddr := ADR(_awIr), tTimeout := i_tTimeout, bExecute := TRUE);
+		END_IF
+		_bReading := TRUE;
+	END_IF
+ELSE
+	IF _bSetBlock THEN
+		_fbHr(bExecute := FALSE);
+		_bBusy := _fbHr.bBusy;
+		_bError := _fbHr.bError;
+	ELSE
+		_fbIr(bExecute := FALSE);
+		_bBusy := _fbIr.bBusy;
+		_bError := _fbIr.bError;
+	END_IF
+	IF NOT _bBusy THEN
+		IF NOT _bError AND i_bEnable THEN
+			IF _bSetBlock THEN
+				A_MapSet();
+			ELSE
+				A_MapMeas();
+			END_IF
+			M_MarkAlive();
+		END_IF
+		_nReadCnt := (_nReadCnt + 1) MOD SET_EVERY;
+		_bReading := FALSE;
+	END_IF
+END_IF
+M_UpdateComm();
+q_stState.bValid := Comm AND _bMeasOk;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetBit" Id="{2c8fb5af-45f4-483b-8889-8bd13c6afc9d}">
+      <Declaration><![CDATA[METHOD M_GetBit : BOOL		// DI 1..7 (머리 주석). 통신 이상이면 FALSE (규칙 FB_RuleBit은 Comm으로 따로 판단)
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF q_stState.bValid THEN
+	CASE i_nPoint OF
+		1: M_GetBit := q_stState.wAlarm.1 OR q_stState.wAlarm.2;
+		2: M_GetBit := q_stState.wAlarm.0;
+		3: M_GetBit := q_stState.wSelfTest = 1 OR q_stState.wDiState.0 OR q_stState.wDiState.1;
+		4: M_GetBit := q_stState.wAlarm.3;
+		5: M_GetBit := (q_stState.wSelfDiag AND 16#0007) <> 0 OR q_stState.wConnect.1;
+		6: M_GetBit := q_stState.wConnect.2;
+		7: M_GetBit := q_stState.wConnect.0;
+	END_CASE
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetValue" Id="{0a051612-2fa6-42ce-bd56-2403c7a25e2c}">
+      <Declaration><![CDATA[METHOD M_GetValue : ST_Val		// AI 1 절연저항 kΩ, 2 Ins. Alarm 설정값 kΩ, 3 Pre Alarm#1 설정값 kΩ
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE i_nPoint OF
+	1:
+		M_GetValue.fValue := q_stState.fInsulation;
+		M_GetValue.bValid := q_stState.bValid;
+	2:
+		M_GetValue.fValue := UDINT_TO_REAL(q_stState.nInsPickup);
+		M_GetValue.bValid := q_stState.bValid AND q_stState.bSetValid;
+	3:
+		M_GetValue.fValue := UDINT_TO_REAL(q_stState.nPre1Pickup);
+		M_GetValue.bValid := q_stState.bValid AND q_stState.bSetValid;
+END_CASE
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetBit" Id="{a7e7ea95-02b1-47d5-949f-7aa2650ffe52}">
+      <Declaration><![CDATA[METHOD M_SetBit		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetValue" Id="{4cd7057e-a47e-4bc4-ad96-82d12b7860e0}">
+      <Declaration><![CDATA[METHOD M_SetValue		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_fValue	: REAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Comm" Id="{4362f533-8270-4bab-a5db-a9c72261c6ad}">
+      <Declaration><![CDATA[PROPERTY Comm : BOOL]]></Declaration>
+      <Get Name="Get" Id="{f5ab4bf9-d21d-41d4-baa7-c86e5e093037}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Comm := _bComm AND i_bEnable;
+]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

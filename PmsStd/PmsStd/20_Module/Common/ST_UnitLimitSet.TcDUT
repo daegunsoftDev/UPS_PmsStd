@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_UnitLimitSet" Id="{57802d79-0806-42fd-b010-62f944672975}">
+    <Declaration><![CDATA[TYPE ST_UnitLimitSet :	// FB_UnitLimit 설정 (운전 중 HMI로 바꿈. GVL_PERSIST.g_stModuleSet 칸 → MAIN A_PassModuleSet이 넘김)
+STRUCT
+	astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitLimitItem;	// 유닛마다 (기본: 모두 끔)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

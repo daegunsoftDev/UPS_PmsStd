@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_RangeOpen" Id="{f29ef760-35fa-432f-b15c-e56fb3b6e0f8}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_RangeOpen : ST_Range		// 제한 없는 범위
+VAR
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_RangeOpen.fMax := 1.0E30;
+F_RangeOpen.fMin := -1.0E30;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

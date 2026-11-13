@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_UnitAvail" Id="{0e599406-7c5e-4d98-b06d-ed2cffc9c03d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_UnitAvail		// 유닛마다 쓸 수 있는 상태인지와 그 이유 (통신·고장·로컬·배터리·보호)
+VAR_IN_OUT CONSTANT
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astUnitProt	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitProt;
+	iq_astBatGroup	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatGroupState;
+	iq_abUnitInstalled	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// FB_ModuleList. 미설치 유닛은 가용 아님 (이유 bNotInstalled만)
+END_VAR
+VAR_OUTPUT
+	q_astAvail		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitAvail;
+END_VAR
+VAR_TEMP
+	u				: UINT;
+	b				: UINT;
+	stUnitAvail			: ST_UnitAvail;
+	stNone			: ST_UnitAvail;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	stUnitAvail := stNone;
+
+	// PCS (미설치면 통신·고장 판단을 안 함)
+	stUnitAvail.bNotInstalled	:= NOT iq_abUnitInstalled[u];
+	stUnitAvail.bNoPcsComm	:= iq_abUnitInstalled[u] AND NOT iq_astUnit[u].bComm;
+	stUnitAvail.bPcsFault	:= iq_astUnit[u].bComm AND iq_astUnit[u].bFault;
+	stUnitAvail.bPcsLocal	:= F_IsLocal(iq_astUnit[u]);
+	stUnitAvail.bProt		:= iq_astUnitProt[u].ePcsAction <> E_PcsAction.None;
+
+	// 연결 배터리 그룹 (0 = 배터리 없는 유닛)
+	b := iq_astUnitCfg[u].nBatGroup;
+	IF b > GVL_PARAM.BAT_COUNT THEN
+		stUnitAvail.bNoBat := TRUE;		// 설정 오류
+	ELSIF b >= 1 THEN
+		stUnitAvail.bNoBat := NOT iq_astBatGroup[b].bUsable;
+	END_IF
+
+	stUnitAvail.bAvail := NOT (stUnitAvail.bNotInstalled OR stUnitAvail.bNoPcsComm OR stUnitAvail.bPcsFault OR stUnitAvail.bPcsLocal OR stUnitAvail.bNoBat OR stUnitAvail.bProt);
+	q_astAvail[u] := stUnitAvail;
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

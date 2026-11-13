@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_ManualCmdSet" Id="{073167eb-5166-42b5-a99a-d111eea1c1a6}">
+    <Declaration><![CDATA[TYPE ST_ManualCmdSet :		// Manual 지령 거르기 설정 (FB_GateManual). 켜고 끔
+STRUCT
+	(* 1) Manual 방향 반대 지령 무시 (충전 중 방전, 방전 중 충전). 앞 값 유지 *)
+	bReverse		: BOOL := TRUE;
+	fDirBand		: REAL := 1.0;			// %, 실제 |P|가 정격의 이 % 이하면 멈춘 것으로 봄
+	(* 2) Manual 지령은 Run을 확인한 뒤 들어온 것만 씀. Run이 아니거나 Manual로 막 바뀌면 새 지령이 올 때까지 0 *)
+	bClearOnStop	: BOOL := TRUE;
+	(* 배터리 한계는 버스 제한 모듈 (FB_SocLimit, GVL_SITE) *)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,246 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_EmsConfigApply" Id="{a79a8fda-6ddf-48eb-8178-47c90c53e7a9}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_EmsConfigApply		// EMS config(pcs·bat) → 운영 설정 (PlcTask. MAIN 액션 A_PassEmsCfg가 부름) [9-21 수정 2026-11-04: 추가]
+(* - 입력 i_stCfg는 MAIN이 GVL_IF.g_stEmsCfg에서 일관되게 복사해 넘김. PCS·BMS 칸마다 번호(anPcsSeq·anBatSeq)가 바뀌면 새 레코드
+   - [21번 수정 2026-11-09] is_available = 0인 값은 기본값으로 반영 (원래: 바꾸지 않고 기존 값 유지 → EMS가 한도를 풀 수 없었음)
+       pcs 충전·방전 한도 0 → 그 방향 정격 (= 제한 없음). 두 방향 모두 0 → 그 PCS 유닛의 사용자 P 한도 끔 (bPEnable FALSE, 값은 ±정격)
+       bat SOC 하한 0 → 0 %, 상한 0 → 100 % (감발 폭 fBand·재개 마진은 HMI 설정 그대로)
+   - [UPS 2026-11-10] UPS 현장의 config/bat 레코드는 103.Config BAT UPS_V1 형식 (SocMin·SocMax = REAL, is_available 없음. UPS_MQTT_INTERFACE.md).
+       그래서 bat 값은 받은 BMS(_abBatRx)만 계산에 넣고 항상 '있음'으로 봄. 아직 못 받은 BMS는 기본값(0 %·100 %)과 같아 결과에 영향 없음. pcs 쪽은 STD 그대로
+   - pcs: 충전·방전 전력 한도 (kW) → 사용자 한도 stUnitLimit. 그 PCS의 유닛들에 정격 비율로 나눔, 충전은 fPMin (−). PvMarginRate는 쓰지 않음 (사양 대기)
+   - bat: SOC 최소·최대 (%) → SOC 정책 stSocLimit. 배터리 그룹 전체 한 세트라 받은 BMS 값(기본값 포함) 중 가장 엄격한 값 (하한 = 가장 큰 값, 상한 = 가장 작은 값)
+   - 범위 검사를 먼저 하고 통과한 값만 씀 (SOC는 FB_SocLimit.M_CheckSet과 같은 F_SocLimitSetErr). 버리면 q_bRejected (이벤트 로그 '잘못된 설정 값')
+   - 쓴 값은 GVL_PERSIST라 재시작 뒤에도 남음. 설정 보호(FB_SettingGuard)가 한 번 더 지킴. 바꾸면 q_bApplied (이벤트 로그 '운영 설정 바뀜')
+   - protection(배터리·배터리실 온도·습도 경고·고장)은 반영하지 않음 (값의 뜻·센서 대기. echo만)
+   - M_BuildEcho: 설정 보호 뒤 실제 설정 → q_stEcho (MAIN이 GVL_IF.g_stEmsCfgEcho에 씀 → config echo) *)
+VAR_INPUT
+	i_bValid		: BOOL;			// 이번 스캔에 i_stCfg를 일관되게 복사함
+	i_stCfg			: ST_IfEmsCfg;
+	i_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;	// 유닛 ← PCS 번호, 정격
+END_VAR
+VAR_IN_OUT
+	iq_stSocLimit	: ST_SocLimitSet;	// GVL_PERSIST.g_stModuleSet.stSocLimit
+	iq_stUnitLimit	: ST_UnitLimitSet;	// GVL_PERSIST.g_stModuleSet.stUnitLimit
+END_VAR
+VAR_OUTPUT
+	q_bApplied		: BOOL;			// 이번 스캔에 설정을 바꿈 (1스캔)
+	q_sApplied		: WSTRING(63);
+	q_bRejected		: BOOL;			// 이번 스캔에 받은 값을 버림 (1스캔)
+	q_sRejected		: WSTRING(63);	// 마지막으로 버린 값과 이유
+	q_nApplied		: UDINT;
+	q_nRejected		: UDINT;
+	q_stEcho		: ST_IfEmsCfgEcho;
+END_VAR
+VAR CONSTANT
+	MAX_KW			: REAL := 1.0E6;	// kW. 이보다 큰 한도는 이상값
+	SOC_MIN_DEFAULT	: REAL := 0.0;		// %, bat SocMin is_available 0일 때 [21번 수정 2026-11-09: 추가]
+	SOC_MAX_DEFAULT	: REAL := 100.0;	// %, bat SocMax is_available 0일 때
+END_VAR
+VAR
+	_stCfg			: ST_IfEmsCfg;		// 마지막으로 일관되게 받은 칸 (echo의 PvMarginRate)
+	_anPcsSeq		: ARRAY[1..GVL_PARAM.PCS_COUNT] OF UDINT;
+	_anBatSeq		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF UDINT;
+	_astBat			: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatConfig_Rx;	// BMS마다 받아 둔 레코드 (가장 엄격한 SOC 계산)
+	_astBatBefore	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatConfig_Rx;
+	_abBatRx		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF BOOL;	// [UPS] 그 BMS 레코드를 한 번이라도 받아 둠 (REAL 형식이라 빈 칸을 is_available로 못 가림)
+	_abBatRxBefore	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF BOOL;
+	_stUnit			: ST_UnitLimitSet;
+	_stSoc			: ST_SocLimitSet;
+	_sErr			: WSTRING(63);
+	p				: UINT;
+	u				: UINT;
+	b				: UINT;
+	fSum			: REAL;
+	fCh				: REAL;
+	fDis			: REAL;
+	fMin			: REAL;
+	fMax			: REAL;
+	bCh				: BOOL;
+	bDis			: BOOL;
+	bAny			: BOOL;
+	bNewBat			: BOOL;
+	bBad			: BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[q_bApplied	:= FALSE;
+q_bRejected	:= FALSE;
+IF NOT i_bValid THEN
+	RETURN;
+END_IF
+_stCfg := i_stCfg;
+
+(* PCS: 충전·방전 전력 한도 → 그 PCS 유닛들의 사용자 한도 (정격 비율) *)
+_stUnit := iq_stUnitLimit;
+bAny := FALSE;
+FOR p := 1 TO GVL_PARAM.PCS_COUNT DO
+	IF i_stCfg.anPcsSeq[p] <> _anPcsSeq[p] THEN
+		_anPcsSeq[p] := i_stCfg.anPcsSeq[p];
+		bCh		:= i_stCfg.astPcs[p].ChargePowerLimit.is_available <> 0;
+		bDis	:= i_stCfg.astPcs[p].DisChargePowerLimit.is_available <> 0;
+		fCh		:= UDINT_TO_REAL(i_stCfg.astPcs[p].ChargePowerLimit.value);
+		fDis	:= UDINT_TO_REAL(i_stCfg.astPcs[p].DisChargePowerLimit.value);
+		fSum := 0.0;
+		FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+			IF i_astUnitCfg[u].nPcs = p AND F_RealOk(i_astUnitCfg[u].fPRated) THEN
+				fSum := fSum + i_astUnitCfg[u].fPRated;
+			END_IF
+		END_FOR
+		IF (bCh AND fCh > MAX_KW) OR (bDis AND fDis > MAX_KW) THEN
+			M_Reject(F_TxtNum("EMS config pcs 전력 한도 범위 밖: PCS ", p));
+		ELSIF NOT (fSum > 0.0) THEN
+			M_Reject(F_TxtNum("EMS config pcs 유닛 없음(정격 합 0): PCS ", p));
+		ELSE
+			// [21번 수정 2026-11-09: is_available 0인 방향은 정격(제한 없음), 둘 다 0이면 사용자 P 한도 끔.
+			//   원래: 둘 다 0이면 아무것도 안 바꿈, 한쪽만 0이면 그 방향은 기존 값 유지 (처음 켤 때만 정격)]
+			FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+				IF i_astUnitCfg[u].nPcs = p THEN
+					_stUnit.astUnit[u].bPEnable	:= bCh OR bDis;
+					IF bDis THEN
+						_stUnit.astUnit[u].fPMax := fDis * MAX(i_astUnitCfg[u].fPRated, 0.0) / fSum;
+					ELSE
+						_stUnit.astUnit[u].fPMax := MAX(i_astUnitCfg[u].fPRated, 0.0);
+					END_IF
+					IF bCh THEN
+						_stUnit.astUnit[u].fPMin := -(fCh * MAX(i_astUnitCfg[u].fPRated, 0.0) / fSum);
+					ELSE
+						_stUnit.astUnit[u].fPMin := -MAX(i_astUnitCfg[u].fPRated, 0.0);
+					END_IF
+				END_IF
+			END_FOR
+			bAny := TRUE;
+		END_IF
+	END_IF
+END_FOR
+IF bAny AND MEMCMP(ADR(_stUnit), ADR(iq_stUnitLimit), SIZEOF(_stUnit)) <> 0 THEN
+	iq_stUnitLimit := _stUnit;
+	M_Applied("EMS config: PCS 충·방전 전력 한도");
+END_IF
+
+(* BMS: SOC 최소·최대 → SOC 정책 (가장 엄격한 값). 값마다 숫자·0~100 먼저, 합친 설정은 F_SocLimitSetErr *)
+_astBatBefore := _astBat;
+_abBatRxBefore := _abBatRx;
+bNewBat := FALSE;
+FOR b := 1 TO GVL_PARAM.BMS_COUNT DO
+	IF i_stCfg.anBatSeq[b] <> _anBatSeq[b] THEN
+		_anBatSeq[b] := i_stCfg.anBatSeq[b];
+		bBad := FALSE;
+		// [UPS] SocMin·SocMax는 REAL (is_available 없음) → 둘 다 항상 검사
+		bBad := NOT (F_RealOk(i_stCfg.astBat[b].SocMin) AND_THEN (i_stCfg.astBat[b].SocMin >= 0.0 AND i_stCfg.astBat[b].SocMin <= 100.0));
+		IF NOT bBad THEN
+			bBad := NOT (F_RealOk(i_stCfg.astBat[b].SocMax) AND_THEN (i_stCfg.astBat[b].SocMax >= 0.0 AND i_stCfg.astBat[b].SocMax <= 100.0));
+		END_IF
+		IF bBad THEN
+			M_Reject(F_TxtNum("EMS config bat SOC 숫자·범위(0~100) 아님: BMS ", b));
+		ELSE
+			_astBat[b] := i_stCfg.astBat[b];
+			_abBatRx[b] := TRUE;
+			bNewBat := TRUE;
+		END_IF
+	END_IF
+END_FOR
+IF bNewBat THEN
+	// [21번 수정 2026-11-09: is_available 0이면 기본값(하한 0 %, 상한 100 %)으로 보고 가장 엄격한 값을 고름. 기본값은 다른 BMS 값보다 엄격하지 않으므로
+	//   값을 하나도 안 받은 BMS(빈 칸)는 결과에 영향이 없음. 원래: is_available 0은 계산에서 빼고, 하나도 없으면 기존 값 유지]
+	fMin := SOC_MIN_DEFAULT;
+	fMax := SOC_MAX_DEFAULT;
+	FOR b := 1 TO GVL_PARAM.BMS_COUNT DO
+		IF _abBatRx[b] AND_THEN _astBat[b].SocMin > fMin THEN		// [UPS] 받은 BMS만 (원래 SocMin.is_available <> 0 AND_THEN SocMin.value > fMin)
+			fMin := _astBat[b].SocMin;
+		END_IF
+		IF _abBatRx[b] AND_THEN _astBat[b].SocMax < fMax THEN
+			fMax := _astBat[b].SocMax;
+		END_IF
+	END_FOR
+	_stSoc := iq_stSocLimit;
+	_stSoc.fSocMin := fMin;
+	_stSoc.fSocMax := fMax;
+	_sErr := F_SocLimitSetErr(_stSoc);
+	IF _sErr <> "" THEN
+		_astBat := _astBatBefore;		// 이번에 받은 BMS 값은 버림 (다음 계산에 쓰지 않음)
+		_abBatRx := _abBatRxBefore;
+		M_Reject(WCONCAT("EMS config bat: ", _sErr));
+	ELSIF MEMCMP(ADR(_stSoc), ADR(iq_stSocLimit), SIZEOF(_stSoc)) <> 0 THEN
+		iq_stSocLimit := _stSoc;
+		M_Applied("EMS config: SOC 상·하한");
+	END_IF
+END_IF]]></ST>
+    </Implementation>
+    <Method Name="M_Reject" Id="{ccdc2c83-237a-400e-9b6d-215e4f361fc0}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Reject
+VAR_INPUT
+	i_sText	: WSTRING(63);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[q_bRejected	:= TRUE;
+q_sRejected	:= i_sText;
+q_nRejected	:= q_nRejected + 1;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Applied" Id="{cf091abb-1910-4596-9ede-425f4032ed42}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Applied
+VAR_INPUT
+	i_sText	: WSTRING(63);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[q_bApplied	:= TRUE;
+q_sApplied	:= i_sText;
+q_nApplied	:= q_nApplied + 1;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_BuildEcho" Id="{56fc1aa6-e137-41aa-8454-3766bb4ef352}">
+      <Declaration><![CDATA[METHOD M_BuildEcho		// 실제 설정 → q_stEcho (MAIN이 설정 보호 뒤에 부름)
+VAR_IN_OUT CONSTANT
+	iq_stSocLimit	: ST_SocLimitSet;
+	iq_stUnitLimit	: ST_UnitLimitSet;
+END_VAR
+VAR
+	p			: UINT;
+	u			: UINT;
+	b			: UINT;
+	bAll		: BOOL;
+	bUnit		: BOOL;
+	fMaxSum		: REAL;
+	fMinSum		: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR p := 1 TO GVL_PARAM.PCS_COUNT DO
+	bAll	:= TRUE;
+	bUnit	:= FALSE;
+	fMaxSum	:= 0.0;
+	fMinSum	:= 0.0;
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		IF i_astUnitCfg[u].nPcs = p THEN
+			bUnit := TRUE;
+			IF iq_stUnitLimit.astUnit[u].bPEnable AND F_RealOk(iq_stUnitLimit.astUnit[u].fPMax) AND F_RealOk(iq_stUnitLimit.astUnit[u].fPMin) THEN
+				fMaxSum := fMaxSum + iq_stUnitLimit.astUnit[u].fPMax;
+				fMinSum := fMinSum + iq_stUnitLimit.astUnit[u].fPMin;
+			ELSE
+				bAll := FALSE;
+			END_IF
+		END_IF
+	END_FOR
+	q_stEcho.astPcs[p - 1].DeviceId := UINT_TO_UDINT(p);	// 번호 1부터 [1부터 2026-11-10]
+	IF bUnit AND bAll THEN
+		q_stEcho.astPcs[p - 1].DisChargePowerLimit.value		:= DINT_TO_UDINT(MAX(F_RealToDint(fMaxSum), 0));
+		q_stEcho.astPcs[p - 1].DisChargePowerLimit.is_available	:= 1;
+		q_stEcho.astPcs[p - 1].ChargePowerLimit.value			:= DINT_TO_UDINT(MAX(F_RealToDint(-fMinSum), 0));
+		q_stEcho.astPcs[p - 1].ChargePowerLimit.is_available		:= 1;
+	ELSE
+		q_stEcho.astPcs[p - 1].DisChargePowerLimit.value		:= 0;
+		q_stEcho.astPcs[p - 1].DisChargePowerLimit.is_available	:= 0;
+		q_stEcho.astPcs[p - 1].ChargePowerLimit.value			:= 0;
+		q_stEcho.astPcs[p - 1].ChargePowerLimit.is_available		:= 0;
+	END_IF
+	q_stEcho.astPcs[p - 1].PvMarginRate.value			:= _stCfg.astPcs[p].PvMarginRate.value;	// 쓰지 않음: 받은 값, is_available 0
+	q_stEcho.astPcs[p - 1].PvMarginRate.is_available	:= 0;
+END_FOR
+FOR b := 1 TO GVL_PARAM.BMS_COUNT DO
+	q_stEcho.astBat[b - 1].DeviceId					:= UINT_TO_UDINT(b);	// 번호 1부터 [1부터 2026-11-10]
+	q_stEcho.astBat[b - 1].SocMin					:= iq_stSocLimit.fSocMin;	// [UPS] REAL 형식 (원래 SocMin.value + is_available 1)
+	q_stEcho.astBat[b - 1].SocMax					:= iq_stSocLimit.fSocMax;
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ProtPcsFault" Id="{4854232d-d575-4ac2-aeaf-1ba919da2704}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ProtPcsFault EXTENDS FB_ModuleBase IMPLEMENTS I_ProtectionRule		// 표준 보호: PCS 고장 (범위 Unit): 통신이 있고 PCS가 고장을 알림. 기본 등록. 빼면 이 보호 없음. 현장마다 다르면 복사해 이름을 바꿔 그 칸에 대신 등록
+VAR
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Evaluate" Id="{d16b2bba-dc49-4c3a-b0e3-c397427bfd78}">
+      <Declaration><![CDATA[METHOD M_Evaluate : BOOL		// 범위가 맞지 않게 등록되면 FALSE (보호 안 걸림)
+VAR_INPUT
+	i_stView	: ST_ProtView;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Evaluate := i_stView.eScope = E_ProtScope.Unit AND i_stView.bInstalled AND i_stView.stUnit.bComm AND i_stView.stUnit.bFault;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

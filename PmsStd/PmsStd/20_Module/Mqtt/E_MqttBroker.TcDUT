@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_MqttBroker" Id="{e878b3b5-eca8-4e4a-86b3-b34f6684dc51}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_MqttBroker :		// MQTT 브로커 (GVL_SITE.MQTT_SET의 stCloud·stLocal·stAzure) [9번 수정 2026-11-09: 추가]
+(
+	Cloud	:= 1,
+	Local	:= 2,
+	Azure	:= 3
+) INT;
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

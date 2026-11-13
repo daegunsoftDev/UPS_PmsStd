@@ -1,0 +1,268 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_Sequencer" Id="{c9a57ab0-bf0a-4093-a50c-a27975a12d50}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Sequencer		// 유닛·BMS 시퀀서를 묶음: 이번 스캔 조건, 접수 검사, 유닛·BMS 명령 (배터리 요청 정리는 FB_BatRequest, 기동 조건은 FB_PermitEval, 그룹 상태는 FB_GroupState)
+// 호출 순서 (MAIN): M_Prepare(이번 스캔 조건) → M_CheckRequest(접수 검사) → 본체(분배 뒤, 실제 단계 진행·명령 생성)
+VAR_INPUT
+	i_bTestReset	: BOOL;			// 시험: 모든 PCS·BMS 고장 리셋 (TEST_MODE에서만 MAIN이 넘김)
+	i_bCmdEnable	: BOOL := TRUE;	// FALSE = 설정 오류: 명령을 만들지 않음
+	i_bWriteEnable	: BOOL := TRUE;	// FALSE = 장비 쓰기 불가 (DEVICE_WRITE 꺼짐·대기 PLC): 명령을 만들지 않고 기동 요청은 WriteDisabled로 거부
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_abNewReq		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 이번 스캔에 접수된 지령원 상태 요청 있음 (FB_StateArbiter)
+	iq_aeReq		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_PcsCmd;	// 그 요청
+	iq_astUnitProt	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitProt;	// 보호 결과: 정지·비상정지는 시퀀서가 보냄 (보호 명령만 재시도)
+	iq_aeStartMode	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_StartMode;
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	iq_astAvail		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitAvail;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astBms		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatState;
+	iq_astBmsCfg	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsCfg;
+	iq_astBmsAvail	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsAvail;
+	iq_astBmsProt	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsProt;
+	iq_astSrcOut	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceOutput;	// 지령원 배터리 요청 (FB_BatRequest로), 고장 리셋 요청
+	iq_astReg		: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceReg;
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;			// 실제 운전 모드
+	iq_stSet		: ST_SeqSet;
+END_VAR
+VAR_OUTPUT
+	q_astUnitCmd	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_PcsCmd;
+	q_astBmsCmd		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatCmd;
+	q_abWaitPermit	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// 그룹에 기동 조건을 기다리는 유닛 있음 (FB_PermitEval이 다음 스캔에 씀)
+	(* 진단 *)
+	q_aeUnitSeq		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_UnitSeq;
+	q_abAccept		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 접수 검사 결과: 이번 스캔 후보를 받음 (FB_StateArbiter.M_CommitRequest로)
+	q_aeRefuse		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_SeqRefuse;	// 마지막 기동 쪽 요청 거부 이유 (받아들이면 None)
+	q_abStopping	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 정지 진행 중 (출력 0. FB_OutputReady가 다음 스캔에 씀)
+	q_aeFailCmd		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_PcsCmd;	// 확인되지 않은 명령 (실패 알람, 잠그지 않음)
+	q_aeBatRefuse	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF E_SeqRefuse;		// 배터리 그룹별 마지막 요청 거부 이유 (FB_BatRequest)
+	q_abBatHoldOpen	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;		// 지령원 BatOpen으로 연 배터리 그룹 (FB_BatRequest)
+	q_abBatRefusedNow: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;		// 이번 스캔에 배터리 요청을 거부함 (1스캔, 로그용)
+	q_abBatReqTaken	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF BOOL;		// 지령원의 이번 배터리 요청을 받은 배터리 그룹이 있음 (로그용)
+	q_aeBmsFailCmd	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF E_BatCmd;	// 확인되지 않은 BMS 명령 (실패 알람, 잠그지 않음)
+END_VAR
+VAR
+	_afbUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF FB_UnitSeq;
+	_afbBms			: ARRAY[1..GVL_PARAM.BMS_COUNT] OF FB_BmsSeq;
+	_fbBatReq		: FB_BatRequest;
+	(* 이번 스캔 조건 (M_Prepare). 접수 검사와 본체가 같은 값을 씀 *)
+	_bCtxCmdEnable	: BOOL;
+	_bCtxWriteEnable: BOOL;
+	_abCtxComm		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;
+	_aeCtxRun		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_RunState;
+	_abCtxAvail		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;
+	_abCtxBatReady	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 연결 배터리 그룹 투입 완료 (배터리 없는 유닛은 TRUE)
+	_abCtxPermit	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 그룹 기동 조건
+	_aeCtxStartMode	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_StartMode;
+	_abCtxInstalled	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 유닛 설치됨 (PCS 칸 있음). [결함 6 수정 2026-11-03: 추가]
+END_VAR
+VAR_TEMP
+	u				: UINT;
+	m				: UINT;
+	g				: UINT;
+	b				: UINT;
+	abWantBat		: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;
+	eProtCmd		: E_PcsCmd;
+	i				: UINT;
+	bUnitReset		: BOOL;
+	abBatReset		: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 1) 이번 스캔 조건은 M_Prepare가 준비함 (MAIN이 접수 검사 전에 부름) *)
+FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	q_abWaitPermit[g] := FALSE;
+END_FOR
+
+(* 2) 유닛 시퀀서 *)
+// 고장 리셋은 장비에 내리는 명령일 뿐: 지령원 PCS Reset(대상 유닛, 0 = 대상 그룹 전체) → 그 PCS, 배터리 Reset(대상 배터리 그룹, 0 = 전체) → 그 그룹 BMS
+FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+	abWantBat[b]	:= FALSE;
+	abBatReset[b]	:= i_bTestReset;
+	FOR i := 1 TO GVL_PARAM.SOURCE_COUNT DO
+		IF iq_astSrcOut[i].bValid AND iq_astSrcOut[i].stBatReq.eCmd = E_BatCmd.Reset
+			AND (iq_astSrcOut[i].stBatReq.nBatGroup = 0 OR iq_astSrcOut[i].stBatReq.nBatGroup = b) THEN
+			abBatReset[b] := TRUE;
+		END_IF
+	END_FOR
+END_FOR
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	g := iq_astUnitCfg[u].nGroup;
+	b := iq_astUnitCfg[u].nBatGroup;
+
+	bUnitReset := i_bTestReset;
+	FOR i := 1 TO GVL_PARAM.SOURCE_COUNT DO
+		IF iq_astSrcOut[i].bValid AND iq_astSrcOut[i].stPcsReq.eCmd = E_PcsCmd.Reset
+			AND (iq_astReg[i].nGroup = 0 OR iq_astReg[i].nGroup = g)
+			AND (iq_astSrcOut[i].stPcsReq.nUnit = 0 OR iq_astSrcOut[i].stPcsReq.nUnit = u) THEN
+			bUnitReset := TRUE;
+		END_IF
+	END_FOR
+	// 보호 정지 쪽 조치만 명령으로 (보호 대기 = 출력 0, 가용 아님으로 이미 빠짐)
+	CASE iq_astUnitProt[u].ePcsAction OF
+		E_PcsAction.Stop:	eProtCmd := E_PcsCmd.Stop;
+		E_PcsAction.EStop:	eProtCmd := E_PcsCmd.EStop;
+	ELSE
+		eProtCmd := E_PcsCmd.None;
+	END_CASE
+	_afbUnit[u](i_bNewReq		:= iq_abNewReq[u],
+				i_eReq			:= iq_aeReq[u],
+				i_eProtCmd		:= eProtCmd,
+				i_bProtActive	:= iq_astUnitProt[u].ePcsAction <> E_PcsAction.None,
+				i_eStartMode	:= iq_aeStartMode[u],
+				i_stUnit		:= iq_astUnit[u],
+				i_bAvail		:= iq_astAvail[u].bAvail,
+				i_bBatReady		:= _abCtxBatReady[u],
+				i_bPermit		:= _abCtxPermit[u],
+				i_fPRated		:= iq_astUnitCfg[u].fPRated,
+				i_bReset		:= bUnitReset,
+				i_bCmdEnable	:= i_bCmdEnable AND i_bWriteEnable,
+				i_stSet			:= iq_stSet.stPcs);
+	q_astUnitCmd[u]		:= _afbUnit[u].q_stCmd;
+	q_aeUnitSeq[u]		:= _afbUnit[u].q_eSeqState;
+	q_aeFailCmd[u]		:= _afbUnit[u].q_eFailCmd;
+	q_abStopping[u]		:= _afbUnit[u].q_bStopping;
+
+	IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT AND _afbUnit[u].q_bWantBat AND iq_stSet.stBat.eClose <> E_BatClose.OnRequest THEN
+		abWantBat[b] := TRUE;
+	END_IF
+	IF g >= 1 AND g <= GVL_PARAM.GROUP_COUNT AND _afbUnit[u].q_bWaitPermit THEN
+		q_abWaitPermit[g] := TRUE;
+	END_IF
+END_FOR
+
+(* 3) 배터리 요청 정리 (지령원 BatClose·BatOpen, 정지 시 개방, 운전원이 연 배터리 유지) *)
+_fbBatReq(	i_bOpenOnStop	:= iq_stSet.stBat.bOpenOnStop,
+			iq_astSrcOut	:= iq_astSrcOut,
+			iq_astReg		:= iq_astReg,
+			iq_aeOpMode		:= iq_aeOpMode,
+			iq_astUnitCfg	:= iq_astUnitCfg,
+			iq_astUnit		:= iq_astUnit,
+			iq_abNewReq		:= iq_abNewReq,
+			iq_aeReq		:= iq_aeReq,
+			iq_abWantBat	:= abWantBat);
+q_aeBatRefuse		:= _fbBatReq.q_aeRefuse;
+q_abBatHoldOpen		:= _fbBatReq.q_abHoldOpen;
+q_abBatRefusedNow	:= _fbBatReq.q_abRefusedNow;
+q_abBatReqTaken		:= _fbBatReq.q_abReqTaken;
+
+(* 4) BMS 시퀀서 *)
+FOR m := 1 TO GVL_PARAM.BMS_COUNT DO
+	b := iq_astBmsCfg[m].nBatGroup;
+	IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT THEN
+		_afbBms[m](	i_bWantClose	:= abWantBat[b] AND NOT _fbBatReq.q_abHoldOpen[b],
+					i_bCloseReq		:= _fbBatReq.q_abCloseReq[b],
+					i_bOpenReq		:= _fbBatReq.q_abOpenReq[b],
+					i_eProtAction	:= iq_astBmsProt[m].eBatAction,
+					i_bUnitsStopped	:= _fbBatReq.q_abBusStopOk[b],
+					i_bUsable		:= iq_astBmsAvail[m].bUsable,
+					i_stBms			:= iq_astBms[m],
+					i_bReset		:= abBatReset[b],
+					i_bCmdEnable	:= i_bCmdEnable AND i_bWriteEnable,
+					i_stSet			:= iq_stSet.stBat);
+	END_IF
+	q_astBmsCmd[m]		:= _afbBms[m].q_stCmd;
+	q_aeBmsFailCmd[m]	:= _afbBms[m].q_eFailCmd;
+END_FOR]]></ST>
+    </Implementation>
+    <Method Name="M_Prepare" Id="{7a046a72-9a1f-45e5-898d-bb426a8f95e9}">
+      <Declaration><![CDATA[METHOD M_Prepare		// 이번 스캔 조건을 한 번만 모음: 유닛 상태, 배터리 투입 완료(FB_BatGroup), 그룹 기동 조건(FB_PermitEval). 접수 검사와 본체가 같이 씀
+VAR_INPUT
+	i_bCmdEnable	: BOOL;
+	i_bWriteEnable	: BOOL := TRUE;
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_aeStartMode	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_StartMode;
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	iq_astAvail		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitAvail;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astBatGroup	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatGroupState;	// 투입 완료 bReady (FB_BatGroup)
+	iq_abPermit		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;				// 그룹 기동 조건 (FB_PermitEval)
+	iq_abUnitInstalled	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;			// 유닛 설치됨 (FB_ModuleList). 미설치 유닛은 요청을 안 받음 (정지에 머물고 그룹 상태에 안 걸림). [결함 6 수정 2026-11-03: 추가]
+END_VAR
+VAR
+	u				: UINT;
+	g				: UINT;
+	b				: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	g := iq_astUnitCfg[u].nGroup;
+	b := iq_astUnitCfg[u].nBatGroup;
+	_abCtxBatReady[u] := TRUE;							// 배터리 없는 유닛
+	IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT THEN
+		_abCtxBatReady[u] := iq_astBatGroup[b].bReady;
+	ELSIF b > GVL_PARAM.BAT_COUNT THEN
+		_abCtxBatReady[u] := FALSE;						// 설정 오류
+	END_IF
+	_abCtxPermit[u] := TRUE;
+	IF g >= 1 AND g <= GVL_PARAM.GROUP_COUNT THEN
+		_abCtxPermit[u] := iq_abPermit[g];
+	END_IF
+	_abCtxComm[u]		:= iq_astUnit[u].bComm;
+	_aeCtxRun[u]		:= iq_astUnit[u].eRunState;
+	_abCtxAvail[u]		:= iq_astAvail[u].bAvail;
+	_aeCtxStartMode[u]	:= iq_aeStartMode[u];
+	_abCtxInstalled[u]	:= iq_abUnitInstalled[u];	// [결함 6 수정 2026-11-03: 추가]
+END_FOR
+_bCtxCmdEnable	:= i_bCmdEnable;
+_bCtxWriteEnable	:= i_bWriteEnable;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckRequest" Id="{a4da099e-1c94-4f84-a5ee-8f1bc38bb1fb}">
+      <Declaration><![CDATA[METHOD M_CheckRequest		// 접수 검사 (순수 판단): 정지 쪽은 항상 받음. 기동 쪽은 검사하고 거부 이유를 남김
+// 타이머·재시도 횟수·명령은 건드리지 않음. M_Prepare 다음에 부름 (정지 진행 중은 지난 스캔 유닛 시퀀서 값)
+VAR_IN_OUT CONSTANT
+	iq_abCand		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// FB_StateArbiter.q_abCand
+	iq_aeCand		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_PcsCmd;	// FB_StateArbiter.q_aeCand
+END_VAR
+VAR
+	u				: UINT;
+	eRun			: E_RunState;
+	bStartSide		: BOOL;
+	eRefuse			: E_SeqRefuse;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	q_abAccept[u] := FALSE;
+	// [결함 6 수정 2026-11-03: 미설치 유닛은 정지 쪽도 받지 않음 (받으면 ToStop에 머물러 그룹 상태가 Stopping으로 남음). 거부 이유도 남기지 않음 (원래 IF iq_abCand[u] THEN)]
+	IF iq_abCand[u] AND NOT _abCtxInstalled[u] THEN
+		q_aeRefuse[u] := E_SeqRefuse.None;
+	ELSIF iq_abCand[u] THEN
+		eRun := _aeCtxRun[u];
+		// 기동 쪽: Run, 또는 정지 상태(Stop·Fault)에서 Standby. 운전 중 Standby·Stop·EStop은 정지 쪽
+		bStartSide := iq_aeCand[u] = E_PcsCmd.Run
+			OR (iq_aeCand[u] = E_PcsCmd.Standby AND _abCtxComm[u] AND F_IsStopped(eRun));
+
+		IF NOT bStartSide THEN
+			q_abAccept[u] := TRUE;			// 정지 쪽은 항상 받음 (보호·코어 요청 포함)
+		ELSE
+			eRefuse := E_SeqRefuse.None;
+			IF NOT _bCtxCmdEnable THEN
+				eRefuse := E_SeqRefuse.ConfigError;
+			ELSIF NOT _bCtxWriteEnable THEN
+				eRefuse := E_SeqRefuse.WriteDisabled;
+			ELSIF NOT _abCtxComm[u] THEN
+				eRefuse := E_SeqRefuse.CommLost;
+			ELSIF _afbUnit[u].q_bStopping THEN
+				eRefuse := E_SeqRefuse.StopInProgress;		// 정지는 끝까지 함. 끝난 뒤 새 요청 필요
+			ELSIF NOT _abCtxAvail[u] THEN
+				eRefuse := E_SeqRefuse.NotAvail;
+			ELSIF _aeCtxStartMode[u] <> E_StartMode.Sequence THEN
+				// 단계별: 지금 단계에서 바로 할 수 있어야 함
+				// 정지 → 대기(활성) 또는 Run: 배터리 투입이 먼저, Run은 기동 조건도. 이미 활성이면 할 일 없음
+				IF F_IsStopped(eRun) AND NOT _abCtxBatReady[u] THEN
+					eRefuse := E_SeqRefuse.NoBattery;
+				ELSIF iq_aeCand[u] = E_PcsCmd.Run AND F_IsStopped(eRun) AND NOT _abCtxPermit[u] THEN
+					eRefuse := E_SeqRefuse.NoPermit;
+				END_IF
+			END_IF
+			// 순서 기동: 배터리 투입·기동 조건은 기다리는 단계라 거부하지 않음
+			q_abAccept[u]		:= eRefuse = E_SeqRefuse.None;
+			q_aeRefuse[u]		:= eRefuse;
+		END_IF
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

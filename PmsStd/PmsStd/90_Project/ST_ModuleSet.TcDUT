@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_ModuleSet" Id="{9dc69b91-79f2-4c8f-a220-de02d8809be5}">
+    <Declaration><![CDATA[TYPE ST_ModuleSet :	// 현장 모듈 설정 묶음 (GVL_PERSIST.g_stModuleSet). 운전 중 HMI로 바꾸고 재기동해도 유지
+// 현장에 모듈을 추가하면: 여기 칸 추가 → MAIN 액션 A_PassModuleSet에 한 줄 추가 (저장·잘못된 값 되돌리기는 묶음 전체를 봄)
+STRUCT
+	stSocLimit	: ST_SocLimitSet;	// g_fbSocLimit: 기본 SOC 95 / 5 %, 감발 폭 5 %, 재개 마진 2 %, SOC 무효면 막음
+	(* 제어 모드: 접속점 그룹 1 관리자(g_fbCtrlMode1, 접속점 그룹 단위)와 모드 한 세트. 공통(월 → 계절, 휴일, 방전 허용 시간 월~토 08~22시, 역송 방지 여유 10 kW)은 stCmCommon
+	   [16번 수정 2026-11-09: PCS2 칸(stCtrlMode2·stCmConstP2·stCmSchedule2·stCmPeakCut2·stCmSchedPeak2) 없앰. 값은 접속점 그룹 전체 기준 (피크 목표·정출력 = 접속점 그룹의 접속점 값)] *)
+	stCmCommon		: ST_CmCommonSet;
+	stCtrlMode1		: ST_CtrlModeSet := (bZeroOnSwitch := TRUE, tZeroDelay := T#1S, nFallback := 0, ePccShare := E_PccShare.ByRating, fPccRatio := 1.0);	// g_fbCtrlMode1: 바꿀 때 1 s 출력 0, 스스로 끝나면 모드 없음 (ePccShare·fPccRatio는 유닛 단위 관리자만 씀)
+	stCmConstP1		: ST_CmConstPowerSet := (fPSet := 0.0, bQSet := FALSE, fQSet := 0.0, tDuration := T#0S);	// g_fbCmConstP1: fPSet (kW, 방전 +, 접속점 그룹의 접속점 기준)
+	stCmSchedule1	: ST_CmScheduleSet;		// 접속점 그룹 1 시간표 [계절, 요일, 칸] (kW, 방전 +, 접속점 그룹 값). 스케줄·통합이 같이 씀. 기본 = 빈 시간표 (0을 냄)
+	stCmPeakCut1		: ST_CmPeakCutSet;		// g_fbCmPeakCut1: 목표 피크 stPeak.fTarget (kW, 접속점 그룹 전체. 0 = 제어 안 함), 자동 충전·잔량 방전 시간 (기본 끔)
+	stCmSchedPeak1	: ST_CmSchedPeakSet;	// g_fbCmSchedPeak1: 목표 피크 (접속점 그룹 전체), 잔량 방전 시간 (기본 끔)
+	stUnitLimit	: ST_UnitLimitSet;	// g_fbUnitLimit 사용자 한도 (유닛마다 P·Q 상·하한 kW·kvar). 기본: 모두 끔. HMI 또는 EMS config pcs(FB_EmsConfigApply)가 씀 [9-21 수정 2026-11-04: 아래 주석 예에서 꺼냄 (맨 끝에 붙여 앞 칸 배치는 그대로)]
+	(* 예 (GVL_SITE 주석 예와 같이 풀어 씀)
+	stFire	: ST_RuleBitSet;
+	stEStop	: ST_RuleBitSet := (bInvert := TRUE, bOnCommLoss := TRUE);
+	stBatTemp	: ST_RuleValueSet := (fHyst := 2.0);
+	stVcb1	: ST_BreakerSet := (tPulse := T#1S, tConfirm := T#5S);
+	(9-21 수정 2026-11-04: stUnitLimit은 위로 꺼냄) stUnitLimit	: ST_UnitLimitSet;	// 기본: 모두 끔. HMI에서 astUnit[n].bPEnable·fPMax·fPMin (kW) 등을 바꿈
+	*)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

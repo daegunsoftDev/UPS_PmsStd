@@ -1,0 +1,165 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_BenderIso685" Id="{2a845bba-5e0f-4865-a165-f846000ba00b}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_BenderIso685 EXTENDS FB_DeviceBase IMPLEMENTS I_AuxDevice		// Bender ISO685 절연감시장치(IMD) (Modbus TCP), 읽기 전용
+(* ---------------------------------------------------------------
+   기반: Helios FB_ISO685 v4.0. 동작만 옮기고 PmsStd 형식으로 다시 씀. 2026-11-09
+   읽기: 읽기 주기마다 아래 묶음 하나씩 차례로 (Holding Register FC3, Helios와 같은 주소·수량)
+     @MAP HR 4113  F32(앞 = 상위)  -  절연저항 측정값 (장치 단위, Helios도 배율 없음)
+     @MAP HR 4115  U16  -  상위 바이트 = 시험 상태 (0 없음, 1 내부, 2 외부), 하위 바이트 = 알람 상태 (0 없음, 1 예비경고, 2 경고, 4 고장, 5 알람)
+     @MAP HR 4273  F32  -  계통 연결 (system connection)
+     @MAP HR 4289  F32  -  접지 연결 (connection to earth)
+     @MAP HR 4305  F32  -  장치 오류 (device error)
+     @MAP HR 4385  F32  -  대칭 절연 저하 (symmetric alarm)
+     @MAP HR 12499 U32(앞 = 상위) ×2  -  응답값 1·2 (설정 경보값)
+   점 (I_AuxDevice)
+     AI 1 절연저항, 2 계통 연결, 3 접지 연결, 4 장치 오류, 5 대칭 절연 저하, 6 응답값 1, 7 응답값 2, 8 알람 상태 코드
+     DI 1 경고 (알람 상태 2), DI 2 고장 (알람 상태 4), DI 3 시험 중
+   Helios는 eIsoState로 "고장만" 또는 "경고 + 고장"을 보호 신호로 썼다 → PmsStd에서는 규칙(FB_RuleBit)에 DI 1·2 중 고를 점을 등록
+   쓰기 없음. 맵 미확보: Helios 현장 기준, 펌웨어별 주소 확인 필요
+   --------------------------------------------------------------- *)
+VAR_INPUT
+	i_bEnable		: BOOL;					// FALSE면 통신하지 않음 (장비 미설치)
+	i_sIpAddr		: STRING(15);
+	i_nPort			: UINT := 502;
+	i_nUnitId		: BYTE := 1;
+	i_tTimeout		: TIME := T#1S;
+END_VAR
+VAR
+	_fbMbRead		: FB_MBReadRegs;
+	_awBuf			: ARRAY[0..3] OF WORD;
+	_bReadDue		: BOOL;					// 읽을 때가 됨 (매 스캔 M_IsReadTime)
+	_bReading		: BOOL;
+	_nBlock			: UINT;					// 지금 읽는 묶음 0..5
+	_afAi			: ARRAY[1..8] OF REAL;
+	_nAlarm			: WORD;					// 알람 상태 코드 (4115 하위 바이트)
+	_nTest			: WORD;					// 시험 상태 (4115 상위 바이트)
+	_bStatusOk		: BOOL;					// 묶음 0(측정값·상태)을 한 번이라도 읽음
+END_VAR
+VAR CONSTANT
+	BLOCK_ADDR		: ARRAY[0..5] OF UINT := [4113, 4273, 4289, 4305, 4385, 12499];
+	BLOCK_QTY		: ARRAY[0..5] OF UINT := [3, 2, 2, 2, 2, 4];
+	ALARM_WARNING	: WORD := 2;
+	ALARM_FAULT		: WORD := 4;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[
+]]></ST>
+    </Implementation>
+    <Action Name="A_MapBlock" Id="{8149d8cb-d191-4018-8dc1-2e6fcde20c2d}">
+      <Implementation>
+        <ST><![CDATA[CASE _nBlock OF
+	0:
+		_afAi[1]	:= F_WordsToReal(i_wHigh := _awBuf[0], i_wLow := _awBuf[1]);	// @MAP HR 4113 F32 절연저항
+		_nAlarm		:= _awBuf[2] AND 16#00FF;										// @MAP HR 4115 하위 바이트 알람 상태
+		_nTest		:= SHR(_awBuf[2], 8);											// @MAP HR 4115 상위 바이트 시험 상태
+		_afAi[8]	:= WORD_TO_REAL(_nAlarm);
+		_bStatusOk	:= TRUE;
+	1:	_afAi[2]	:= F_WordsToReal(i_wHigh := _awBuf[0], i_wLow := _awBuf[1]);	// @MAP HR 4273 F32 계통 연결
+	2:	_afAi[3]	:= F_WordsToReal(i_wHigh := _awBuf[0], i_wLow := _awBuf[1]);	// @MAP HR 4289 F32 접지 연결
+	3:	_afAi[4]	:= F_WordsToReal(i_wHigh := _awBuf[0], i_wLow := _awBuf[1]);	// @MAP HR 4305 F32 장치 오류
+	4:	_afAi[5]	:= F_WordsToReal(i_wHigh := _awBuf[0], i_wLow := _awBuf[1]);	// @MAP HR 4385 F32 대칭 절연 저하
+	5:
+		_afAi[6]	:= UDINT_TO_REAL(SHL(WORD_TO_UDINT(_awBuf[0]), 16) OR WORD_TO_UDINT(_awBuf[1]));	// @MAP HR 12499 U32 응답값 1
+		_afAi[7]	:= UDINT_TO_REAL(SHL(WORD_TO_UDINT(_awBuf[2]), 16) OR WORD_TO_UDINT(_awBuf[3]));	// @MAP HR 12501 U32 응답값 2
+END_CASE
+]]></ST>
+      </Implementation>
+    </Action>
+    <Method Name="M_Cycle" Id="{8c97dd90-095b-4bd5-8771-8d023197a798}">
+      <Declaration><![CDATA[METHOD M_Cycle
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_bReadDue := M_IsReadTime();
+IF NOT _bReading THEN
+	IF i_bEnable AND i_sIpAddr <> '' AND _bReadDue THEN
+		_fbMbRead(sIPAddr := i_sIpAddr, nTCPPort := i_nPort, nUnitID := i_nUnitId,
+			nQuantity := BLOCK_QTY[_nBlock], nMBAddr := BLOCK_ADDR[_nBlock], cbLength := BLOCK_QTY[_nBlock] * 2,
+			pDestAddr := ADR(_awBuf), tTimeout := i_tTimeout, bExecute := TRUE);
+		_bReading := TRUE;
+	END_IF
+ELSE
+	_fbMbRead(bExecute := FALSE);
+	IF NOT _fbMbRead.bBusy THEN
+		IF NOT _fbMbRead.bError AND i_bEnable THEN
+			A_MapBlock();
+			M_MarkAlive();
+		END_IF
+		IF _nBlock >= 5 THEN _nBlock := 0; ELSE _nBlock := _nBlock + 1; END_IF
+		_bReading := FALSE;
+	END_IF
+END_IF
+M_UpdateComm();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetBit" Id="{d5c05e4e-e747-4b69-a10f-e17ea3f526c6}">
+      <Declaration><![CDATA[METHOD M_GetBit : BOOL		// DI 1 경고, 2 고장, 3 시험 중. 통신 이상이면 FALSE (규칙 FB_RuleBit은 Comm으로 따로 판단)
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Comm AND _bStatusOk THEN
+	CASE i_nPoint OF
+		1: M_GetBit := _nAlarm = ALARM_WARNING;
+		2: M_GetBit := _nAlarm = ALARM_FAULT;
+		3: M_GetBit := _nTest <> 0;
+	END_CASE
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetValue" Id="{e2364b52-2552-425f-8d4d-7378b98518a4}">
+      <Declaration><![CDATA[METHOD M_GetValue : ST_Val		// AI 1..8 (머리 주석 참고)
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nPoint >= 1 AND i_nPoint <= 8 THEN
+	M_GetValue.fValue := _afAi[i_nPoint];
+	M_GetValue.bValid := Comm AND _bStatusOk;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetBit" Id="{26fc8279-9eac-4990-89d9-8dfe67f7646e}">
+      <Declaration><![CDATA[METHOD M_SetBit		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetValue" Id="{12ae0781-36d0-4f43-94fa-c44e1dd3941b}">
+      <Declaration><![CDATA[METHOD M_SetValue		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_fValue	: REAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Comm" Id="{c5b1f106-03b2-41e3-bf38-8d825202f8c0}">
+      <Declaration><![CDATA[PROPERTY Comm : BOOL]]></Declaration>
+      <Get Name="Get" Id="{4ad16e6d-1929-4c90-92a8-7ee2a3362444}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Comm := _bComm AND i_bEnable;
+]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

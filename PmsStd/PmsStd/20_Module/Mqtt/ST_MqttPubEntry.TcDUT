@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.9">
+  <DUT Name="ST_MqttPubEntry" Id="{83ad59e2-382b-4778-a0ef-d60553938483}">
+    <Declaration><![CDATA[TYPE ST_MqttPubEntry :
+STRUCT
+	sTopic			:	STRING(30);	// device_name (예: 'pms', 'pcs', 'bat')
+	pDeviceSrc		:	PVOID;			// 원본 장치 배열 시작 주소(매핑 완료된 wire-format 배열)
+	nDeviceElemSize:	UDINT;			// 장치 레코드 1개 크기
+	nDeviceCount	:	UDINT;			// 장치 개수 (헤더의 DeviceCount로도 사용)
+	pStaging		:	PVOID;			// [헤더+장치배열] 조립용 스테이징 버퍼 시작 주소
+	nStagingSize	:	UDINT;			// 스테이징 버퍼 전체 크기 (SIZEOF(Header) + 장치배열 크기)
+	
+	sCategory       : STRING(10);	//config전용  토픽 2번째 세그먼트. 'command' 또는 'config'
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

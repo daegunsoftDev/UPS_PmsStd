@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_Module" Id="{f716145f-a536-4e89-91a5-f888bf7ac52d}">
+    <Declaration><![CDATA[INTERFACE I_Module EXTENDS __SYSTEM.IQueryInterface		// 모든 모듈의 공통. IQueryInterface: 같은 인스턴스인지 주소로 비교 (FB_ModuleList, __QUERYPOINTER)]]></Declaration>
+    <Property Name="ModuleId" Id="{832c8f4e-3cf8-4757-8697-65f2e59a433f}">
+      <Declaration><![CDATA[PROPERTY ModuleId : UINT]]></Declaration>
+      <Get Name="Get" Id="{5740f612-bd68-4124-aaa8-932f556985d0}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="ModuleName" Id="{07ea6e69-d660-4fee-9031-f24ad22615d0}">
+      <Declaration><![CDATA[PROPERTY ModuleName : STRING(31)]]></Declaration>
+      <Get Name="Get" Id="{417f4336-7c07-4343-87a2-34cab94e91de}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="M_ReasonText" Id="{3fbb8b13-cfee-4648-901c-b699d375e9c3}">
+      <Declaration><![CDATA[METHOD M_ReasonText : WSTRING(63)		// 이 모듈의 이유 코드 → 문구 (로그용)
+VAR_INPUT
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+    </Method>
+    <Method Name="M_CheckSet" Id="{e7c2e53b-626c-4dea-99fa-66cbabe315f4}">
+      <Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)		// 이 모듈 설정 값 점검 (운전 중 HMI로 바꾸는 값). 빈 문구 = 정상, 아니면 오류 문구 (짧게) → FB_ConfigCheck가 설정 오류로 올림]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

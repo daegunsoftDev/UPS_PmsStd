@@ -1,0 +1,97 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_BmsRackCommand" Id="{ef1a87d1-ddd3-4017-8f37-968a442a96e8}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_BmsRackCommand		// BMS 랙 컨택터 개별 제어: EMS 랙 명령 → 랙 선택표(BMS 40001 랙 비트) 갱신 요청
+(* 2026-11-10. 명세 WR-BAT-01 (v2.5). 인터페이스 100.Command BAT CommandType 11 랙 닫기 / 12 랙 열기 (Value = 랙 번호)
+   BAT 질의 Q4 답변: 랙 개별·일괄 제어 모두 지원. 일괄은 CommandType 1·2 (시스템 컨택터 40013, 기존 코어 경로)
+   - 랙 선택표(비트 n-1 = 랙 n, 1 = 사용)를 기억하고, 명령마다 그 랙 비트만 바꾼 표 전체를 BMS에 쓰게 한다
+   - 장비 쓰기는 하지 않는다. q_bWriteReq·q_wWriteMask를 MAIN이 보고 드라이버 M_SetRackMask를 부르고 결과를 돌려준다
+   - 선택표는 PERSISTENT (i_wRestore로 시작 때 한 번 읽고, q_wMask를 MAIN이 저장). 저장값이 없으면(0) 설치된 랙 전부
+   - 거절: 랙 번호 범위 밖(BadRequest), 마지막 남은 랙 열기(BadRequest: 0이면 BMS가 전 랙 사용 안 함 → 전체는 일괄 2 열기로)
+   - 드라이버가 바쁘면(Busy) WRITE_TIMEOUT 동안 다시 시도. 그 밖의 거절(쓰기 막힘, 통신 불가 등)은 바로 그 결과로 끝
+   - 같은 상태로 바꾸는 명령도 표 전체를 다시 씀 (BMS가 다시 켜져 표가 달라졌을 때 맞춤) *)
+VAR_INPUT
+	i_stCmd			: ST_BatRackCmd;	// EMS 랙 명령 (번호가 바뀌면 새 명령)
+	i_nRackCount	: UINT;				// 설치된 랙 수 (GVL_PARAM.RACKS_PER_BMS)
+	i_wRestore		: WORD;				// 처음 호출 때 한 번 읽는 저장된 선택표 (GVL_PERSIST.g_awBmsRackMask[n])
+	i_bAccepted		: BOOL;				// 지난 스캔의 쓰기 요청을 드라이버가 받음 (M_SetRackMask 반환값)
+	i_eDriverResult	: E_UpsResult;		// 지난 스캔 드라이버 결과 (q_eRequestResult). 요청하지 않은 스캔은 None
+END_VAR
+VAR_OUTPUT
+	q_wMask			: WORD;				// 지금 선택표 (드라이버가 받은 값). MAIN이 GVL_PERSIST에 씀
+	q_bMaskChanged	: BOOL;				// 이 스캔에 q_wMask가 바뀜 (PERSISTENT 바로 저장 요청)
+	q_bWriteReq		: BOOL;				// 드라이버에 쓰기 요청 중
+	q_wWriteMask	: WORD;				// 쓸 선택표
+	q_eResult		: E_UpsResult;		// 마지막 명령 결과
+	q_nLastSeq		: UDINT;			// 마지막으로 처리한 명령 번호
+END_VAR
+VAR
+	_bInit			: BOOL;
+	_wInstalled		: WORD;
+	_wNew			: WORD;
+	_wOld			: WORD;
+	_tonWait		: TON;
+END_VAR
+VAR CONSTANT
+	WRITE_TIMEOUT	: TIME := T#5S;		// 드라이버가 바쁠 때 다시 시도하는 시간
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[q_bMaskChanged := FALSE;
+_wInstalled := SHL(WORD#1, MIN(i_nRackCount, 16)) - 1;
+IF NOT _bInit THEN
+	q_wMask := i_wRestore AND _wInstalled;
+	IF q_wMask = 0 THEN
+		q_wMask := _wInstalled;	// 저장값 없음 → 설치된 랙 전부
+	END_IF
+	_bInit := TRUE;
+END_IF
+_wOld := q_wMask;
+
+// 1) 지난 스캔 쓰기 요청의 결과
+IF q_bWriteReq THEN
+	_tonWait(IN := TRUE, PT := WRITE_TIMEOUT);
+	IF i_bAccepted THEN
+		q_wMask := q_wWriteMask;
+		q_eResult := E_UpsResult.Accepted;
+		q_bWriteReq := FALSE;
+	ELSIF i_eDriverResult <> E_UpsResult.None AND i_eDriverResult <> E_UpsResult.Busy THEN
+		q_eResult := i_eDriverResult;	// 쓰기 막힘, 통신 불가, 설정 오류 등
+		q_bWriteReq := FALSE;
+	ELSIF _tonWait.Q THEN
+		q_eResult := E_UpsResult.Busy;	// 계속 바빠서 포기
+		q_bWriteReq := FALSE;
+	END_IF
+	IF NOT q_bWriteReq THEN
+		_tonWait(IN := FALSE);
+	END_IF
+END_IF
+
+// 2) 새 명령 (처리 중인 요청이 있으면 그것을 버리고 새 명령으로)
+IF i_stCmd.nSeq <> q_nLastSeq AND i_stCmd.nSeq <> 0 THEN
+	q_nLastSeq := i_stCmd.nSeq;
+	q_bWriteReq := FALSE;
+	_tonWait(IN := FALSE);
+	IF i_stCmd.nRack < 1 OR i_stCmd.nRack > i_nRackCount OR i_stCmd.nRack > 16 THEN
+		q_eResult := E_UpsResult.BadRequest;
+	ELSE
+		IF i_stCmd.bClose THEN
+			_wNew := q_wMask OR SHL(WORD#1, i_stCmd.nRack - 1);
+		ELSE
+			_wNew := q_wMask AND NOT SHL(WORD#1, i_stCmd.nRack - 1);
+		END_IF
+		IF _wNew = 0 THEN
+			q_eResult := E_UpsResult.BadRequest;	// 마지막 랙: 전체 열기는 일괄 명령(2)으로
+		ELSE
+			q_wWriteMask := _wNew;
+			q_bWriteReq := TRUE;
+			q_eResult := E_UpsResult.None;	// 처리 중
+		END_IF
+	END_IF
+END_IF
+
+q_bMaskChanged := q_wMask <> _wOld;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

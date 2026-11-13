@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_LogMsg" Id="{66a23c24-136a-4b97-a3e5-935d8c11531e}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_LogMsg		// 메시지 한 종류: M_SendEvent 할 때마다 1회 기록
+VAR_INPUT
+	i_stEntry		: TcEventEntry;
+END_VAR
+VAR
+	_fbMsg			: FB_TcMessage;
+	_bInit			: BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF NOT _bInit THEN
+	_fbMsg.CreateEx(stEventEntry := i_stEntry, ipSourceInfo := 0);
+	_bInit := TRUE;
+END_IF]]></ST>
+    </Implementation>
+    <Method Name="M_SendEvent" Id="{731a573f-8a93-4666-9c9f-9c9b4c272f85}">
+      <Declaration><![CDATA[METHOD M_SendEvent
+VAR_INPUT
+	i_nArgs		: UINT;
+	i_asArg		: ARRAY[1..6] OF WSTRING(63);
+END_VAR
+VAR
+	k			: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT _bInit THEN
+	_fbMsg.CreateEx(stEventEntry := i_stEntry, ipSourceInfo := 0);
+	_bInit := TRUE;
+END_IF
+_fbMsg.ipArguments.Clear();
+FOR k := 1 TO MIN(i_nArgs, 6) DO
+	_fbMsg.ipArguments.AddWString(i_asArg[k]);
+END_FOR
+_fbMsg.Send(0);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

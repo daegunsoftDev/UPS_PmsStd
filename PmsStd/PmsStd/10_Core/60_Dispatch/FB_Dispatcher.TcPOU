@@ -1,0 +1,123 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_Dispatcher" Id="{bd713de7-395a-4bce-9dac-8f6c1e107d6c}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Dispatcher		// 장비에 쓰는 유일한 곳. 상태 명령: 새 명령일 때 1회. P·Q: Auto = 쓰기 주기마다, Manual = 명령이 들어온 스캔에 바로 1회
+VAR_INPUT
+	i_tWritePeriod	: TIME;
+	i_bWriteEnable	: BOOL := TRUE;	// FALSE = 설정 오류: 장비에 아무것도 쓰지 않음
+END_VAR
+VAR_IN_OUT
+	iq_aipPcs		: ARRAY[1..GVL_PARAM.PCS_COUNT] OF I_Pcs;
+	iq_aipBms		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF I_Bms;
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astUnitCmd	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_PcsCmd;
+	iq_abOutputReady	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 유닛 출력 가능 (FB_OutputReady). Manual 쓰기 시점(들어감·나옴)에만 씀
+	iq_astUnitSet	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_PQ;
+	iq_astBmsCmd	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatCmd;
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;
+	iq_abManualNew	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 새 수동 지령 (fbManualGate)
+	iq_abManualFollow: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 램프 중 또는 제한에 걸림 (fbManualShape, FB_ShapePath)
+	iq_abUnitLimited: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 유닛 지령이 줄었거나 0으로 묶임 (FB_Distributor.q_abUnitLimited)
+END_VAR
+VAR_OUTPUT
+	q_astWritten	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_PQ;	// 마지막으로 쓴 지령값 (진단용)
+	q_abBadSet		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 이번 스캔 지령값이 NaN·무한대여서 0으로 바꿈 (앞 단계 계산 이상)
+	q_nBadSetCount	: UDINT;										// 0으로 바꾼 횟수 (PLC 시작 후, 스캔 단위)
+END_VAR
+VAR
+	_anSentUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UDINT;	// 보낸 명령 번호
+	_anSentBms		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF UDINT;
+	_tonWrite		: TON;
+	_bStarted		: BOOL;
+	_aeLastMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;
+	_abLastReady	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;
+	_abFollowing	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 램프·제한을 따라 쓰는 중 (풀린 값까지 쓰면 끝)
+END_VAR
+VAR_TEMP
+	u				: UINT;
+	m				: UINT;
+	nPcs			: UINT;
+	bWrite			: BOOL;
+	bWriteNow				: BOOL;
+	bFollow			: BOOL;
+	bSame			: BOOL;
+	stSet			: ST_PQ;
+	stZero			: ST_PQ;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[_tonWrite(IN := TRUE, PT := i_tWritePeriod);
+bWrite := _tonWrite.Q;
+IF bWrite THEN
+	_tonWrite(IN := FALSE);
+END_IF
+
+// PMS 시작 첫 스캔: 수동 유닛은 아무것도 쓰지 않음 (재기동이 운전 중 장비 출력을 바꾸지 않게)
+IF NOT _bStarted THEN
+	_aeLastMode		:= iq_aeOpMode;
+	_abLastReady	:= iq_abOutputReady;
+	_bStarted		:= TRUE;
+END_IF
+
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	nPcs := iq_astUnitCfg[u].nPcs;
+	IF nPcs >= 1 AND nPcs <= GVL_PARAM.PCS_COUNT AND_THEN iq_aipPcs[nPcs] <> 0 THEN
+		// 상태 명령: 새 명령일 때 1회 (Auto·Manual 같음)
+		IF iq_astUnitCmd[u].nSeq <> _anSentUnit[u] THEN
+			IF iq_astUnitCmd[u].eCmd <> E_PcsCmd.None AND i_bWriteEnable THEN		// 막힌 동안의 명령은 보내지 않고 버림
+				iq_aipPcs[nPcs].M_SetStateCmd(i_nSub := iq_astUnitCfg[u].nSub, i_stCmd := iq_astUnitCmd[u]);
+			END_IF
+			_anSentUnit[u] := iq_astUnitCmd[u].nSeq;
+		END_IF
+
+		// 지령값 (출력 못 내는 유닛은 분배에서 이미 0)
+		stSet := iq_astUnitSet[u];
+		// 마지막 안전장치: NaN·무한대는 장비에 보내지 않고 0 (코어는 실수 계산이라 앞 단계 이상값이 여기까지 올 수 있음)
+		q_abBadSet[u] := NOT F_CmdOk(stSet.fP, 0.0) OR NOT F_CmdOk(stSet.fQ, 0.0);
+		IF q_abBadSet[u] THEN
+			stSet			:= stZero;
+			q_nBadSetCount	:= q_nBadSetCount + 1;
+		END_IF
+		bSame := stSet.fP = q_astWritten[u].fP AND stSet.fQ = q_astWritten[u].fQ;
+
+		IF iq_aeOpMode[u] = E_OpMode.Auto THEN
+			(* Auto: 쓰기 주기마다 *)
+			bWriteNow := bWrite;
+			_abFollowing[u] := FALSE;
+		ELSE
+			(* Manual: 명령이 들어온 스캔에 바로 1회.
+			   그 뒤로는 램프 중이거나 설비 제한(정격·배터리·Derate·제한 모듈)에 걸려 값이 바뀔 때만 쓰기 주기마다 *)
+			bFollow := iq_abManualFollow[u]
+				OR iq_abUnitLimited[u];
+			bWriteNow := iq_abManualNew[u]
+				OR iq_aeOpMode[u] <> _aeLastMode[u]				// Auto → Manual 바뀐 스캔
+				OR iq_abOutputReady[u] <> _abLastReady[u]	// 출력 가능 들어감·나옴
+				OR (bWrite AND (bFollow OR _abFollowing[u]) AND NOT bSame);
+			IF bFollow THEN
+				_abFollowing[u] := TRUE;
+			ELSIF bWriteNow OR bSame THEN
+				_abFollowing[u] := FALSE;						// 제한이 풀린 값까지 썼음
+			END_IF
+		END_IF
+
+		IF bWriteNow AND i_bWriteEnable THEN
+			q_astWritten[u] := stSet;
+			iq_aipPcs[nPcs].M_SetPower(i_nSub := iq_astUnitCfg[u].nSub, i_fP := stSet.fP, i_fQ := stSet.fQ);
+		END_IF
+	END_IF
+	_aeLastMode[u]		:= iq_aeOpMode[u];
+	_abLastReady[u]	:= iq_abOutputReady[u];
+END_FOR
+
+FOR m := 1 TO GVL_PARAM.BMS_COUNT DO
+	IF iq_aipBms[m] <> 0 AND iq_astBmsCmd[m].nSeq <> _anSentBms[m] THEN
+		IF iq_astBmsCmd[m].eCmd <> E_BatCmd.None AND i_bWriteEnable THEN
+			iq_aipBms[m].M_SetStateCmd(i_stCmd := iq_astBmsCmd[m]);
+		END_IF
+		_anSentBms[m] := iq_astBmsCmd[m].nSeq;
+	END_IF
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

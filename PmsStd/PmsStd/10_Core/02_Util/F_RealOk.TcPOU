@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_RealOk" Id="{592106f4-1706-4cbd-9a18-64b59a61496a}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_RealOk : BOOL		// REAL이 숫자인가 (NaN·±무한대면 FALSE). 비교하지 않고 비트로 봄 → FPU 예외 없음 [결함 13 수정 2026-11-04: 추가]
+// TwinCAT x86/x64는 FPU 예외가 켜져 있어 NaN을 비교(=, <, <=)·변환(REAL_TO_*, LIMIT)하면 PLC가 멈춤. 밖에서 들어온 REAL은 쓰기 전에 이 함수로 먼저 거름
+// (Tc2_Utilities.IsFinite(F_REAL(x))와 같은 판단. 코어 함수라 라이브러리에 기대지 않음)
+VAR_INPUT
+	i_fValue	: REAL;
+END_VAR
+VAR
+	dwBits		: DWORD;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[MEMCPY(ADR(dwBits), ADR(i_fValue), SIZEOF(dwBits));
+F_RealOk := (dwBits AND 16#7F800000) <> 16#7F800000;	// 지수 8비트가 모두 1 = NaN 또는 ±무한대]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

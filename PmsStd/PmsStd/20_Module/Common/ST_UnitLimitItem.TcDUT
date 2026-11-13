@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_UnitLimitItem" Id="{12cb700f-f6de-42a4-857d-97f8036ae72e}">
+    <Declaration><![CDATA[TYPE ST_UnitLimitItem :	// 유닛 하나의 사용자 한도 (kW·kvar)
+STRUCT
+	bPEnable	: BOOL;			// P 한도 사용
+	fPMax		: REAL;			// kW, 방전 상한 (0 이상)
+	fPMin		: REAL;			// kW, 충전 하한 (0 이하. 예: -500 = 충전 500 kW까지)
+	bQEnable	: BOOL;			// Q 한도 사용
+	fQMax		: REAL;			// kvar, 공급 상한 (0 이상)
+	fQMin		: REAL;			// kvar, 흡수 하한 (0 이하)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

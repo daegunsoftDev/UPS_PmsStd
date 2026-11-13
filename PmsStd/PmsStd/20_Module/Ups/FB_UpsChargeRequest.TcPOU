@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<POU Name="FB_UpsChargeRequest" Id="{72254595-fcd6-4ce0-b848-982c0e753376}" SpecialFunc="None"><Declaration><![CDATA[FUNCTION_BLOCK FB_UpsChargeRequest // 요청 번호와 완료 확인 관리
+VAR_INPUT
+ i_eAction : E_UpsChargeAction;
+ i_fValue : REAL;
+ i_tTimeout : TIME;
+ i_stFeedback : ST_UpsChargeFeedback;
+END_VAR
+VAR_OUTPUT
+ q_stRequest : ST_UpsChargeRequest;
+ q_bDone : BOOL;
+ q_bError : BOOL;
+END_VAR
+VAR
+ _nSeq : UDINT;
+ _ton : TON;
+ _bWasPending : BOOL;
+END_VAR]]></Declaration>
+<Implementation><ST><![CDATA[_bWasPending := q_stRequest.bValid;
+IF i_eAction = E_UpsChargeAction.NoRequest THEN
+ q_stRequest.bValid := FALSE;
+ q_bDone := FALSE;
+ q_bError := FALSE;
+ELSE
+ IF NOT q_stRequest.bValid AND NOT q_bDone AND NOT q_bError THEN
+  _nSeq := F_UpsNextSeq(_nSeq);
+  q_stRequest.nSeq := _nSeq;
+  q_stRequest.eAction := i_eAction;
+  q_stRequest.fValue := i_fValue;
+  q_stRequest.bValid := TRUE;
+ END_IF
+ IF _bWasPending AND i_stFeedback.bValid AND i_stFeedback.nSeq = q_stRequest.nSeq THEN
+  q_stRequest.bValid := FALSE;
+  q_bDone := i_stFeedback.bConfirmed;
+  q_bError := NOT i_stFeedback.bConfirmed;
+ END_IF
+END_IF
+_ton(IN:=q_stRequest.bValid, PT:=i_tTimeout);
+IF q_stRequest.bValid AND (_ton.Q OR i_tTimeout = T#0MS) THEN
+ q_stRequest.bValid := FALSE;
+ q_bError := TRUE;
+END_IF]]></ST></Implementation></POU>
+</TcPlcObject>

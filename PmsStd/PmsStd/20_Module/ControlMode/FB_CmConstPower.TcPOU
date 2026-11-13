@@ -1,0 +1,84 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_CmConstPower" Id="{61f878c1-7e90-44d6-8a27-5cb179e7de97}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_CmConstPower EXTENDS FB_CtrlModeBase		// 제어 모드 예: 정출력. 설정한 P(·Q)를 접속점 기준으로 냄. tDuration이 지나면 스스로 끝냄
+// 새 제어 모드의 본보기: FB_CtrlModeBase 상속 → M_Calc (+ 필요하면 M_CheckEnter·M_Enter·M_Exit·M_ReasonText·M_CheckSet)
+VAR_INPUT
+	i_stSet		: ST_CmConstPowerSet;	// 설정 (A_PassModuleSet이 GVL_PERSIST.g_stModuleSet 칸을 매 스캔 넘김)
+END_VAR
+VAR
+	_tonRun		: TON;		// 운전 시간
+END_VAR
+VAR CONSTANT
+	RSN_NO_UNIT	: UINT := 1;	// 진입 거부: 가용 유닛 없음
+	RSN_TIME_UP	: UINT := 2;	// 끝: 운전 시간 끝
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_CheckEnter" Id="{8d62c100-807e-4776-829f-1e865a256e4f}">
+      <Declaration><![CDATA[METHOD M_CheckEnter : UINT
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;	// 그룹 값(stGroup)·현지 시각(stTime). 관리자가 매 스캔 채움
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckEnter := 0;
+IF i_stView.stGroup.nUnitAvail = 0 THEN
+	M_CheckEnter := RSN_NO_UNIT;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Enter" Id="{99738e15-2e04-4e03-a7c2-96cc3c3dd2f8}">
+      <Declaration><![CDATA[METHOD M_Enter
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;	// 그룹 값(stGroup)·현지 시각(stTime). 관리자가 매 스캔 채움
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SUPER^.M_Enter(i_stView := i_stView);
+_tonRun(IN := FALSE);		// 운전 시간을 처음부터 셈]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Calc" Id="{47f06c36-e007-4ed0-bf49-4e2c26accbdb}">
+      <Declaration><![CDATA[METHOD M_Calc : ST_CtrlModeOut
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;	// 그룹 값(stGroup)·현지 시각(stTime). 관리자가 매 스캔 채움
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_tonRun(IN := i_stSet.tDuration > T#0S, PT := i_stSet.tDuration);
+M_Calc.bPSetActive	:= TRUE;
+M_Calc.fPSet		:= i_stSet.fPSet;
+M_Calc.bQSetActive	:= i_stSet.bQSet;
+M_Calc.fQSet		:= i_stSet.fQSet;
+M_Calc.bExitReq		:= FALSE;
+M_Calc.nReason		:= 0;
+IF _tonRun.Q THEN
+	M_Calc.bExitReq	:= TRUE;
+	M_Calc.nReason	:= RSN_TIME_UP;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckSet" Id="{b3de1bba-e7bb-4fd0-bca8-a300ebc26e0e}">
+      <Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)		// 설정 점검: P·Q가 숫자인지 [결함 13 수정 2026-11-04: 추가. 원래 이 FB에는 점검 없음(바탕 FB 빈 문구)]]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckSet := SUPER^.M_CheckSet();
+IF M_CheckSet = "" AND NOT (F_RealOk(i_stSet.fPSet) AND F_RealOk(i_stSet.fQSet)) THEN
+	M_CheckSet := "정출력: P·Q 값 숫자 아님";
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ReasonText" Id="{4f707d1f-4369-48e7-bf05-f8c3dd8dca2d}">
+      <Declaration><![CDATA[METHOD M_ReasonText : WSTRING(63)
+VAR_INPUT
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE i_nReason OF
+	RSN_NO_UNIT:	M_ReasonText := "정출력: 가용 유닛 없음";
+	RSN_TIME_UP:	M_ReasonText := "정출력: 운전 시간 끝";
+ELSE
+	M_ReasonText := WCONCAT("이유 ", TO_WSTRING(i_nReason));
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,214 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="PRG_Mqtt" Id="{f490f7e5-04af-4e69-bfbc-6f5bded239c4}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_Mqtt		// MqttTask에서 부름. 보고 올리기·명령 받기 (MQTT 담당자 영역)
+(* - MAIN의 FB나 GVL_SITE·GVL_PERSIST를 직접 읽거나 쓰지 않는다 (GVL_SITE 상수 TEST_MODE·MQTT_SET만 읽음). 주고받기는 GVL_IF만
+   - MQTT 클라이언트 FB 인스턴스(브로커 3개)는 FB_MqttMain 안에 있고 여기서만 부른다. 접속 설정은 GVL_SITE.MQTT_SET
+   - 명령: 받은 command 레코드를 FB_EmsCommand(명령 핸들러)가 Std 명령으로 해석 → GVL_IF.g_stEmsCmd에 쓰고 번호(g_nCmdSeq)를 올림 → MAIN이 FB_SrcEms로 받음
+   - 보고: 시험 모드면 먼저 더미 값(PRG_MqttTestData)을 채우고, MAIN이 GVL_IF.g_stReport에 채운 매핑된 PCS·BAT 레코드(A_Report)를 그 위에 덮어씀. 매핑이 없는 장치·토픽은 더미 그대로 *)
+VAR
+	nUpsConfigRxCount : UDINT; // last handed-over config/ups receive count
+	fbMqttMain		: FB_MqttMain;		// 발행·구독 (브로커 3개)
+	sInstance		: STRING(4);			// ClientId 꼬리표 (이중화일 때 역할로 정함)
+	bRoleReady		: BOOL;				// 이중화 역할이 정해짐 (안 쓰면 항상 TRUE)
+	fbEmsCommand	: FB_EmsCommand;		// 명령 핸들러
+	stRptCopy		: ST_IfReport;		// 보고 칸의 마지막 일관된 복사본
+ stRptCandidate : ST_IfReport; // 복사 중인 보고값
+	nRptSeq			: UDINT;
+	bRptValid		: BOOL;
+	nRxTotal		: UDINT;				// command 메시지 수신 누계 (브로커 3개 합)
+	i				: UINT;
+	(* [9-21 수정 2026-11-04: 추가] EMS config → GVL_IF, 실제 설정 echo ← GVL_IF *)
+	stCfgOut		: ST_IfEmsCfg;		// GVL_IF.g_stEmsCfg에 올릴 칸 (마지막 레코드·번호 유지)
+	nPrevPcsCfg		: UDINT;
+	nPrevBatCfg		: UDINT;
+	bCfgNew			: BOOL;
+	k				: UDINT;
+	nRec			: UDINT;
+	nDev			: UINT;
+	stPcsRec		: ST_PcsConfig_Rx;
+	stBatRec		: ST_BatConfig_Rx;
+	stCfgEchoCopy	: ST_IfEmsCfgEcho;
+	nCfgEchoSeq		: UDINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 1. 발행 패킷 장치 번호, 시험 모드면 더미 발행 값 *)
+PRG_PublishDeviceNo();
+IF GVL_SITE.TEST_MODE THEN
+	PRG_MqttTestData();
+END_IF
+
+(* 1-2. 보고: MAIN이 GVL_IF에 채운 PCS·BAT 레코드를 번호를 확인하며 복사해 발행 구조체에 넣음 (더미 위에 덮어씀).
+   번호가 홀수 = 쓰는 중, 복사 전후 번호가 다름 = 복사 중에 바뀜 → 이번 스캔은 지난 복사본 그대로 *)
+nRptSeq := GVL_IF.g_nReportSeq;
+IF (nRptSeq AND 1) = 0 AND nRptSeq <> 0 THEN
+	stRptCandidate := GVL_IF.g_stReport;
+	IF GVL_IF.g_nReportSeq = nRptSeq THEN
+  stRptCopy := stRptCandidate;
+		bRptValid := TRUE;
+	END_IF
+END_IF
+IF bRptValid THEN
+	FOR i := 1 TO GVL_PARAM.PCS_COUNT DO
+		IF stRptCopy.abPcsMapped[i] THEN
+			g_stPcsPublish.Devices[i - 1] := stRptCopy.astPcs[i];
+			g_stPcsPublish.Devices[i - 1].DeviceIndex := UINT_TO_UDINT(i);
+		END_IF
+	END_FOR
+ FOR i := 1 TO GVL_PARAM.BMS_COUNT DO
+  IF stRptCopy.abBatMapped[i] THEN
+   g_stBatPublish.Devices[i - 1] := stRptCopy.astBat[i];
+   g_stBatPublish.Devices[i - 1].DeviceIndex := UINT_TO_UDINT(i);
+  END_IF
+ END_FOR
+ FOR i := 1 TO GVL_PARAM.RACK_COUNT DO
+  IF stRptCopy.abBatMapped[(i - 1) / GVL_PARAM.RACKS_PER_BMS + 1] THEN
+   g_stRackPublish.Devices[i - 1] := stRptCopy.astRack[i];
+  END_IF
+ END_FOR
+ FOR i := 1 TO GVL_PARAM.BAT_MODULE_COUNT DO
+  IF stRptCopy.abBatMapped[(i - 1) / (GVL_PARAM.RACKS_PER_BMS * GVL_PARAM.MODULES_PER_RACK) + 1] THEN
+   g_stModulePublish.Devices[i - 1] := stRptCopy.astModule[i];
+  END_IF
+ END_FOR
+ FOR i := 1 TO GVL_PARAM.UPS_COUNT DO
+  IF stRptCopy.abUpsMapped[i] THEN
+   g_stUpsPublish.Devices[i - 1] := stRptCopy.astUps[i];
+   g_stUpsPublish.Devices[i - 1].DeviceIndex := UINT_TO_UDINT(i); // 번호 1부터
+  END_IF
+ END_FOR
+ FOR i := 1 TO GVL_PARAM.IMD_COUNT DO
+  IF stRptCopy.abImdMapped[i] THEN
+   g_stImdPublish.Devices[i - 1] := stRptCopy.astImd[i];
+   g_stImdPublish.Devices[i - 1].DeviceIndex := UINT_TO_UDINT(i); // 번호 1부터
+  END_IF
+ END_FOR
+ FOR i := 1 TO GVL_PARAM.FIRE_COUNT DO
+  IF stRptCopy.abFireMapped[i] THEN
+   g_stFirePublish.Devices[i - 1] := stRptCopy.astFire[i]; // 번호 1부터 (MAIN이 채움)
+  END_IF
+ END_FOR
+ FOR i := 1 TO GVL_PARAM.TEMP_COUNT DO
+  IF stRptCopy.abTempMapped[i] THEN
+   g_stTempPublish.Devices[i - 1] := stRptCopy.astTemp[i]; // 시험 더미 위에 덮어씀
+  END_IF
+ END_FOR
+END_IF
+
+(* 1-3. config echo: MAIN이 GVL_IF에 채운 실제 설정을 번호를 확인하며 복사 → GVL_MQTT applied 칸 (FB_MqttMain이 config echo로 발행) [9-21 수정 2026-11-04: 추가] *)
+nCfgEchoSeq := GVL_IF.g_nCfgEchoSeq;
+IF (nCfgEchoSeq AND 1) = 0 AND nCfgEchoSeq <> 0 THEN
+	stCfgEchoCopy := GVL_IF.g_stEmsCfgEcho;
+	IF GVL_IF.g_nCfgEchoSeq = nCfgEchoSeq THEN
+		GVL_MQTT.g_astPcsConfigApplied	:= stCfgEchoCopy.astPcs;
+		GVL_MQTT.g_astBatConfigApplied	:= stCfgEchoCopy.astBat;
+		GVL_MQTT.g_bConfigApplied		:= TRUE;
+	END_IF
+END_IF
+
+(* 2. 발행·구독 (브로커 3개) *)
+// 이중화: 두 PLC가 같은 사이트·같은 ClientId로 접속하면 브로커가 서로 끊으므로 역할로 ClientId를 구분. 발행은 Active만, 구독은 두 PLC 모두
+IF GVL_SITE.RED_SET.bUse THEN
+	CASE GVL_IF.g_eRedRole OF
+	E_RedRole.Primary:		sInstance := '-P'; bRoleReady := TRUE;
+	E_RedRole.Secondary:	sInstance := '-S'; bRoleReady := TRUE;
+	ELSE					sInstance := '';   bRoleReady := FALSE;	// 읽는 중·설정 오류: 접속하지 않음
+	END_CASE
+ELSE
+	sInstance	:= '';
+	bRoleReady	:= TRUE;
+END_IF
+fbMqttMain(	i_stSet		:= GVL_SITE.MQTT_SET,
+			i_sInstance	:= sInstance,
+			i_bPublish	:= GVL_IF.g_bRedActive,
+			i_bReady	:= bRoleReady);
+GVL_IF.g_abBrokerUse	:= fbMqttMain.q_abBrokerUse;	// [9번 수정 2026-11-09: 추가] 브로커 접속 상태 → MAIN (FB_BrokerWatch)
+GVL_IF.g_abBrokerConn	:= fbMqttMain.q_abBrokerConn;
+
+// config/ups is raw receipt staging only. No setting application or hardware request.
+IF GVL_MQTT.g_anCfgRxCount[4]<>nUpsConfigRxCount THEN
+ nUpsConfigRxCount:=GVL_MQTT.g_anCfgRxCount[4];
+ GVL_IF.g_nUpsConfigSeq:=GVL_IF.g_nUpsConfigSeq+1;
+ GVL_IF.g_stUpsConfigRx.astConfig:=GVL_MQTT.g_astUpsConfig;
+ GVL_IF.g_stUpsConfigRx.nRxCount:=nUpsConfigRxCount;
+ GVL_IF.g_nUpsConfigSeq:=GVL_IF.g_nUpsConfigSeq+1;
+END_IF
+
+(* 2-1. 로거 발행 시험 (시험 모드. 버튼을 누를 때만 로그를 남김, 결과는 PRG_TestLogger 머리말) *)
+IF GVL_SITE.TEST_MODE THEN
+	PRG_TestLogger();
+END_IF
+
+(* 3. 수신 시험 기록 (시험 모드. 명령 핸들러가 CommandType을 지우기 전의 사본) *)
+IF GVL_SITE.TEST_MODE THEN
+	PRG_MqttTestData.A_HandleRx();
+END_IF
+
+(* 4. 명령 핸들러: command 레코드 → Std 명령. 바뀌었으면 GVL_IF에 올림 (쓰기 전 번호 홀수, 끝나면 짝수) *)
+nRxTotal := 0;
+FOR i := 1 TO GVL_MQTT.COMMAND_TOPIC_COUNT DO
+	nRxTotal := nRxTotal + g_anCmdRxCount[i];
+END_FOR
+fbEmsCommand(	i_nRxCount			:= nRxTotal,
+				iq_astPcsCommand	:= g_astPcsCommand,
+				iq_astBatCommand	:= g_astBatCommand);
+IF fbEmsCommand.q_bChanged THEN
+	GVL_IF.g_nCmdSeq := GVL_IF.g_nCmdSeq + 1;
+	GVL_IF.g_stEmsCmd := fbEmsCommand.q_stCmd;
+	GVL_IF.g_nCmdSeq := GVL_IF.g_nCmdSeq + 1;
+END_IF
+
+(* 5. EMS config(pcs·bat) → GVL_IF.g_stEmsCfg [9-21 수정 2026-11-04: 추가]. 새 메시지(수신 횟수가 바뀜)의 레코드를 칸(DeviceId, 1부터 [1부터 2026-11-10])에 넣고 그 칸 번호를 올림.
+   실제로 받은 레코드(GVL_MQTT.g_anCfgRxRecords)까지만 봄. 반영은 MAIN (FB_EmsConfigApply)
+   [21번 수정 2026-11-09: is_available이 모두 0인 레코드도 넘김 (기본값으로 반영 = 한도 해제). 원래는 그런 레코드를 빈 칸으로 보고 건너뜀
+    → 빈 칸은 받은 레코드 수로 거름 (헤더 DeviceCount가 실제보다 크면 그 뒤 칸은 0으로 채워져 PCS 1로 보이므로)] *)
+bCfgNew := FALSE;
+IF GVL_MQTT.g_anCfgRxCount[1] <> nPrevPcsCfg THEN
+	nPrevPcsCfg := GVL_MQTT.g_anCfgRxCount[1];
+	nRec := MIN(MIN(GVL_MQTT.g_stPcsConfigWireIn.Header.DeviceCount, GVL_MQTT.g_anCfgRxRecords[1]), UINT_TO_UDINT(GVL_PARAM.PCS_COUNT));
+	FOR k := 1 TO nRec DO
+		stPcsRec := GVL_MQTT.g_stPcsConfigWireIn.Records[k - 1];
+		IF stPcsRec.DeviceId >= 1 AND stPcsRec.DeviceId <= UINT_TO_UDINT(GVL_PARAM.PCS_COUNT) THEN
+			nDev := UDINT_TO_UINT(stPcsRec.DeviceId);
+			stCfgOut.astPcs[nDev]	:= stPcsRec;
+			stCfgOut.anPcsSeq[nDev]	:= stCfgOut.anPcsSeq[nDev] + 1;
+			bCfgNew := TRUE;
+		END_IF
+	END_FOR
+END_IF
+IF GVL_MQTT.g_anCfgRxCount[2] <> nPrevBatCfg THEN
+	nPrevBatCfg := GVL_MQTT.g_anCfgRxCount[2];
+	nRec := MIN(MIN(GVL_MQTT.g_stBatConfigWireIn.Header.DeviceCount, GVL_MQTT.g_anCfgRxRecords[2]), UINT_TO_UDINT(GVL_PARAM.BMS_COUNT));
+	FOR k := 1 TO nRec DO
+		stBatRec := GVL_MQTT.g_stBatConfigWireIn.Records[k - 1];
+		IF stBatRec.DeviceId >= 1 AND stBatRec.DeviceId <= UINT_TO_UDINT(GVL_PARAM.BMS_COUNT) THEN
+			nDev := UDINT_TO_UINT(stBatRec.DeviceId);
+			stCfgOut.astBat[nDev]	:= stBatRec;
+			stCfgOut.anBatSeq[nDev]	:= stCfgOut.anBatSeq[nDev] + 1;
+			bCfgNew := TRUE;
+		END_IF
+	END_FOR
+END_IF
+IF bCfgNew THEN
+	GVL_IF.g_nCfgSeq := GVL_IF.g_nCfgSeq + 1;
+	GVL_IF.g_stEmsCfg := stCfgOut;
+	GVL_IF.g_nCfgSeq := GVL_IF.g_nCfgSeq + 1;
+END_IF
+
+(* 6. UPS 명령 (명세 WR-UPS-01): command/ups 레코드 → GVL_IF.g_astUpsCmd. 받은 레코드는 지움. MAIN.fbUpsCommand가 실행 *)
+FOR i := 0 TO GVL_PARAM.UPS_COUNT - 1 DO
+	IF g_astUpsCommand[i].CommandType <> 0 THEN
+		GVL_IF.g_nUpsCmdSeq := GVL_IF.g_nUpsCmdSeq + 1;	// 홀수 = 쓰는 중
+		GVL_IF.g_astUpsCmd[i + 1].nType := g_astUpsCommand[i].CommandType;
+		GVL_IF.g_astUpsCmd[i + 1].nSeq := GVL_IF.g_astUpsCmd[i + 1].nSeq + 1;
+		GVL_IF.g_nUpsCmdSeq := GVL_IF.g_nUpsCmdSeq + 1;	// 짝수 = 끝
+		g_astUpsCommand[i].CommandType := 0;
+	END_IF
+END_FOR]]></ST>
+    </Implementation>
+    <LineIds Name="PRG_Mqtt">
+      <LineId Id="3" Count="155" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

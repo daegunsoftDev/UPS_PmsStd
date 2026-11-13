@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtSeq" Id="{4e88c012-774f-4bd4-96b6-e1e3eb687174}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtSeq : WSTRING(31)		// 유닛 시퀀스 문구
+VAR_INPUT
+	i_e		: E_UnitSeq;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_e OF
+	E_UnitSeq.Unknown:	F_TxtSeq := "알 수 없음";
+	E_UnitSeq.Stopped:	F_TxtSeq := "정지";
+	E_UnitSeq.WaitBat:	F_TxtSeq := "배터리 투입 대기";
+	E_UnitSeq.Standby:	F_TxtSeq := "Standby";
+	E_UnitSeq.WaitPermit:	F_TxtSeq := "기동 조건 대기";
+	E_UnitSeq.ToRun:	F_TxtSeq := "Run 명령 중";
+	E_UnitSeq.Running:	F_TxtSeq := "운전";
+	E_UnitSeq.StopRamp:	F_TxtSeq := "정지 램프";
+	E_UnitSeq.ToStop:	F_TxtSeq := "정지 명령 중";
+ELSE
+	F_TxtSeq := "?";
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

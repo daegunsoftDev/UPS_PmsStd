@@ -1,0 +1,97 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_RedPeerMonitor" Id="{890d0b9d-0596-4dea-ae9a-68d9b7bb0cee}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_RedPeerMonitor		// 상대 PLC 상태 판정 (순수 로직: I/O를 직접 안 봄). EAP 하트비트(카운터가 바뀌고 Quality 정상)와 접점 신호(값이 바뀜)를 따로 보고 합침
+// 판정 규칙: 둘 다 정상 = Alive, 한쪽만 끊김 = 그 통신 고장 (상대는 살아 있음, 절체 안 함), 둘 다 끊김 = Lost (절체 조건)
+VAR_INPUT
+	i_stRx			: ST_RedHeartbeat;	// 받은 EAP 하트비트
+	i_bEapQualityOk	: BOOL;				// EAP Quality가 정상
+	i_nMyRole		: INT;				// 이 PLC의 역할 (E_RedRole). 받은 역할이 같으면 내 프레임이 되돌아온 것으로 보고 무시
+	i_bWireAlive	: BOOL;				// 상대 alive 접점(DI)의 지금 값. 상대가 주기적으로 뒤집음
+	i_tEapTimeout	: TIME := T#500MS;	// 카운터가 이 시간 안 바뀌면 EAP 끊김
+	i_tWireTimeout	: TIME := T#500MS;	// 접점이 이 시간 안 바뀌면 접점 끊김
+	i_tStartGrace	: TIME := T#3S;		// 시작 직후 대기: 이 안에는 아직 못 봐도 Unknown
+END_VAR
+VAR_OUTPUT
+	q_ePeer			: E_RedPeer;
+	q_bEapOk		: BOOL;				// EAP 하트비트 정상
+	q_bWireOk		: BOOL;				// 접점 신호 정상
+	q_stPeer		: ST_RedHeartbeat;	// 상대가 보낸 값. EAP가 정상일 때만 채움 (아니면 0)
+	q_bRoleConflict	: BOOL;				// 상대가 나와 같은 역할로 살아 있음 (두 PLC 역할 설정 오류). 접점도 살아 있을 때만 (내 프레임이 되돌아온 경우와 구분)
+END_VAR
+VAR
+	_bInit			: BOOL;
+	_nLastCount		: UDINT;
+	_bLastWire		: BOOL;
+	_bEapSeen		: BOOL;			// 시작 뒤 카운터가 바뀌는 것을 한 번이라도 봄
+	_bWireSeen		: BOOL;
+	_bSameSeen		: BOOL;
+	_tonSame		: TON;
+	_tonEap			: TON;
+	_tonWire		: TON;
+	_tonStart		: TON;
+END_VAR
+VAR_TEMP
+	bEapMoved		: BOOL;
+	bFromSelf		: BOOL;
+	bSameMoved		: BOOL;
+	bCntMoved		: BOOL;
+	bWireMoved		: BOOL;
+	stZero			: ST_RedHeartbeat;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF NOT _bInit THEN
+	_nLastCount	:= i_stRx.nCounter;
+	_bLastWire	:= i_bWireAlive;
+	_bInit		:= TRUE;
+END_IF
+
+// EAP: 카운터가 바뀌었고 Quality 정상이면 살아 있음. 안 바뀌는 시간이 길면 끊김 (상대 PLC가 멈추면 마지막 값이 그대로 남으므로 Quality만으로는 못 잡음)
+bFromSelf		:= i_stRx.nRole = i_nMyRole;	// 상대와 내 역할은 항상 다름. 같으면 루프로 되돌아온 내 프레임 (또는 역할 설정 오류)
+bCntMoved		:= i_bEapQualityOk AND i_stRx.nCounter <> _nLastCount;
+bEapMoved		:= bCntMoved AND NOT bFromSelf;
+_nLastCount		:= i_stRx.nCounter;
+IF bEapMoved THEN
+	_bEapSeen := TRUE;
+END_IF
+// 같은 역할 프레임이 계속 오는지 (Primary·Secondary일 때만. 시작 중 Reading끼리는 제외)
+bSameMoved		:= bCntMoved AND bFromSelf AND (i_nMyRole = 1 OR i_nMyRole = 2);
+IF bSameMoved THEN
+	_bSameSeen := TRUE;
+END_IF
+_tonSame(IN := NOT bSameMoved, PT := i_tEapTimeout);
+_tonEap(IN := NOT bEapMoved, PT := i_tEapTimeout);
+q_bEapOk		:= _bEapSeen AND NOT _tonEap.Q AND i_bEapQualityOk AND NOT bFromSelf;
+
+// 접점: 값이 바뀌면 살아 있음
+bWireMoved		:= i_bWireAlive <> _bLastWire;
+_bLastWire		:= i_bWireAlive;
+IF bWireMoved THEN
+	_bWireSeen := TRUE;
+END_IF
+_tonWire(IN := NOT bWireMoved, PT := i_tWireTimeout);
+q_bWireOk		:= _bWireSeen AND NOT _tonWire.Q;
+q_bRoleConflict	:= _bSameSeen AND NOT _tonSame.Q AND q_bWireOk;
+
+_tonStart(IN := TRUE, PT := i_tStartGrace);
+
+IF q_bEapOk AND q_bWireOk THEN
+	q_ePeer := E_RedPeer.Alive;
+ELSIF q_bWireOk THEN
+	q_ePeer := E_RedPeer.EapLost;
+ELSIF q_bEapOk THEN
+	q_ePeer := E_RedPeer.WireLost;
+ELSIF NOT _bEapSeen AND NOT _bWireSeen AND NOT _tonStart.Q THEN
+	q_ePeer := E_RedPeer.Unknown;
+ELSE
+	q_ePeer := E_RedPeer.Lost;
+END_IF
+
+IF q_bEapOk THEN
+	q_stPeer := i_stRx;
+ELSE
+	q_stPeer := stZero;
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

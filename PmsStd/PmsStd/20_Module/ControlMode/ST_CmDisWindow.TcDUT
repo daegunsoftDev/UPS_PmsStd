@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CmDisWindow" Id="{0ec72165-3d96-49e3-9a05-6175480d9057}">
+    <Declaration><![CDATA[TYPE ST_CmDisWindow :		// 방전 허용 시간 (경부하 시간에는 방전하지 않음)
+STRUCT
+	bUse		: BOOL := TRUE;		// FALSE = 시간 제한 없음
+	nStart		: UINT := 800;		// HHMM, 허용 시작 (포함)
+	nEnd		: UINT := 2200;		// HHMM, 허용 끝 (미포함)
+	bSunday		: BOOL := FALSE;	// 일요일 방전 허용 (기본: 일요일은 하루 종일 경부하)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

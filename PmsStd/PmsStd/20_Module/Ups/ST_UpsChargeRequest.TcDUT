@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<DUT Name="ST_UpsChargeRequest" Id="{ae5fa733-3c68-4139-bd14-145e09695c3b}"><Declaration><![CDATA[// 충방전 시퀀스가 장비 쪽에 보내는 요청 1건.
+// nSeq로 요청을 구분하고, 처리 결과는 ST_UpsChargeFeedback으로 돌려받는다.
+TYPE ST_UpsChargeRequest :
+STRUCT
+ bValid : BOOL; // 처리할 요청
+ nSeq : UDINT; // 요청 번호
+ eAction : E_UpsChargeAction; // 요청 동작
+ fValue : REAL; // 전압 목표 (V)
+END_STRUCT
+END_TYPE]]></Declaration></DUT>
+</TcPlcObject>

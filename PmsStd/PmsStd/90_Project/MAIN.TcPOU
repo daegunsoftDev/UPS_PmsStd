@@ -1,0 +1,825 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="MAIN" Id="{c4653662-236f-4b8a-91f4-b5c9bccb2033}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN
+VAR
+	fbSnapshot		: FB_Snapshot;
+	fbMeasure		: FB_Measure;
+	fbProtection	: FB_Protection;
+	fbBatGroup		: FB_BatGroup;
+	fbUnitAvail	: FB_UnitAvail;
+	fbEquipLimits	: FB_EquipmentLimits;
+	fbGroupView		: FB_GroupView;
+	fbUnitView		: FB_UnitView;		// 유닛(PCS)마다 요약 (유닛 단위 제어 모드 관리자가 봄)
+	fbSources		: FB_SourceHub;
+	fbModeSwitch	: FB_ModeSwitch;
+	fbStateArb		: FB_StateArbiter;
+	fbSelect		: FB_Select;
+	fbAutoGate		: FB_Gate;
+	fbManualGate	: FB_Gate;
+	fbOutputReady	: FB_OutputReady;
+	fbLimitEval		: FB_LimitEval;
+	fbManualShape	: FB_ShapePath := (i_bManual := TRUE);
+	fbAutoShape		: FB_ShapePath := (i_bManual := FALSE);
+	fbDistributor	: FB_Distributor;
+	fbSequencer		: FB_Sequencer;
+	fbPermitEval	: FB_PermitEval;	// 기동 조건 모듈 평가
+	fbGroupState	: FB_GroupState;	// 그룹 상태 요약
+	fbDispatcher	: FB_Dispatcher;
+	fbAuxOutput		: FB_AuxOutput;
+	fbOutputDiag	: FB_OutputDiag;
+	fbEventLog		: FB_EventLog;
+	fbAlive			: FB_AliveRecorder;
+	fbPersistSave	: FB_PersistSave;
+	fbConfigCheck	: FB_ConfigCheck;
+	fbSettingGuard	: FB_SettingGuard;	// 운전 중 바꾸는 설정 값 지키기
+	fbModuleList	: FB_ModuleList;
+	fbReport		: FB_Report;
+	fbClock			: FB_LocalClock;	// 현지 시각 (제어 모드 시간표)
+	afZeroGrp		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;		// Manual 성형의 '다른 경로 몫' (없음 = 0)
+	bTestReset		: BOOL;		// 시험 리셋 (TEST_MODE AND GVL_TEST.g_bTestReset): 모든 PCS·BMS 고장 리셋 + 유지 DO 풀기
+	bClearHoldDo	: BOOL;		// 유지 DO 풀기: 지금은 지령원 PCS 리셋 요청·시험 리셋과 같은 신호 (DO 작업 때 따로 정함)
+	stUpsConfigReceived : ST_IfUpsConfigRx; // coherent received snapshot. 주기적·펄스 값만 fbUpsConfigApply가 적용
+	fbUpsConfigApply : ARRAY[1..GVL_PARAM.UPS_COUNT] OF FB_UpsConfigApply; // EMS 설정 → UPS 쓰기
+	nUpsConfigReadSeq : UDINT;
+	stUpsConfigCandidate : ST_IfUpsConfigRx;
+	nUpsCmdReadSeq : UDINT; // GVL_IF.g_nUpsCmdSeq 읽은 값
+	astUpsCmdCandidate : ARRAY[1..GVL_PARAM.UPS_COUNT] OF ST_IfUpsCmd;
+	astUpsCmdReceived : ARRAY[1..GVL_PARAM.UPS_COUNT] OF ST_IfUpsCmd; // 일관되게 읽은 UPS 명령
+	fbUpsCommand : ARRAY[1..GVL_PARAM.UPS_COUNT] OF FB_UpsCommand; // EMS UPS 명령 → UPS 명령 레지스터 (명세 WR-UPS-01)
+	bUpsConfigOk : BOOL;
+	_nReportPcs : UINT; // action loop variable, not VAR_TEMP
+// 통신 시험 중 충방전 알고리즘 선언 중지 (2026-11-02)
+// afbUpsCharge : ARRAY[1..GVL_PARAM.UPS_COUNT] OF FB_UpsChargeSequence;
+// afbUpsTemp : ARRAY[1..GVL_PARAM.UPS_COUNT] OF FB_UpsTemperatureCharge;
+// astUpsChargeSet : ARRAY[1..GVL_PARAM.UPS_COUNT] OF ST_UpsChargeSet; // 미확정 값은 0
+// aeUpsChargeMode : ARRAY[1..GVL_PARAM.UPS_COUNT] OF E_UpsChargeMode;
+// abUpsChargeEnable : ARRAY[1..GVL_PARAM.UPS_COUNT] OF BOOL;
+// abUpsChargeCancel : ARRAY[1..GVL_PARAM.UPS_COUNT] OF BOOL;
+// abUpsChargeReset : ARRAY[1..GVL_PARAM.UPS_COUNT] OF BOOL;
+// abUpsTempEnable : ARRAY[1..GVL_PARAM.UPS_COUNT] OF BOOL;
+// astUpsChargeFeedback : ARRAY[1..GVL_PARAM.UPS_COUNT] OF ST_UpsChargeFeedback;
+// astUpsTempFeedback : ARRAY[1..GVL_PARAM.UPS_COUNT] OF ST_UpsChargeFeedback;
+ fbRptBat : ARRAY[1..GVL_PARAM.BMS_COUNT] OF FB_RptEsolutionBat; // 배터리 보고 매핑
+ _nReportBat : UINT; // 배터리 보고 번호
+ _nReportRack : UINT; // 랙 보고 번호
+ _nReportModule : UINT; // 모듈 보고 번호
+ fbRptUps : ARRAY[1..GVL_PARAM.UPS_COUNT] OF FB_RptSebangUps; // UPS 보고 매핑
+ fbRptImd : ARRAY[1..GVL_PARAM.IMD_COUNT] OF FB_RptLsImd1000; // IMD 보고 매핑 (토픽 imd)
+ _nReportImd : UINT; // IMD 보고 번호
+ fbRptTemp : ARRAY[1..GVL_PARAM.TEMP_COUNT] OF FB_RptTempHum; // 온습도 보고 매핑 (토픽 temperature_sensor)
+ fbBmsRack : ARRAY[1..GVL_PARAM.BMS_COUNT] OF FB_BmsRackCommand; // 랙 컨택터 개별 제어 (EMS CommandType 11·12)
+ abBmsRackAcc : ARRAY[1..GVL_PARAM.BMS_COUNT] OF BOOL; // 지난 스캔 랙 쓰기 요청을 드라이버가 받음
+ aeBmsRackRes : ARRAY[1..GVL_PARAM.BMS_COUNT] OF E_UpsResult; // 지난 스캔 드라이버 결과
+ fbUpsSafety : ARRAY[1..GVL_PARAM.UPS_COUNT] OF FB_UpsSafetyStage; // 사고·고장 단계 판정 (UPS n ↔ BMS n). 표시만, 장비에 쓰지 않음
+ // BMS 쓰기 시험 (시뮬레이터 전용). 값을 넣고 nBmsTestCmd를 쓰면 1회 실행 후 0으로 돌아감
+ // 1 랙 비트(wBmsTestValue), 2 충전 접촉기, 3 방전 접촉기, 4 시스템 접촉기(bBmsTestOn), 5 비상차단, 6 리셋, 7 주기적 방전 시작, 8 방전 취소
+ nBmsTestCmd : UINT;
+ wBmsTestValue : WORD := 16#00FF; // 랙 비트. b0 = 랙 1 (랙 8개)
+ bBmsTestOn : BOOL; // 접촉기 On/Off
+ eBmsTestResult : E_UpsResult; // 마지막 접수 결과
+ stBmsTestCmd : ST_BatCmd;
+ nBmsTestSeq : UDINT := 16#80000000; // 코어 명령 번호와 겹치지 않게
+ _nReportUps : UINT; // UPS 보고 번호
+	awsUpsConfigError : ARRAY[1..GVL_PARAM.UPS_COUNT] OF WSTRING(63);
+	bWriteEnable	: BOOL;		// 장비 쓰기 허가 (설정 오류 없음 AND 주 PLC AND DEVICE_WRITE). 디스패처·보조 출력·시퀀서가 씀
+	stEmsCopy		: ST_IfEmsCmd;	// MQTT 명령 칸의 마지막 일관된 복사본
+	nEmsSeq			: UDINT;
+	fbEmsCfg		: FB_EmsConfigApply;	// EMS config(pcs·bat) → 운영 설정 [9-21 수정 2026-11-04: 추가]
+	stEmsCfgCopy	: ST_IfEmsCfg;		// MQTT config 칸의 마지막 복사본
+	nEmsCfgSeq		: UDINT;
+	bEmsCfgOk		: BOOL;
+	stEmsOut		: ST_SourceOutput;	// EMS 지령원 출력 (지난 스캔). 속성 결과는 칸을 바로 못 읽어 한 번 담음
+	(* [16번 수정 2026-11-09: 추가] A_PassEmsCmd: PCS 지령 → 스탠다드 스케줄 유닛 칸 (액션이라 VAR에 둠) *)
+	nCmU			: UINT;
+	nCmK			: UINT;
+	nCmPcs			: UINT;
+	fCmPcsRated		: REAL;
+	fbBrokerWatch	: FB_BrokerWatch;	// MQTT 브로커 끊김 감시 [9번 수정 2026-11-09: 추가]
+END_VAR
+VAR_TEMP
+	i			: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* ===== 0. 가상 장비 연결 (시험 모드에서만. 현장은 GVL_SITE.TEST_MODE = FALSE) ===== *)
+IF GVL_SITE.TEST_MODE THEN
+	PRG_SimLink();
+	PRG_TestCtrlMode();	// 제어 모드 자동 시험 (따로 둔 인스턴스만 씀. 결과 PRG_TestCtrlMode.fbTally)
+	PRG_TestSchedLive();	// 스케줄 모드 실제 경로 시험 (bStart := TRUE로 시작할 때만 동작)
+	PRG_TestPeakLive();	// 피크컷·통합 모드 실제 경로 시험 (bStart := TRUE로 시작할 때만 동작)
+	PRG_TestUnitMode();	// 유닛 단위 제어 모드 자동 시험 (따로 둔 인스턴스만 씀. 결과 PRG_TestUnitMode.fbTally). [16번 수정 2026-11-09: 현장 PCS별 실경로 시험 PRG_TestUnitLive는 없앰]
+	PRG_TestStdLive();	// 스탠다드 스케줄 모드 실제 경로 시험 (EMS 명령 → 모드 → 코어 고르기. bStart := TRUE로 시작)
+END_IF
+
+(* ===== 현지 시각 (A_PassModuleSet이 제어 모드 관리자에 넘김) ===== *)
+fbClock();
+
+(* ===== 모듈 설정 넘기기: GVL_PERSIST.g_stModuleSet 칸 → 모듈 i_stSet (A_PassModuleSet, 현장 모듈마다 한 줄) ===== *)
+A_PassEmsCfg();		// [9-21 수정 2026-11-04: 추가] EMS config → GVL_PERSIST 설정 (모듈 설정 넘기기 앞: 같은 스캔에 모듈·설정 보호가 새 값을 봄)
+A_PassModuleSet();
+A_PassEmsCmd();
+// Raw config mailbox only. Do not drive charge modes from this received structure.
+// UPS 명령 칸 (MqttTask → PlcTask): 번호가 짝수이고 복사 전후가 같을 때만 받음
+nUpsCmdReadSeq:=GVL_IF.g_nUpsCmdSeq;
+IF (nUpsCmdReadSeq AND 1)=0 THEN
+ astUpsCmdCandidate:=GVL_IF.g_astUpsCmd;
+ IF nUpsCmdReadSeq=GVL_IF.g_nUpsCmdSeq THEN astUpsCmdReceived:=astUpsCmdCandidate; END_IF
+END_IF
+nUpsConfigReadSeq:=GVL_IF.g_nUpsConfigSeq;
+IF (nUpsConfigReadSeq AND 1)=0 THEN
+ stUpsConfigCandidate:=GVL_IF.g_stUpsConfigRx;
+ IF nUpsConfigReadSeq=GVL_IF.g_nUpsConfigSeq THEN stUpsConfigReceived:=stUpsConfigCandidate; END_IF
+END_IF
+
+(* ===== 등록된 모듈 목록: 모듈 ID 점검·로그 이름 찾기는 이 목록만 봄 (새 등록 배열은 FB_ModuleList에만 추가) ===== *)
+fbModuleList(	iq_aipPcs	:= GVL_SITE.g_aipPcs,
+				iq_aipBms	:= GVL_SITE.g_aipBms,
+				iq_aipMeter	:= GVL_SITE.g_aipMeter,
+				iq_aipAux	:= GVL_SITE.g_aipAux,
+				iq_aipSource	:= GVL_SITE.g_aipSource,
+				iq_aipLimit	:= GVL_SITE.g_aipLimit,
+				iq_aipPermit	:= GVL_SITE.g_aipPermit,
+				iq_aipComp	:= GVL_SITE.g_aipComp,
+				iq_aipRule	:= GVL_SITE.g_aipRule,
+				iq_aipResp	:= GVL_SITE.g_aipResp,
+				iq_aipOutput	:= GVL_SITE.g_aipOutput,
+				iq_aipUnitRule	:= GVL_SITE.g_aipUnitRule,
+				iq_aipBatRule	:= GVL_SITE.g_aipBatRule,
+				iq_aipSelPolicy	:= GVL_SITE.g_aipSelectPolicy,
+				iq_aipDistPolicy	:= GVL_SITE.g_aipDistPolicy,
+				iq_ipAutoGate	:= GVL_SITE.g_ipAutoGate,
+				iq_ipManualGate	:= GVL_SITE.g_ipManualGate,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG);
+
+(* ===== 운전 중 바꾸는 설정 지키기: 잘못된 값은 마지막 정상값으로 되돌림 (GVL_PERSIST에 다시 씀). 모듈 설정을 되돌렸으면 다시 넘김 ===== *)
+fbSettingGuard(	i_pModuleSet	:= ADR(GVL_PERSIST.g_stModuleSet),
+				i_nModuleSetSize	:= SIZEOF(GVL_PERSIST.g_stModuleSet),
+				iq_stCmdFilter	:= GVL_PERSIST.g_stCmdFilter,
+				iq_stManualCmdSet	:= GVL_PERSIST.g_stManualCmdSet,
+				iq_stSeqSet		:= GVL_PERSIST.g_stSeqSet,
+				iq_astGroupSet	:= GVL_PERSIST.g_astGroupSet,	// [결함 13 수정 2026-11-04: 추가]
+				iq_aipModule	:= fbModuleList.q_aipModule,
+				iq_astOutputCfg	:= GVL_PERSIST.g_astOutputCfg,
+				iq_astRuleCfg	:= GVL_PERSIST.g_astRuleCfg,
+				iq_astSourceReg	:= GVL_PERSIST.g_astSourceReg,
+				iq_astLimitReg	:= GVL_PERSIST.g_astLimitReg,
+				iq_astPermitReg	:= GVL_PERSIST.g_astPermitReg,
+				iq_astCompReg	:= GVL_PERSIST.g_astCompReg,
+				iq_astUnitRuleReg	:= GVL_PERSIST.g_astUnitRuleReg,
+				iq_astBatRuleReg	:= GVL_PERSIST.g_astBatRuleReg,
+				iq_aipLimit		:= GVL_SITE.g_aipLimit,
+				iq_aipPermit	:= GVL_SITE.g_aipPermit,
+				iq_aipComp		:= GVL_SITE.g_aipComp,
+				iq_aipRule		:= GVL_SITE.g_aipRule);
+IF fbSettingGuard.q_bRestored THEN
+	A_PassModuleSet();
+END_IF
+
+(* ===== EMS config echo: 설정 보호 뒤 실제 설정 → GVL_IF (MQTT가 config echo로 발행) [9-21 수정 2026-11-04: 추가] ===== *)
+fbEmsCfg.M_BuildEcho(	iq_stSocLimit	:= GVL_PERSIST.g_stModuleSet.stSocLimit,
+						iq_stUnitLimit	:= GVL_PERSIST.g_stModuleSet.stUnitLimit);
+GVL_IF.g_nCfgEchoSeq	:= GVL_IF.g_nCfgEchoSeq + 1;
+GVL_IF.g_stEmsCfgEcho	:= fbEmsCfg.q_stEcho;
+GVL_IF.g_nCfgEchoSeq	:= GVL_IF.g_nCfgEchoSeq + 1;
+
+(* ===== 설정 점검 (매 스캔): 오류면 장비 쓰기 전부 차단 (디스패처·보조 출력·시퀀서 명령) ===== *)
+fbConfigCheck(	iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+				iq_astBmsCfg	:= GVL_SITE.BMS_CFG,
+				iq_astGroupCfg	:= GVL_SITE.GROUP_CFG,
+				iq_astPointCfg	:= GVL_SITE.POINT_CFG,
+				i_bModuleSetTooBig	:= fbSettingGuard.q_bModuleSetTooBig,
+				i_bSetNoGood	:= fbSettingGuard.q_bNoGood,
+				i_sSetNoGood	:= fbSettingGuard.q_sNoGood,
+				i_stRedSet		:= GVL_SITE.RED_SET,
+				i_eRedRole		:= GVL_IF.g_eRedRole,
+				iq_aipModule	:= fbModuleList.q_aipModule,
+				iq_aipCtrlMode	:= GVL_SITE.g_aipCtrlMode1,	// [2번 수정 2026-11-09: 제어 모드 ID 점검]
+				iq_abUnitInstalled	:= fbModuleList.q_abUnitInstalled);
+
+(* ===== 1. 읽기 · 스냅샷 · 계측 ===== *)
+// UPS is a separate device type; no PCS power/set-state mapping is used.
+bUpsConfigOk:=TRUE;
+FOR i:=1 TO GVL_PARAM.UPS_COUNT DO
+ awsUpsConfigError[i]:="";
+ IF GVL_SITE.g_aipUps[i]<>0 THEN
+  awsUpsConfigError[i]:=GVL_SITE.g_aipUps[i].M_CheckSet();
+  IF awsUpsConfigError[i]<>"" THEN bUpsConfigOk:=FALSE; END_IF
+ END_IF
+ IF GVL_SITE.UPS_BMS[i]<1 OR GVL_SITE.UPS_BMS[i]>GVL_PARAM.BMS_COUNT THEN bUpsConfigOk:=FALSE; END_IF
+END_FOR
+bWriteEnable := fbConfigCheck.q_bConfigOk AND GVL_IF.g_bRedWrite AND GVL_SITE.DEVICE_WRITE AND bUpsConfigOk;
+GVL_SITE.g_fbUps1.i_bWritePermit:=bWriteEnable;
+GVL_SITE.g_fbBms1.i_bWritePermit:=bWriteEnable;
+FOR i:=1 TO GVL_PARAM.UPS_COUNT DO
+ IF GVL_SITE.g_aipUps[i]<>0 THEN GVL_SITE.g_aipUps[i].M_Cycle(); END_IF
+END_FOR
+fbUpsConfigApply[1](i_bEnable:=bWriteEnable AND GVL_PARAM.UPS_CONTROL_ENABLED, i_nRxCount:=stUpsConfigReceived.nRxCount,
+ i_stConfig:=stUpsConfigReceived.astConfig[0], i_stState:=GVL_SITE.g_fbUps1.q_stState, i_stRaw:=GVL_SITE.g_fbUps1.q_stRaw, i_ipUps:=GVL_SITE.g_aipUps[1],
+ i_bUpsFault:=fbRptUps[1].q_stUps.Status.6, iq_stDesired:=GVL_PERSIST.g_astUpsDesired[1]);
+FOR i:=1 TO GVL_PARAM.UPS_COUNT DO
+ fbUpsCommand[i](i_stCmd:=astUpsCmdReceived[i], i_bEnable:=bWriteEnable AND GVL_PARAM.UPS_CONTROL_ENABLED,
+  i_stUps:=fbRptUps[i].q_stUps, i_bUpsValid:=fbRptUps[i].q_bValid, i_ipUps:=GVL_SITE.g_aipUps[i],
+  iq_stDesired:=GVL_PERSIST.g_astUpsDesired[i]);
+END_FOR
+
+FOR i := 1 TO GVL_PARAM.PCS_COUNT DO
+	IF GVL_SITE.g_aipPcs[i] <> 0 THEN GVL_SITE.g_aipPcs[i].M_Cycle(); END_IF
+END_FOR
+FOR i := 1 TO GVL_PARAM.BMS_COUNT DO
+	IF GVL_SITE.g_aipBms[i] <> 0 THEN GVL_SITE.g_aipBms[i].M_Cycle(); END_IF
+END_FOR
+FOR i := 1 TO GVL_PARAM.METER_COUNT DO
+	IF GVL_SITE.g_aipMeter[i] <> 0 THEN GVL_SITE.g_aipMeter[i].M_Cycle(); END_IF
+END_FOR
+FOR i := 1 TO GVL_PARAM.AUX_COUNT DO
+	IF GVL_SITE.g_aipAux[i] <> 0 THEN GVL_SITE.g_aipAux[i].M_Cycle(); END_IF
+END_FOR
+fbSnapshot(	iq_aipPcs		:= GVL_SITE.g_aipPcs,
+			iq_aipBms		:= GVL_SITE.g_aipBms,
+			iq_aipMeter		:= GVL_SITE.g_aipMeter,
+			iq_astUnitCfg	:= GVL_SITE.UNIT_CFG);
+
+fbMeasure(	i_bTestMode		:= GVL_SITE.TEST_MODE,
+			iq_astMeter		:= fbSnapshot.q_astMeter,
+			iq_astPointCfg	:= GVL_SITE.POINT_CFG,
+			iq_astGroupCfg	:= GVL_SITE.GROUP_CFG,
+			iq_astVirtual	:= GVL_TEST.g_astVirtual);
+
+(* ===== 2. 운전 모드 · 보호 판단 · 유닛 가용 ===== *)
+// 고장 리셋은 장비 명령일 뿐 (시퀀서가 지령원 요청을 장비별로 봄). 유지 DO 풀기는 따로 (지령원 요청은 지난 스캔 값: 지령원이 뒤에 돌기 때문)
+bTestReset		:= GVL_SITE.TEST_MODE AND GVL_TEST.g_bTestReset;
+bClearHoldDo	:= bTestReset OR fbSources.q_bReset;
+
+// 운전 모드: 요청(GVL_PERSIST.g_aeOpMode) → 전환 시퀀스 → 실제 모드. 아래는 모두 실제 모드를 씀 (동작은 그대로, 보호가 실제 모드를 써서 앞에서 부름)
+(* ===== MQTT 브로커 끊김 → 운전 모드 요청을 모두 Manual로 (끊김마다 한 번, Active PLC만) [9번 수정 2026-11-09: 추가] ===== *)
+fbBrokerWatch(	i_stSet			:= GVL_PERSIST.g_stBrokerWatch,
+				i_abUse			:= GVL_IF.g_abBrokerUse,
+				i_abConnected	:= GVL_IF.g_abBrokerConn,
+				i_bActive		:= GVL_IF.g_bRedActive);
+IF fbBrokerWatch.q_bToManual THEN
+	FOR i := 1 TO GVL_PARAM.UNIT_COUNT DO
+		GVL_PERSIST.g_aeOpMode[i] := E_OpMode.Manual;
+	END_FOR
+END_IF
+
+fbModeSwitch(	i_stSet			:= GVL_SITE.MODE_SET,
+				i_fDonePct		:= GVL_PERSIST.g_stSeqSet.stPcs.fStopDonePct,
+				iq_aeModeReq	:= GVL_PERSIST.g_aeOpMode,
+				iq_astUnit		:= fbSnapshot.q_astUnit,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+				iq_astUnitProt	:= fbProtection.q_astUnitProt);	// 지난 스캔 보호 결과: ToManual이면 요청 모드를 Manual로 바꿈
+
+fbProtection(	iq_astUnit		:= fbSnapshot.q_astUnit,
+				iq_astBms		:= fbSnapshot.q_astBms,
+				iq_astPcc		:= fbMeasure.q_astPcc,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+				iq_astBmsCfg	:= GVL_SITE.BMS_CFG,
+				iq_astRuleCfg	:= GVL_PERSIST.g_astRuleCfg,
+				iq_abUnitInstalled	:= fbModuleList.q_abUnitInstalled,
+				iq_abBmsInstalled	:= fbModuleList.q_abBmsInstalled,
+				iq_aeOpMode		:= fbModeSwitch.q_aeOpMode,
+				iq_aipRule		:= GVL_SITE.g_aipRule,
+				iq_aipResp		:= GVL_SITE.g_aipResp);
+
+fbBatGroup(		iq_astBms		:= fbSnapshot.q_astBms,
+				iq_astBmsCfg	:= GVL_SITE.BMS_CFG,
+				iq_astBmsProt	:= fbProtection.q_astBmsProt,
+				iq_abBmsInstalled	:= fbModuleList.q_abBmsInstalled);
+
+fbUnitAvail(	iq_astUnit		:= fbSnapshot.q_astUnit,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+				iq_astUnitProt	:= fbProtection.q_astUnitProt,
+				iq_astBatGroup	:= fbBatGroup.q_astBatGroup,
+				iq_abUnitInstalled	:= fbModuleList.q_abUnitInstalled);
+
+// 설비 한도: 유닛(정격 × Derate ∩ 유닛 제한 모듈), 배터리 버스(BMS 한도 ∩ 버스 제한 모듈), 그룹 설비 범위. 성형·분배가 같이 씀
+fbEquipLimits(	iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+				iq_astUnit	:= fbSnapshot.q_astUnit,
+				iq_astAvail	:= fbUnitAvail.q_astAvail,
+				iq_astUnitProt	:= fbProtection.q_astUnitProt,
+				iq_aeOpMode	:= fbModeSwitch.q_aeOpMode,
+				iq_astBatGroup	:= fbBatGroup.q_astBatGroup,
+				iq_astUnitRuleReg	:= GVL_PERSIST.g_astUnitRuleReg,
+				iq_astBatRuleReg	:= GVL_PERSIST.g_astBatRuleReg,
+				iq_aipUnitRule	:= GVL_SITE.g_aipUnitRule,
+				iq_aipBatRule	:= GVL_SITE.g_aipBatRule);
+
+(* ===== 3. 요청 (지령원) ===== *)
+fbGroupView(	iq_astPcc		:= fbMeasure.q_astPcc,
+				iq_astUnit		:= fbSnapshot.q_astUnit,
+				iq_astAvail		:= fbUnitAvail.q_astAvail,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+				iq_astBatGroup	:= fbBatGroup.q_astBatGroup,
+				iq_aeGroupState	:= fbGroupState.q_aeGroupState,	// 지난 스캔
+				iq_astGroupEnv	:= fbEquipLimits.q_astGroupEnv);
+
+// 유닛(PCS)마다 요약: 유닛 단위 제어 모드 관리자가 봄 (A_PassModuleSet이 주소를 넘김. 지령원보다 먼저)
+fbUnitView(		iq_astView		:= fbGroupView.q_astView,
+				iq_astUnit		:= fbSnapshot.q_astUnit,
+				iq_astAvail		:= fbUnitAvail.q_astAvail,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+				iq_astUnitEnv	:= fbEquipLimits.q_astUnitEnv,
+				iq_astBatGroup	:= fbBatGroup.q_astBatGroup,
+				iq_astBatEnv	:= fbEquipLimits.q_astBatEnv);
+
+fbSources(		iq_aipSource	:= GVL_SITE.g_aipSource,
+				iq_astReg		:= GVL_PERSIST.g_astSourceReg,
+				iq_astView		:= fbGroupView.q_astView);
+
+(* ===== 4. [제어 그룹마다] 중재 · 성형 (Auto 경로·Manual 경로가 같은 단계) ===== *)
+
+// 상태 요청: 이번 스캔 조건 준비 → 요청 후보 → 접수 검사 → 접수된 것만 이번 스캔 요청 (명령은 6.의 시퀀서 본체가 한 번 보냄)
+// 기동 조건 모듈: 그룹마다 한 번 평가 (기다리는 중 표시는 시퀀서 지난 스캔)
+fbPermitEval(	iq_astView		:= fbGroupView.q_astView,
+				iq_astPermitReg	:= GVL_PERSIST.g_astPermitReg,
+				iq_abWaitPermit	:= fbSequencer.q_abWaitPermit,
+				iq_aipPermit	:= GVL_SITE.g_aipPermit);
+
+// 장비 쓰기 허가: 설정 오류 없음 + 이 PLC가 Active이고 쓰기 대기가 지남 (PRG_Redundancy) + 장비 쓰기 스위치 (GVL_SITE.DEVICE_WRITE). 대기 PLC는 계산만 하고 장비에 쓰지 않음 (이중화를 안 쓰면 항상 허가)
+// 시퀀서도 쓰기 불가를 알고 명령을 만들지 않으며 기동 요청은 거부함 (접수 검사 전에 정해야 해서 여기서 계산)
+// Write permission is computed immediately before the device cycle above.
+
+fbSequencer.M_Prepare(	i_bCmdEnable	:= fbConfigCheck.q_bConfigOk,
+						i_bWriteEnable	:= bWriteEnable,
+						iq_aeStartMode	:= GVL_SITE.START_MODE,
+						iq_astUnit		:= fbSnapshot.q_astUnit,
+						iq_astAvail		:= fbUnitAvail.q_astAvail,
+						iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+						iq_astBatGroup	:= fbBatGroup.q_astBatGroup,
+						iq_abPermit		:= fbPermitEval.q_abPermit,
+						iq_abUnitInstalled	:= fbModuleList.q_abUnitInstalled);	// [결함 6 수정 2026-11-03: 추가. 원래 iq_abPermit 뒤에서 끝남]
+
+fbStateArb(		iq_astSrcOut	:= fbSources.q_astOut,
+				iq_anSrcModule	:= fbSources.q_anModule,
+				iq_astReg		:= GVL_PERSIST.g_astSourceReg,
+				iq_aeOpMode		:= fbModeSwitch.q_aeOpMode,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+				iq_astUnitProt	:= fbProtection.q_astUnitProt,
+				iq_abSwitching	:= fbModeSwitch.q_abSwitching);
+
+fbSequencer.M_CheckRequest(	iq_abCand		:= fbStateArb.q_abCand,
+							iq_aeCand		:= fbStateArb.q_aeCand);
+
+fbStateArb.M_CommitRequest(iq_abAccept := fbSequencer.q_abAccept);
+
+fbSelect(		iq_aipSelPolicy	:= GVL_SITE.g_aipSelectPolicy,
+				iq_astSrcOut	:= fbSources.q_astOut,
+				iq_anSrcModule	:= fbSources.q_anModule,
+				iq_astReg		:= GVL_PERSIST.g_astSourceReg,
+				iq_aeOpMode		:= fbModeSwitch.q_aeOpMode,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+				iq_astGroupSet	:= GVL_PERSIST.g_astGroupSet,
+				iq_astView		:= fbGroupView.q_astView,
+				iq_stFilter		:= GVL_PERSIST.g_stCmdFilter);
+
+// 지령 거르기: Auto 경로 (지금은 그대로 통과) / Manual 경로 (방향 반대 무시, 새 지령 표시, Run 뒤 새 지령 대기)
+fbAutoGate(		i_ePath			:= E_OpMode.Auto,
+				i_ipGate		:= GVL_SITE.g_ipAutoGate,
+				iq_astUnitP		:= fbSelect.q_astAutoUnitP,
+				iq_astUnitQ		:= fbSelect.q_astAutoUnitQ,
+				iq_astGrpP		:= fbSelect.q_astAutoGrpP,
+				iq_astGrpQ		:= fbSelect.q_astAutoGrpQ,
+				iq_aeOpMode		:= fbModeSwitch.q_aeOpMode,
+				iq_astUnit		:= fbSnapshot.q_astUnit,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG);
+
+fbManualGate(	i_ePath			:= E_OpMode.Manual,
+				i_ipGate			:= GVL_SITE.g_ipManualGate,
+				i_stManualCmdSet	:= GVL_PERSIST.g_stManualCmdSet,
+				iq_astUnitP			:= fbSelect.q_astManualUnitP,
+				iq_astUnitQ			:= fbSelect.q_astManualUnitQ,
+				iq_astGrpP			:= fbSelect.q_astManualGrpP,
+				iq_astGrpQ			:= fbSelect.q_astManualGrpQ,
+				iq_aeOpMode			:= fbModeSwitch.q_aeOpMode,
+				iq_astUnit			:= fbSnapshot.q_astUnit,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG);
+
+// 출력 가능 유닛: 가용 + 장비 활성(Run·대기) + 정지 진행 중 아님 + 전환 아님 + 새 지령 대기 아님. 성형·분배·디스패처가 이 결과만 씀
+fbOutputReady(	iq_astAvail	:= fbUnitAvail.q_astAvail,
+				iq_astUnit	:= fbSnapshot.q_astUnit,
+				iq_abStopping	:= fbSequencer.q_abStopping,	// 지난 스캔
+				iq_abSwitching	:= fbModeSwitch.q_abSwitching,
+				iq_abManualWaitNewCmd	:= fbManualGate.q_abWaitNewCmd);
+
+// 제한·보정 모듈: 그룹마다 한 번 평가 (두 경로가 같은 결과를 씀)
+fbLimitEval(	iq_astView		:= fbGroupView.q_astView,
+				iq_astLimitReg	:= GVL_PERSIST.g_astLimitReg,
+				iq_astCompReg	:= GVL_PERSIST.g_astCompReg,
+				iq_aipLimit		:= GVL_SITE.g_aipLimit,
+				iq_aipComp		:= GVL_SITE.g_aipComp);
+
+// 성형: Manual 경로 먼저 → Auto 경로 (같은 FB. Auto는 접속점 제한을 Manual 몫까지 합쳐 봄)
+fbManualShape(	iq_astView			:= fbGroupView.q_astView,
+				iq_astGroupSet		:= GVL_PERSIST.g_astGroupSet,
+				iq_astManualPolicy	:= GVL_PERSIST.g_astManualPolicy,
+				iq_astUnitCfg		:= GVL_SITE.UNIT_CFG,
+				iq_aeOpMode			:= fbModeSwitch.q_aeOpMode,
+				iq_abOutputReady	:= fbOutputReady.q_abReady,
+				iq_astUnitP			:= fbManualGate.q_astUnitP,
+				iq_astUnitQ			:= fbManualGate.q_astUnitQ,
+				iq_astGrpP			:= fbManualGate.q_astGrpP,
+				iq_astGrpQ			:= fbManualGate.q_astGrpQ,
+				iq_astGrpPLim		:= fbSelect.q_astManualGrpPLim,
+				iq_astGrpQLim		:= fbSelect.q_astManualGrpQLim,
+				iq_afOtherGrpP		:= afZeroGrp,
+				iq_afOtherGrpQ		:= afZeroGrp,
+				iq_aabLimOn			:= fbLimitEval.q_aabOn,
+				iq_aastLim			:= fbLimitEval.q_aastLim,
+				iq_aaeBasis			:= fbLimitEval.q_aaeBasis,
+				iq_aanLimModule		:= fbLimitEval.q_aanModule,
+				iq_abPccManual		:= fbLimitEval.q_abPccManual,
+				iq_abResume			:= fbLimitEval.q_abResume,
+				iq_afPComp			:= fbLimitEval.q_afPComp,
+				iq_afQComp	:= fbLimitEval.q_afQComp,
+				iq_astGroupEnv	:= fbEquipLimits.q_astGroupEnv);
+
+fbAutoShape(	iq_astView			:= fbGroupView.q_astView,
+				iq_astGroupSet		:= GVL_PERSIST.g_astGroupSet,
+				iq_astManualPolicy	:= GVL_PERSIST.g_astManualPolicy,
+				iq_astUnitCfg		:= GVL_SITE.UNIT_CFG,
+				iq_aeOpMode			:= fbModeSwitch.q_aeOpMode,
+				iq_abOutputReady	:= fbOutputReady.q_abReady,
+				iq_astUnitP			:= fbAutoGate.q_astUnitP,
+				iq_astUnitQ			:= fbAutoGate.q_astUnitQ,
+				iq_astGrpP			:= fbAutoGate.q_astGrpP,
+				iq_astGrpQ			:= fbAutoGate.q_astGrpQ,
+				iq_astGrpPLim		:= fbSelect.q_astAutoGrpPLim,
+				iq_astGrpQLim		:= fbSelect.q_astAutoGrpQLim,
+				iq_afOtherGrpP		:= fbManualShape.q_afGrpP,
+				iq_afOtherGrpQ		:= fbManualShape.q_afGrpQ,
+				iq_aabLimOn			:= fbLimitEval.q_aabOn,
+				iq_aastLim			:= fbLimitEval.q_aastLim,
+				iq_aaeBasis			:= fbLimitEval.q_aaeBasis,
+				iq_aanLimModule		:= fbLimitEval.q_aanModule,
+				iq_abPccManual		:= fbLimitEval.q_abPccManual,
+				iq_abResume			:= fbLimitEval.q_abResume,
+				iq_afPComp			:= fbLimitEval.q_afPComp,
+				iq_afQComp	:= fbLimitEval.q_afQComp,
+				iq_astGroupEnv	:= fbEquipLimits.q_astGroupEnv);
+
+(* ===== 5. [제어 그룹마다] 유닛 한도 · 분배 ===== *)
+fbDistributor(	iq_aipDistPolicy	:= GVL_SITE.g_aipDistPolicy,
+				iq_afAutoGrpP		:= fbAutoShape.q_afGrpP,
+				iq_afAutoGrpQ		:= fbAutoShape.q_afGrpQ,
+				iq_afAutoUnitP		:= fbAutoShape.q_afUnitP,
+				iq_afAutoUnitQ		:= fbAutoShape.q_afUnitQ,
+				iq_astAutoUnitP		:= fbAutoGate.q_astUnitP,
+				iq_astAutoUnitQ		:= fbAutoGate.q_astUnitQ,
+				iq_abAutoGrpPCmd	:= fbAutoShape.q_abGrpPCmd,
+				iq_abAutoGrpQCmd	:= fbAutoShape.q_abGrpQCmd,
+				iq_afManualGrpP		:= fbManualShape.q_afGrpP,
+				iq_afManualGrpQ		:= fbManualShape.q_afGrpQ,
+				iq_afManualUnitP	:= fbManualShape.q_afUnitP,
+				iq_afManualUnitQ	:= fbManualShape.q_afUnitQ,
+				iq_astManualUnitP	:= fbManualGate.q_astUnitP,
+				iq_astManualUnitQ	:= fbManualGate.q_astUnitQ,
+				iq_abManualGrpPCmd	:= fbManualShape.q_abGrpPCmd,
+				iq_abManualGrpQCmd	:= fbManualShape.q_abGrpQCmd,
+				iq_astManualPolicy	:= GVL_PERSIST.g_astManualPolicy,
+				iq_aeOpMode			:= fbModeSwitch.q_aeOpMode,
+				iq_astUnitEnv	:= fbEquipLimits.q_astUnitEnv,
+				iq_astBatEnv	:= fbEquipLimits.q_astBatEnv,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+				iq_astBatGroup	:= fbBatGroup.q_astBatGroup,
+				iq_astGroupSet	:= GVL_PERSIST.g_astGroupSet,
+				iq_abOutputReady	:= fbOutputReady.q_abReady,
+				iq_aeNotReadyBy	:= fbOutputReady.q_aeNotReadyBy);
+
+(* ===== 6. 쓰기 (시퀀서 · 디스패처) ===== *)
+fbSequencer(	i_bTestReset	:= bTestReset,
+				i_bCmdEnable	:= fbConfigCheck.q_bConfigOk,
+				i_bWriteEnable	:= bWriteEnable,
+				iq_abNewReq		:= fbStateArb.q_abNewReq,
+				iq_aeReq		:= fbStateArb.q_aeReq,
+				iq_astUnitProt	:= fbProtection.q_astUnitProt,
+				iq_aeStartMode	:= GVL_SITE.START_MODE,
+				iq_astUnit		:= fbSnapshot.q_astUnit,
+				iq_astAvail		:= fbUnitAvail.q_astAvail,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+				iq_astBms		:= fbSnapshot.q_astBms,
+				iq_astBmsCfg	:= GVL_SITE.BMS_CFG,
+				iq_astBmsAvail	:= fbBatGroup.q_astBmsAvail,
+				iq_astBmsProt	:= fbProtection.q_astBmsProt,
+				iq_astSrcOut	:= fbSources.q_astOut,
+				iq_astReg		:= GVL_PERSIST.g_astSourceReg,
+				iq_aeOpMode		:= fbModeSwitch.q_aeOpMode,
+				iq_stSet		:= GVL_PERSIST.g_stSeqSet);
+
+// 그룹 상태 요약 (그룹 보기에 다음 스캔부터)
+fbGroupState(	iq_aeUnitSeq	:= fbSequencer.q_aeUnitSeq,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG);
+
+fbDispatcher(	i_tWritePeriod	:= GVL_PERSIST.g_stSeqSet.tWritePeriod,
+				i_bWriteEnable	:= bWriteEnable,
+				iq_aipPcs		:= GVL_SITE.g_aipPcs,
+				iq_aipBms		:= GVL_SITE.g_aipBms,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+				iq_astUnitCmd	:= fbSequencer.q_astUnitCmd,
+				iq_abOutputReady	:= fbOutputReady.q_abReady,
+				iq_astUnitSet	:= fbDistributor.q_astUnitSet,
+				iq_astBmsCmd	:= fbSequencer.q_astBmsCmd,
+				iq_aeOpMode		:= fbModeSwitch.q_aeOpMode,
+				iq_abManualNew	:= fbManualGate.q_abNew,
+				iq_abManualFollow:= fbManualShape.q_abFollow,
+				iq_abUnitLimited:= fbDistributor.q_abUnitLimited);
+
+// 보조 장비 출력(DO): 출력 규칙 → 지연·유지 → 같은 점은 OR (DO는 여기서만 씀)
+fbAuxOutput(	i_bReset		:= bClearHoldDo,
+				i_bWriteEnable	:= bWriteEnable,
+				iq_astCfg		:= GVL_PERSIST.g_astOutputCfg,
+				iq_aipRule		:= GVL_SITE.g_aipOutput,
+				iq_aipAux		:= GVL_SITE.g_aipAux);
+
+(* ===== 옆: 출력 진단 · 이벤트 로그 · 보고 ===== *)
+
+fbAlive(		iq_nLastAlive	:= GVL_PERSIST.g_nLastAliveLocal,
+				iq_sLastAlive	:= GVL_PERSIST.g_sLastAlive);
+
+// PERSISTENT 저장: 운영 설정이 바뀌면 1 s 뒤 바로, 그리고 주기마다 (GVL_PERSIST에 설정을 추가하면 여기도 연결)
+fbPersistSave(	i_tPeriod		:= GVL_SITE.LOG_SET.tPersistSave,
+				i_bSaveNow		:= fbUpsConfigApply[1].q_bDesiredChanged OR fbUpsCommand[1].q_bDesiredChanged OR fbBmsRack[1].q_bMaskChanged,	// UPS 설정 보관값이 바뀌면 바로 저장 (CF-UPS-02)
+				iq_aeOpMode		:= GVL_PERSIST.g_aeOpMode,
+				iq_astGroupSet	:= GVL_PERSIST.g_astGroupSet,
+				iq_astManualPolicy:= GVL_PERSIST.g_astManualPolicy,
+				iq_astSourceReg	:= GVL_PERSIST.g_astSourceReg,
+				iq_astLimitReg	:= GVL_PERSIST.g_astLimitReg,
+				iq_astPermitReg	:= GVL_PERSIST.g_astPermitReg,
+				iq_astCompReg	:= GVL_PERSIST.g_astCompReg,
+				iq_astRuleCfg	:= GVL_PERSIST.g_astRuleCfg,
+				iq_astOutputCfg	:= GVL_PERSIST.g_astOutputCfg,
+				iq_astUnitRuleReg	:= GVL_PERSIST.g_astUnitRuleReg,
+				iq_astBatRuleReg	:= GVL_PERSIST.g_astBatRuleReg,
+				iq_stCmdFilter	:= GVL_PERSIST.g_stCmdFilter,
+				iq_stManualCmdSet	:= GVL_PERSIST.g_stManualCmdSet,
+				iq_stSeqSet		:= GVL_PERSIST.g_stSeqSet,
+				iq_stBrokerWatch	:= GVL_PERSIST.g_stBrokerWatch,	// [9번 수정 2026-11-09: 추가]
+				i_pModuleSet	:= ADR(GVL_PERSIST.g_stModuleSet),
+				i_nModuleSetSize	:= SIZEOF(GVL_PERSIST.g_stModuleSet));
+
+fbOutputDiag(	iq_astAutoShape		:= fbAutoShape.q_astDiag,
+				iq_astManualShape	:= fbManualShape.q_astDiag,
+				iq_astDist		:= fbDistributor.q_astDistDiag,
+				iq_astUnitDiag	:= fbDistributor.q_astUnitDiag,
+				iq_aeOpMode		:= fbModeSwitch.q_aeOpMode,
+				iq_aeGroupState	:= fbGroupState.q_aeGroupState,
+				iq_astWritten	:= fbDispatcher.q_astWritten,
+				iq_astUnitSet	:= fbDistributor.q_astUnitSet,
+				iq_astUnitCfg	:= GVL_SITE.UNIT_CFG);
+
+fbEventLog(		i_stSet			:= GVL_SITE.LOG_SET,
+				i_bTestMode		:= GVL_SITE.TEST_MODE,
+				i_nConfigErrors	:= fbConfigCheck.q_nErrors,
+				iq_asConfigErrors	:= fbConfigCheck.q_asErrors,
+				i_bSetChanged	:= fbPersistSave.q_bSetChanged OR fbEmsCfg.q_bApplied,	// [9-21 수정 2026-11-04: EMS config 반영도 기록. 원래 fbPersistSave.q_bSetChanged]
+				i_sSetChanged	:= SEL(fbEmsCfg.q_bApplied, fbPersistSave.q_sSetChanged, fbEmsCfg.q_sApplied),	// [9-21 수정 2026-11-04: 원래 fbPersistSave.q_sSetChanged]
+				i_bSetRejected	:= fbSettingGuard.q_bRejected OR fbEmsCfg.q_bRejected,	// [9-21 수정 2026-11-04: EMS config 거부도 기록. 원래 fbSettingGuard.q_bRejected]
+				i_sSetRejected	:= SEL(fbSettingGuard.q_bRejected, fbEmsCfg.q_sRejected, fbSettingGuard.q_sRejected),	// [9-21 수정 2026-11-04: 원래 fbSettingGuard.q_sRejected]
+				i_bPersistError	:= fbPersistSave.q_bError,
+				i_nPersistErrorId	:= fbPersistSave.q_nErrorId,
+				i_bPmsStart		:= fbAlive.q_bStartEvent,
+				i_sStartLastAlive	:= fbAlive.q_sLastAlive,
+				i_sStartOffTime	:= fbAlive.q_sOffTime,
+				i_bRedUse		:= GVL_SITE.RED_SET.bUse,
+				i_eRedRole		:= GVL_IF.g_eRedRole,
+				i_eRedState		:= GVL_IF.g_eRedState,
+				i_ePeer			:= GVL_IF.g_ePeerState,
+				i_nSwitchCount	:= GVL_IF.g_nRedSwitchCount,
+				i_eSwitch		:= GVL_IF.g_eRedSwitch,
+				i_nResumeCount	:= GVL_IF.g_nRedResumeCount,
+				i_nSyncApplied	:= GVL_IF.g_nSyncApplied,
+				i_bSyncFresh	:= GVL_IF.g_bSyncFresh,
+				i_bPeerEapOk	:= GVL_IF.g_bPeerEapOk,
+				i_bRoleConflict	:= GVL_IF.g_bRedRoleConflict,
+				i_bBrokerLost	:= fbBrokerWatch.q_bLost,		// [9번 수정 2026-11-09: 추가]
+				i_sBrokerName	:= fbBrokerWatch.q_sBroker,
+				i_sBrokerDelay	:= fbBrokerWatch.q_sDelay,
+				iq_aabRule		:= fbProtection.q_aabRule,
+				iq_astRuleCfg	:= GVL_PERSIST.g_astRuleCfg,
+				iq_aeUnitSeq	:= fbSequencer.q_aeUnitSeq,
+				iq_aeRefuse		:= fbSequencer.q_aeRefuse,
+				iq_aeBatRefuse	:= fbSequencer.q_aeBatRefuse,
+				iq_abBatRefusedNow:= fbSequencer.q_abBatRefusedNow,
+				iq_aeFailCmd	:= fbSequencer.q_aeFailCmd,
+				iq_aeBmsFailCmd	:= fbSequencer.q_aeBmsFailCmd,
+				iq_aeOpMode		:= fbModeSwitch.q_aeOpMode,
+				iq_abModeForced	:= fbModeSwitch.q_abModeForced,
+				iq_astUnitProt	:= fbProtection.q_astUnitProt,
+				iq_abBadValue	:= fbSelect.q_abBadValue,
+				iq_afBadValue	:= fbSelect.q_afBadValue,
+				iq_aeManualRefuse	:= fbManualGate.q_aeRefuse,
+				iq_anManualRefuseModule:= fbManualGate.q_anRefuseModule,
+				iq_astSrcOut	:= fbSources.q_astOut,
+				iq_abPcsReqTaken:= fbStateArb.q_abPcsReqTaken,
+				iq_abBatReqTaken:= fbSequencer.q_abBatReqTaken,
+				iq_astReg		:= GVL_PERSIST.g_astSourceReg,
+				iq_astAutoPDiag	:= fbOutputDiag.q_astAutoPDiag,
+				iq_astUnitDiag	:= fbDistributor.q_astUnitDiag,
+				iq_astVirtual	:= GVL_TEST.g_astVirtual,
+				iq_abBadSet		:= fbDispatcher.q_abBadSet,
+				iq_abWaitPermit	:= fbSequencer.q_abWaitPermit,
+				iq_abPermit		:= fbPermitEval.q_abPermit,
+				iq_anPermitModule	:= fbPermitEval.q_anPermitModule,
+				iq_anPermitReason	:= fbPermitEval.q_anPermitReason,
+				iq_astUnit		:= fbSnapshot.q_astUnit,
+				iq_astBms		:= fbSnapshot.q_astBms,
+				iq_aipRule		:= GVL_SITE.g_aipRule,
+				iq_aipResp		:= GVL_SITE.g_aipResp,	// [결함 8 수정 2026-11-03: 추가]
+				iq_aipSource	:= GVL_SITE.g_aipSource,
+				iq_aipModule	:= fbModuleList.q_aipModule,
+				iq_fbCtrlMode	:= GVL_SITE.g_fbCtrlMode1);	// [7번 수정 2026-11-09: 제어 모드 전환·거부·스스로 끝남 기록]
+
+fbReport(		iq_astUnit		:= fbSnapshot.q_astUnit,
+				iq_astBms		:= fbSnapshot.q_astBms,
+				iq_astView		:= fbGroupView.q_astView,
+				iq_astAutoPDiag	:= fbOutputDiag.q_astAutoPDiag,
+				iq_aeUnitSeq	:= fbSequencer.q_aeUnitSeq,
+				iq_astWritten	:= fbDispatcher.q_astWritten);
+
+// BMS 랙 컨택터 개별 제어 (EMS command/bat 11·12). 일괄(1·2)은 코어 경로. 쓰기 막힘·허가·통신은 드라이버가 판단
+fbBmsRack[1](i_stCmd:=GVL_SITE.g_fbSrcEms.i_stCmd.astBatRack[1], i_nRackCount:=GVL_PARAM.RACKS_PER_BMS,
+ i_wRestore:=GVL_PERSIST.g_awBmsRackMask[1], i_bAccepted:=abBmsRackAcc[1], i_eDriverResult:=aeBmsRackRes[1]);
+abBmsRackAcc[1]:=FALSE; aeBmsRackRes[1]:=E_UpsResult.None;
+IF fbBmsRack[1].q_bWriteReq THEN
+ abBmsRackAcc[1]:=GVL_SITE.g_fbBms1.M_SetRackMask(i_wMask:=fbBmsRack[1].q_wWriteMask);
+ aeBmsRackRes[1]:=GVL_SITE.g_fbBms1.q_eRequestResult;
+END_IF
+GVL_PERSIST.g_awBmsRackMask[1]:=fbBmsRack[1].q_wMask;
+
+// BMS 쓰기 시험: 코어 경로와 별개인 시험 명령. 접수 뒤 전송은 드라이버 M_Cycle이 함
+IF nBmsTestCmd <> 0 THEN
+ CASE nBmsTestCmd OF
+  1: GVL_SITE.g_fbBms1.M_SetRackMask(i_wMask := wBmsTestValue);
+  2: GVL_SITE.g_fbBms1.M_SetControl(i_eControl := E_EsolutionControl.ChargeContactor, i_bOn := bBmsTestOn);
+  3: GVL_SITE.g_fbBms1.M_SetControl(i_eControl := E_EsolutionControl.DischargeContactor, i_bOn := bBmsTestOn);
+  4: GVL_SITE.g_fbBms1.M_SetControl(i_eControl := E_EsolutionControl.SystemContactor, i_bOn := bBmsTestOn);
+  5: GVL_SITE.g_fbBms1.M_SetControl(i_eControl := E_EsolutionControl.EmergencyShutdown, i_bOn := TRUE);
+  6:
+   nBmsTestSeq := nBmsTestSeq + 1;
+   stBmsTestCmd.eCmd := E_BatCmd.Reset;
+   stBmsTestCmd.nSeq := nBmsTestSeq;
+   GVL_SITE.g_fbBms1.M_SetStateCmd(i_stCmd := stBmsTestCmd);
+  7: GVL_SITE.g_fbBms1.M_RequestOperation(i_eOperation := E_EsolutionOperation.PeriodicStart);
+  8: GVL_SITE.g_fbBms1.M_RequestOperation(i_eOperation := E_EsolutionOperation.DischargeCancel);
+ END_CASE
+ eBmsTestResult := GVL_SITE.g_fbBms1.q_eRequestResult;
+ nBmsTestCmd := 0;
+END_IF
+
+// 충방전 요청 생성. 실제 장비 쓰기에는 연결하지 않음.
+// 통신 시험 중 충방전 알고리즘 호출 중지 (2026-11-02)
+//afbUpsCharge[1](i_bEnable:=GVL_PARAM.UPS_ALGORITHM_ENABLED AND abUpsChargeEnable[1],
+// i_bCancel:=abUpsChargeCancel[1], i_bReset:=abUpsChargeReset[1], i_eMode:=aeUpsChargeMode[1],
+// i_stSet:=astUpsChargeSet[1], i_stUps:=GVL_SITE.g_fbUps1.q_stState,
+// i_stBms:=GVL_SITE.g_fbBms1.q_stState, i_stTime:=fbClock.q_stTime, i_stFeedback:=astUpsChargeFeedback[1]);
+//afbUpsTemp[1](i_bEnable:=GVL_PARAM.UPS_ALGORITHM_ENABLED AND abUpsTempEnable[1],
+// i_bSuspend:=(afbUpsCharge[1].q_eMode = E_UpsChargeMode.Periodic OR afbUpsCharge[1].q_eMode = E_UpsChargeMode.Pulse)
+// AND afbUpsCharge[1].q_eStep >= E_UpsChargeStep.PrepareBms AND afbUpsCharge[1].q_eStep <= E_UpsChargeStep.CancelBms,
+// i_bReset:=abUpsChargeReset[1], i_stUps:=GVL_SITE.g_fbUps1.q_stState,
+// i_stSet:=astUpsChargeSet[1], i_stTime:=fbClock.q_stTime, i_stFeedback:=astUpsTempFeedback[1]);
+A_Report();]]></ST>
+    </Implementation>
+    <Action Name="A_PassModuleSet" Id="{c791570e-aab4-4625-9b83-36df3cfd3b84}">
+      <Implementation>
+        <ST><![CDATA[// 모듈 설정 넘기기: GVL_PERSIST.g_stModuleSet 칸 → 모듈 i_stSet. 현장 모듈마다 한 줄 (운전 중 바꾼 값이 이 스캔부터 적용)
+GVL_SITE.g_fbSocLimit.i_stSet	:= GVL_PERSIST.g_stModuleSet.stSocLimit;
+// 제어 모드: 접속점 그룹 관리자에 모드 등록 배열·설정·시각·유닛 값 주소(유닛 단위일 때만 씀), 모드마다 설정 (공통 stCmCommon은 같이 씀)
+GVL_SITE.g_fbCtrlMode1.i_aipMode	:= GVL_SITE.g_aipCtrlMode1;
+GVL_SITE.g_fbCtrlMode1.i_stSet	:= GVL_PERSIST.g_stModuleSet.stCtrlMode1;
+GVL_SITE.g_fbCtrlMode1.i_stTime	:= fbClock.q_stTime;
+GVL_SITE.g_fbCtrlMode1.i_pUnitView	:= ADR(fbUnitView.q_astView);
+GVL_SITE.g_fbCmConstP1.i_stSet	:= GVL_PERSIST.g_stModuleSet.stCmConstP1;
+GVL_SITE.g_fbCmSchedule1.i_stCommon	:= GVL_PERSIST.g_stModuleSet.stCmCommon;
+GVL_SITE.g_fbCmSchedule1.i_stTable	:= GVL_PERSIST.g_stModuleSet.stCmSchedule1;
+GVL_SITE.g_fbCmPeakCut1.i_stCommon	:= GVL_PERSIST.g_stModuleSet.stCmCommon;
+GVL_SITE.g_fbCmPeakCut1.i_stSet	:= GVL_PERSIST.g_stModuleSet.stCmPeakCut1;
+GVL_SITE.g_fbCmSchedPeak1.i_stCommon	:= GVL_PERSIST.g_stModuleSet.stCmCommon;
+GVL_SITE.g_fbCmSchedPeak1.i_stTable	:= GVL_PERSIST.g_stModuleSet.stCmSchedule1;
+GVL_SITE.g_fbCmSchedPeak1.i_stSet	:= GVL_PERSIST.g_stModuleSet.stCmSchedPeak1;
+// [16번 수정 2026-11-09: 관리자 PCS2(g_fbCtrlMode2)와 모드 두 번째 세트 줄 없앰]
+GVL_SITE.g_fbUnitLimit.i_stSet	:= GVL_PERSIST.g_stModuleSet.stUnitLimit;	// [9-21 수정 2026-11-04: 사용자 한도 기본 등록. 원래 주석 예 "// 예: GVL_SITE.g_fbUnitLimit.i_stSet := GVL_PERSIST.g_stModuleSet.stUnitLimit;"]]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_PassEmsCfg" Id="{aee4f57e-63e7-427f-b8b7-9ffb05909939}">
+      <Implementation>
+        <ST><![CDATA[// [9-21 수정 2026-11-04: 추가] EMS config 받기: GVL_IF.g_stEmsCfg를 번호를 확인하며 복사해 FB_EmsConfigApply에 넘김 (A_PassEmsCmd와 같은 읽는 규칙)
+// 쓰는 곳은 GVL_PERSIST 모듈 설정(영속). 실제 설정 echo는 본문에서 설정 보호 뒤에 GVL_IF.g_stEmsCfgEcho에 씀
+nEmsCfgSeq := GVL_IF.g_nCfgSeq;
+bEmsCfgOk := FALSE;
+IF (nEmsCfgSeq AND 1) = 0 THEN
+	stEmsCfgCopy := GVL_IF.g_stEmsCfg;
+	bEmsCfgOk := GVL_IF.g_nCfgSeq = nEmsCfgSeq;
+END_IF
+fbEmsCfg(	i_bValid		:= bEmsCfgOk,
+			i_stCfg			:= stEmsCfgCopy,
+			i_astUnitCfg	:= GVL_SITE.UNIT_CFG,
+			iq_stSocLimit	:= GVL_PERSIST.g_stModuleSet.stSocLimit,
+			iq_stUnitLimit	:= GVL_PERSIST.g_stModuleSet.stUnitLimit);]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_PassEmsCmd" Id="{0303fc84-025b-4c3a-b195-a036e5ae7710}">
+      <Implementation>
+        <ST><![CDATA[// MQTT 명령 받기 (EMS 지령원이 있는 현장): GVL_IF.g_stEmsCmd를 번호를 확인하며 복사해 지령원 FB_SrcEms에 넘김 (GVL_IF 머리말의 읽는 규칙)
+// 번호가 홀수 = 쓰는 중, 복사 전후 번호가 다름 = 복사 중에 바뀜 → 이번 스캔은 지난 복사본 그대로 (다음 스캔에 다시 시도)
+nEmsSeq := GVL_IF.g_nCmdSeq;
+// [결함 10 되돌림 2026-11-04: 코드로 막지 않고 운영 규칙으로 해결 — EMS는 command 토픽을 retain=false로 발행 (retained 명령은 재구독 때 새 메시지로 와서 실행됨).
+//   되돌린 수정: IF (nEmsSeq AND 1) = 0 AND nEmsSeq <> 0 THEN (번호 0을 유효로 보지 않음) → 재시작 뒤 처음 온 정상 명령까지 번호 맞추기에만 쓰여 버려지는 부작용이 있었음]
+IF (nEmsSeq AND 1) = 0 THEN
+	stEmsCopy := GVL_IF.g_stEmsCmd;
+	IF GVL_IF.g_nCmdSeq = nEmsSeq THEN
+		GVL_SITE.g_fbSrcEms.i_stCmd		:= stEmsCopy;
+		GVL_SITE.g_fbSrcEms.i_bValid	:= TRUE;
+	END_IF
+END_IF
+GVL_SITE.g_fbSrcEms.i_astUnitCfg	:= GVL_SITE.UNIT_CFG;
+GVL_SITE.g_fbSrcEms.i_astBmsCfg		:= GVL_SITE.BMS_CFG;
+// 스탠다드 스케줄 모드: EMS PCS 지령을 그 PCS의 유닛에 넘김 (한 PCS에 유닛이 여럿이면 정격 비율로 나눔). 모드는 유닛별 값을 냄
+// [16번 수정 2026-11-09: 관리자가 접속점 그룹 단위가 되어 모드 하나(g_fbCmStdSched1)가 모든 유닛 칸을 받음. 원래 g_fbCmStdSched1 ← PCS1, g_fbCmStdSched2 ← PCS2 그대로]
+// 살아 있음 = EMS 지령원 유효 (지난 스캔). P 지령은 FB_SrcEms.i_bPEnable(기본 FALSE)과 따로라, 둘을 같이 켜지 않음
+stEmsOut := GVL_SITE.g_fbSrcEms.Output;
+FOR nCmU := 1 TO GVL_PARAM.UNIT_COUNT DO
+	nCmPcs := GVL_SITE.UNIT_CFG[nCmU].nPcs;
+	IF nCmPcs >= 1 AND nCmPcs <= GVL_PARAM.PCS_COUNT THEN
+		fCmPcsRated := 0.0;
+		FOR nCmK := 1 TO GVL_PARAM.UNIT_COUNT DO
+			IF GVL_SITE.UNIT_CFG[nCmK].nPcs = nCmPcs AND F_RealOk(GVL_SITE.UNIT_CFG[nCmK].fPRated) THEN
+				fCmPcsRated := fCmPcsRated + MAX(GVL_SITE.UNIT_CFG[nCmK].fPRated, 0.0);
+			END_IF
+		END_FOR
+		GVL_SITE.g_fbCmStdSched1.i_astCmd[nCmU].bUse		:= TRUE;
+		GVL_SITE.g_fbCmStdSched1.i_astCmd[nCmU].bAlive		:= stEmsOut.bValid;
+		GVL_SITE.g_fbCmStdSched1.i_astCmd[nCmU].nPSeq		:= stEmsCopy.anPcsPSeq[nCmPcs];
+		IF fCmPcsRated > 0.0 AND F_RealOk(GVL_SITE.UNIT_CFG[nCmU].fPRated) THEN
+			GVL_SITE.g_fbCmStdSched1.i_astCmd[nCmU].fP	:= stEmsCopy.afPcsP[nCmPcs] * MAX(GVL_SITE.UNIT_CFG[nCmU].fPRated, 0.0) / fCmPcsRated;
+		ELSE
+			GVL_SITE.g_fbCmStdSched1.i_astCmd[nCmU].fP	:= 0.0;
+		END_IF
+		GVL_SITE.g_fbCmStdSched1.i_astCmd[nCmU].nStateSeq	:= stEmsCopy.astPcs[nCmPcs].nSeq;
+		GVL_SITE.g_fbCmStdSched1.i_astCmd[nCmU].eState		:= stEmsCopy.astPcs[nCmPcs].eCmd;
+	ELSE
+		GVL_SITE.g_fbCmStdSched1.i_astCmd[nCmU].bUse		:= FALSE;	// PCS 번호 범위 밖 (설정 점검 오류)
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_Report" Id="{69d3f3f7-cc64-4b7b-83e9-ac57fbb0ab41}">
+      <Implementation>
+        <ST><![CDATA[// UPS site: no installed PCS. Do not publish a Plaspo mapping for a UPS.
+GVL_IF.g_nReportSeq:=GVL_IF.g_nReportSeq+1;
+FOR _nReportPcs:=1 TO GVL_PARAM.PCS_COUNT DO
+ GVL_IF.g_stReport.abPcsMapped[_nReportPcs]:=FALSE;
+ GVL_IF.g_stReport.abPcsComm[_nReportPcs]:=FALSE;
+END_FOR
+fbRptBat[1](i_stState:=GVL_SITE.g_fbBms1.q_stState, i_stRaw:=GVL_SITE.g_fbBms1.q_stRaw, i_nDeviceIndex:=1);	// BAT 번호 1부터 [1부터 2026-11-10]
+FOR _nReportBat:=1 TO GVL_PARAM.BMS_COUNT DO
+ GVL_IF.g_stReport.abBatMapped[_nReportBat]:=TRUE;
+ GVL_IF.g_stReport.abBatValid[_nReportBat]:=fbRptBat[_nReportBat].q_bValid;
+ GVL_IF.g_stReport.astBat[_nReportBat]:=fbRptBat[_nReportBat].q_stBat;
+ FOR _nReportRack:=1 TO GVL_PARAM.RACKS_PER_BMS DO
+  GVL_IF.g_stReport.astRack[(_nReportBat-1)*GVL_PARAM.RACKS_PER_BMS+_nReportRack]:=fbRptBat[_nReportBat].q_astRack[_nReportRack];
+ END_FOR
+ FOR _nReportModule:=1 TO GVL_PARAM.RACKS_PER_BMS*GVL_PARAM.MODULES_PER_RACK DO
+  GVL_IF.g_stReport.astModule[(_nReportBat-1)*GVL_PARAM.RACKS_PER_BMS*GVL_PARAM.MODULES_PER_RACK+_nReportModule]:=fbRptBat[_nReportBat].q_astModule[_nReportModule];
+ END_FOR
+END_FOR
+fbRptUps[1](i_stState:=GVL_SITE.g_fbUps1.q_stState, i_nDeviceIndex:=1);
+FOR _nReportUps:=1 TO GVL_PARAM.UPS_COUNT DO
+ GVL_IF.g_stReport.abUpsMapped[_nReportUps]:=TRUE;
+ GVL_IF.g_stReport.abUpsValid[_nReportUps]:=fbRptUps[_nReportUps].q_bValid;
+ GVL_IF.g_stReport.astUps[_nReportUps]:=fbRptUps[_nReportUps].q_stUps;
+ // 명세 SQ-01: 사고·고장 단계. Fault 확인 = EMS UPS 명령 10 (WR-SQ-01)
+ fbUpsSafety[_nReportUps](i_stUps:=fbRptUps[_nReportUps].q_stUps, i_bUpsValid:=fbRptUps[_nReportUps].q_bValid,
+  i_stBat:=fbRptBat[_nReportUps].q_stBat, i_bBatValid:=fbRptBat[_nReportUps].q_bValid, i_bAck:=fbUpsCommand[_nReportUps].q_bAck);
+END_FOR
+// IMD 보고 (인터페이스 22. IMD)
+fbRptImd[1](i_stState:=GVL_SITE.g_fbImd1.q_stState, i_nDeviceIndex:=1);
+FOR _nReportImd:=1 TO GVL_PARAM.IMD_COUNT DO
+ GVL_IF.g_stReport.abImdMapped[_nReportImd]:=TRUE;
+ GVL_IF.g_stReport.abImdValid[_nReportImd]:=fbRptImd[_nReportImd].q_bValid;
+ GVL_IF.g_stReport.astImd[_nReportImd]:=fbRptImd[_nReportImd].q_stImd;
+END_FOR
+// 화재감지기 보고 (토픽 fire_detector, 인터페이스 20. OffGas 양식: b0 통신 이상, b1 알람, b2 고장)
+// 1 = TS-60 연기 접점 (g_fbIo1 DI 1, 통신 = EtherCAT 단자 상태), 2 = ASD-57 (연기 또는 온도 알람). 고장(b2)은 알 수 없어 0
+GVL_IF.g_stReport.abFireMapped[1]:=TRUE;
+GVL_IF.g_stReport.astFire[1].DeviceIndex:=1;
+GVL_IF.g_stReport.astFire[1].Status:=SEL(GVL_SITE.g_fbIo1.Comm, UDINT#1, SEL(GVL_SITE.g_fbIo1.M_GetBit(i_nPoint:=1), UDINT#0, UDINT#2));
+GVL_IF.g_stReport.abFireMapped[2]:=TRUE;
+GVL_IF.g_stReport.astFire[2].DeviceIndex:=2;
+GVL_IF.g_stReport.astFire[2].Status:=SEL(GVL_SITE.g_fbAsd57.q_bValid, UDINT#1, SEL(GVL_SITE.g_fbAsd57.q_bSmokeAlarm OR GVL_SITE.g_fbAsd57.q_bTempAlarm, UDINT#0, UDINT#2));
+// 온습도 보고 (인터페이스 07.Temperature Sensor). location 2 = BAT실 (잠정, 현장 위치 확인)
+fbRptTemp[1](i_stState:=GVL_SITE.g_fbThd2.q_stState, i_nDeviceIndex:=1, i_nLocation:=2);
+GVL_IF.g_stReport.abTempMapped[1]:=TRUE;
+GVL_IF.g_stReport.astTemp[1]:=fbRptTemp[1].q_stTemp;
+GVL_IF.g_nReportSeq:=GVL_IF.g_nReportSeq+1;]]></ST>
+      </Implementation>
+    </Action>
+    <LineIds Name="MAIN">
+      <LineId Id="3" Count="231" />
+      <LineId Id="2" Count="0" />
+      <LineId Id="236" Count="229" />
+    </LineIds>
+    <LineIds Name="MAIN.A_PassModuleSet">
+      <LineId Id="2" Count="2" />
+      <LineId Id="1" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

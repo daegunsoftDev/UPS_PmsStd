@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_DistBasis" Id="{8e2cff69-aba3-413f-99c7-efc92ecbb5c7}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_DistBasis :
+(
+	Rating		:= 0,	// 유닛 정격 비율
+	Soc			:= 1,	// 방전은 SOC 높은 쪽, 충전은 SOC 낮은 쪽이 많이 (P만. Q는 정격 비율)
+	Equal		:= 2	// 균등
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

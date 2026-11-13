@@ -1,0 +1,95 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_BatGroup" Id="{f5cab5d8-2cf0-431c-a242-7a0bb975a1dd}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_BatGroup		// BMS마다 쓸 수 있는지 판단, 배터리 그룹(DC 버스)마다 쓸 수 있는 BMS만 모음 (한도·SOC·투입 완료)
+VAR_IN_OUT CONSTANT
+	iq_astBms		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatState;
+	iq_astBmsCfg	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsCfg;
+	iq_astBmsProt	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsProt;
+	iq_abBmsInstalled	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF BOOL;	// FB_ModuleList. 미설치 BMS는 배터리 그룹에서 뺌
+END_VAR
+VAR_OUTPUT
+	q_astBmsAvail	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsAvail;
+	q_astBatGroup	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatGroupState;
+END_VAR
+VAR_TEMP
+	m				: UINT;
+	g				: UINT;
+	fCapWeight				: REAL;		// 무게 = 용량 (설정 안 했으면 1)
+	fSocW			: REAL;
+	fWSum			: REAL;
+	nClosed			: UINT;		// 쓸 수 있는 BMS 중 투입된 수
+	fChgClosed		: REAL;		// 투입된 BMS 한도 합 (투입된 BMS가 있으면 이것만 씀: 열린 BMS 한도로 과부하 안 되게)
+	fDisClosed		: REAL;
+	stBmsAvail			: ST_BmsAvail;
+	stBmsAvailNone		: ST_BmsAvail;
+	stGrp				: ST_BatGroupState;
+	stNone			: ST_BatGroupState;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 1) BMS마다 쓸 수 있는지 *)
+FOR m := 1 TO GVL_PARAM.BMS_COUNT DO
+	stBmsAvail			:= stBmsAvailNone;
+	stBmsAvail.bNotInstalled	:= NOT iq_abBmsInstalled[m];
+	stBmsAvail.bNoComm	:= iq_abBmsInstalled[m] AND NOT iq_astBms[m].bComm;
+	stBmsAvail.bFault		:= iq_astBms[m].bComm AND iq_astBms[m].bFault;
+	stBmsAvail.bSysStop	:= iq_astBms[m].bComm AND iq_astBms[m].bSysStop;
+	stBmsAvail.bProt		:= iq_astBmsProt[m].eBatAction <> E_BatAction.None;
+	stBmsAvail.bUsable	:= NOT (stBmsAvail.bNotInstalled OR stBmsAvail.bNoComm OR stBmsAvail.bFault OR stBmsAvail.bSysStop OR stBmsAvail.bProt);
+	q_astBmsAvail[m] := stBmsAvail;
+END_FOR
+
+(* 2) 배터리 그룹마다 쓸 수 있는 BMS만 합침 *)
+FOR g := 1 TO GVL_PARAM.BAT_COUNT DO
+	stGrp		:= stNone;
+	fSocW	:= 0;
+	fWSum	:= 0;
+	nClosed	:= 0;
+	fChgClosed	:= 0;
+	fDisClosed	:= 0;
+	FOR m := 1 TO GVL_PARAM.BMS_COUNT DO
+		IF iq_astBmsCfg[m].nBatGroup = g AND iq_abBmsInstalled[m] THEN
+			stGrp.nBms := stGrp.nBms + 1;
+			IF q_astBmsAvail[m].bUsable THEN
+				stGrp.nBmsUsable	:= stGrp.nBmsUsable + 1;
+				IF iq_astBms[m].bContactorClosed THEN
+					nClosed		:= nClosed + 1;
+					fChgClosed	:= fChgClosed + iq_astBms[m].fPChgMax;
+					fDisClosed	:= fDisClosed + iq_astBms[m].fPDisMax;
+				END_IF
+				stGrp.fPChgMax		:= stGrp.fPChgMax + iq_astBms[m].fPChgMax;
+				stGrp.fPDisMax		:= stGrp.fPDisMax + iq_astBms[m].fPDisMax;
+				IF iq_astBms[m].stSoc.bValid THEN
+					fCapWeight := SEL(iq_astBmsCfg[m].fCapacity > 0, 1.0, iq_astBmsCfg[m].fCapacity);
+					IF fWSum = 0 OR iq_astBms[m].stSoc.fValue < stGrp.stSocMin.fValue THEN stGrp.stSocMin.fValue := iq_astBms[m].stSoc.fValue; END_IF
+					IF fWSum = 0 OR iq_astBms[m].stSoc.fValue > stGrp.stSocMax.fValue THEN stGrp.stSocMax.fValue := iq_astBms[m].stSoc.fValue; END_IF
+					fSocW	:= fSocW + iq_astBms[m].stSoc.fValue * fCapWeight;
+					fWSum	:= fWSum + fCapWeight;
+					stGrp.fCapacity	:= stGrp.fCapacity + MAX(iq_astBmsCfg[m].fCapacity, 0.0);	// SOC 평균에 들어간 BMS만 (용량 × SOC = 에너지가 맞게)
+				END_IF
+			END_IF
+		END_IF
+	END_FOR
+	IF fWSum > 0 THEN
+		stGrp.stSoc.fValue		:= fSocW / fWSum;
+		stGrp.stSoc.bValid		:= TRUE;
+		stGrp.stSocMin.bValid	:= TRUE;
+		stGrp.stSocMax.bValid	:= TRUE;
+		stGrp.fSocWeight		:= fWSum;
+	END_IF
+	// 한도: 투입된 BMS가 있으면 그 BMS 것만 (열린 BMS는 전류를 못 받음). 하나도 없으면(기동 전) 쓸 수 있는 BMS 전부 (화면·판단용, 그대로)
+	IF nClosed > 0 THEN
+		stGrp.fPChgMax := fChgClosed;
+		stGrp.fPDisMax := fDisClosed;
+	END_IF
+	stGrp.bUsable := stGrp.nBmsUsable > 0;
+	stGrp.bReady := stGrp.nBmsUsable > 0 AND nClosed = stGrp.nBmsUsable;
+	q_astBatGroup[g] := stGrp;
+END_FOR]]></ST>
+    </Implementation>
+    <LineIds Name="FB_BatGroup">
+      <LineId Id="3" Count="41" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

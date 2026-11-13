@@ -1,0 +1,160 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_WoonyoungGfr" Id="{86a1a807-6fa7-4c6b-b739-b67a19b4a29c}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_WoonyoungGfr EXTENDS FB_DeviceBase IMPLEMENTS I_AuxDevice		// 운영(Woonyoung) WYGF-D08/12/16NC 디지털 지락검출계전기 (Modbus RTU), 읽기 전용
+(* ---------------------------------------------------------------
+   기반 없음(신규). 맵: 프로토콜 맵 v3\지락검출 계전기.pdf (사용설명서 PAC-00084 REV.5, 제5장). 2026-11-10
+   용도: AC 회로 누전(지락) 감시. ZCT 영상변류기 방식이라 배터리 DC 전로 지락은 못 봄 (DC는 IMD)
+   통신: EL6022 채널 하나를 ModbusRtuMaster_KL6x22B로 (사용자 2026-11-10). 단자 연결(InData·OutData)은 XAE I/O 화면에서 사람이 함
+         장비: RS-485 8N1, 국번 1~32 (공장 출하 OFF → 장비 Serial Setup에서 켜야 응답), 9600/19200/38400 (출하 19200)
+   읽기: 읽기 주기마다 Input Register(FC4) 0부터 2 + 회로 수
+     @MAP IR 0      U16  시스템 상태 (b8 시험 모드, b4 LPF, b3 고감도 ZCT, b2 자동복귀, b1 부저, b0 50Hz)
+     @MAP IR 1      U16  회로별 지락 (b0 = 1회로 … b15 = 16회로, 1 = Fault)
+     @MAP IR 2~17   U16  회로 1~16 누설전류, × 0.01 A (예: 0x03E8 = 10 A)
+   쓰지 않는 것: FC03 0~31 회로별 감도·동작시간 설정, FC03 32~51 사고 기록, FC05 0 사고 기록 지우기
+   점 (I_AuxDevice)
+     AI n = 회로 n 누설전류 (A)
+     DI n = 회로 n 지락 (n = 1..회로 수), DI 17 = 시험 모드 (장비에서 Circuit Test 중)
+   --------------------------------------------------------------- *)
+VAR_INPUT
+	i_bEnable		: BOOL;					// FALSE면 통신하지 않음 (장비 미설치)
+	i_nUnitId		: UINT := 1;			// 장비 국번 (Serial Setup Port No.)
+	i_nChannels		: UINT := 8;			// 회로 수: 8 (D08NC), 12 (D12NC), 16 (D16NC)
+	i_tTimeout		: TIME := T#1S;			// 응답 기다림
+END_VAR
+VAR_OUTPUT
+	q_wStatus		: WORD;					// IR 0 시스템 상태
+	q_wFault		: WORD;					// IR 1 회로별 지락 비트
+	q_afCurrent		: ARRAY[1..16] OF REAL;	// 회로별 누설전류 A
+	q_bValid		: BOOL;					// 통신 정상이고 한 번 이상 읽음
+END_VAR
+VAR
+	_fbRtu			: ModbusRtuMaster_KL6x22B;
+	_awRaw			: ARRAY[0..17] OF WORD;	// IR 0..17
+	_bReadDue		: BOOL;
+	_bReading		: BOOL;
+	_bDataOk		: BOOL;
+	_nCh			: UINT;					// 쓰는 회로 수 (8·12·16 중 가까운 범위로 자름)
+	_i				: UINT;
+END_VAR
+VAR CONSTANT
+	CH_MAX			: UINT := 16;
+	PT_TEST			: UINT := 17;			// DI 17 = 시험 모드
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[
+]]></ST>
+    </Implementation>
+    <Action Name="A_Map" Id="{28be03fb-b9e5-4077-a4b8-47481f8bf86b}">
+      <Implementation>
+        <ST><![CDATA[q_wStatus := _awRaw[0];				// @MAP IR 0
+q_wFault := _awRaw[1];				// @MAP IR 1
+FOR _i := 1 TO CH_MAX DO
+	IF _i <= _nCh THEN
+		q_afCurrent[_i] := WORD_TO_REAL(_awRaw[1 + _i]) * 0.01;	// @MAP IR 2~17 U16 ×0.01 A
+	ELSE
+		q_afCurrent[_i] := 0.0;
+	END_IF
+END_FOR
+_bDataOk := TRUE;
+]]></ST>
+      </Implementation>
+    </Action>
+    <Method Name="M_Cycle" Id="{95f80762-ab63-4258-a82c-a482ef34ab38}">
+      <Declaration><![CDATA[METHOD M_Cycle
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_nCh := LIMIT(1, i_nChannels, CH_MAX);
+
+_bReadDue := M_IsReadTime();
+IF NOT _bReading THEN
+	IF i_bEnable AND _bReadDue AND i_nUnitId >= 1 AND i_nUnitId <= 247 THEN
+		_fbRtu.ReadInputRegs(UnitID := UINT_TO_BYTE(i_nUnitId), Quantity := 2 + _nCh, MBAddr := 0,
+			cbLength := SIZEOF(_awRaw), pMemoryAddr := ADR(_awRaw), Timeout := i_tTimeout, Execute := TRUE);
+		_bReading := TRUE;
+	END_IF
+ELSE
+	_fbRtu.ReadInputRegs(Execute := FALSE);	// 시작한 읽기는 끝까지 부름
+	IF NOT _fbRtu.BUSY THEN
+		IF NOT _fbRtu.Error AND i_bEnable THEN
+			A_Map();
+			M_MarkAlive();
+		END_IF
+		_bReading := FALSE;
+	END_IF
+END_IF
+M_UpdateComm();
+q_bValid := Comm AND _bDataOk;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetBit" Id="{ca88cfc9-a3d5-4fc8-9568-6d072a77f742}">
+      <Declaration><![CDATA[METHOD M_GetBit : BOOL		// DI n = 회로 n 지락, DI 17 = 시험 모드. 통신 이상이면 FALSE (규칙 FB_RuleBit은 Comm으로 따로 판단)
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF q_bValid THEN
+	IF i_nPoint >= 1 AND i_nPoint <= _nCh THEN
+		M_GetBit := (q_wFault AND SHL(WORD#1, i_nPoint - 1)) <> 0;
+	ELSIF i_nPoint = PT_TEST THEN
+		M_GetBit := q_wStatus.8;
+	END_IF
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetValue" Id="{09ac0a78-b5ce-445c-adad-c4d9ca8b4dcd}">
+      <Declaration><![CDATA[METHOD M_GetValue : ST_Val		// AI n = 회로 n 누설전류 (A)
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nPoint >= 1 AND i_nPoint <= _nCh THEN
+	M_GetValue.fValue := q_afCurrent[i_nPoint];
+	M_GetValue.bValid := q_bValid;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetBit" Id="{2c271495-d48c-4bae-9056-afe41f0e18ae}">
+      <Declaration><![CDATA[METHOD M_SetBit		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetValue" Id="{da26593a-9204-42df-9d37-ed9072058f4a}">
+      <Declaration><![CDATA[METHOD M_SetValue		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_fValue	: REAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Comm" Id="{9f4d4f93-9022-4534-9104-fd94d993d169}">
+      <Declaration><![CDATA[PROPERTY Comm : BOOL]]></Declaration>
+      <Get Name="Get" Id="{e2f81a07-68c7-4c9d-9010-0813c0a79898}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Comm := _bComm AND i_bEnable;
+]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

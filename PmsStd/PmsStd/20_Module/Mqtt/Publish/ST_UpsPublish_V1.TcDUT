@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15"><DUT Name="ST_UpsPublish_V1" Id="{689a16ac-89fe-41ec-91c6-4e7ae51381c7}"><Declaration><![CDATA[// UPS 1대의 MQTT 보고 데이터. 바이너리 구조라 필드 순서를 바꾸면 안 된다.
+// 값은 FB_RptSebangUps가 ST_UpsState에서 복사한다.
+{attribute 'pack_mode' := '1'}
+TYPE ST_UpsPublish_V1 :
+STRUCT
+ DeviceIndex : UDINT; // UPS 번호 1~3
+ Status : UDINT; // b0 통신에러 b1 run b2 stop b3 bypass 운전 b4 inverter 운전 b5 warning b6 fault b7 e-stop
+  // b8 수동 바이패스(MBS) b9 출력 차단기 개방 b10 BBC 기동 b11 부동충전 b12 균등충전 b13 대기
+  // b14 주기적 방전 b15 펄스 방전 b16 간헐충전 b17 온도보상충전
+ LineInputVoltage_R : REAL;
+ LineInputVoltage_S : REAL;
+ LineInputVoltage_T : REAL;
+ InputFrequency : REAL;
+ InputCurrent_R : REAL;
+ InputCurrent_S : REAL;
+ InputCurrent_T : REAL;
+ InverterVoltage_R : REAL;
+ InverterVoltage_S : REAL;
+ InverterVoltage_T : REAL;
+ InverterCurrent_R : REAL;
+ InverterCurrent_S : REAL;
+ InverterCurrent_T : REAL;
+ BypassLineVoltage_R : REAL;
+ BypassLineVoltage_S : REAL;
+ BypassLineVoltage_T : REAL;
+ BypassFrequency : REAL;
+ LineOutputVoltage_R : REAL;
+ LineOutputVoltage_S : REAL;
+ LineOutputVoltage_T : REAL;
+ FrequencyOutput : REAL;
+ OutputCurrent_R : REAL;
+ OutputCurrent_S : REAL;
+ OutputCurrent_T : REAL;
+ DcLinkVoltage : REAL;
+ DcLinkVoltage_High : REAL;
+ DcLinkVoltage_Low : REAL;
+ BatteryVoltage : REAL;
+ BatteryCurrent : REAL;
+ MPI_A_Current : REAL;
+ MPI_B_Current : REAL;
+ MPI_C_Current : REAL;
+ InputApparentPower : REAL;
+ OutputApparentPower : REAL;
+ OutputActivePower : REAL;
+ Temp1 : REAL;
+ Temp2 : REAL;
+ Temp3 : REAL;
+ Temp4 : REAL;
+ Temp5 : REAL;
+ Temp6 : REAL;
+ // Warning·Fault: 칸 하나 = 맵 워드 2개 (하위 16비트 + 상위 16비트). 비트 위치는 맵 그대로. 마스크로 거른 경고장·중고장만 (명세 RD-UPS-02 v1.6)
+ Warning1 : UDINT; // 경고장: 하위 I44 입력 / 상위 I45 정류부
+ Warning2 : UDINT; // 경고장: 하위 I46 BBC / 상위 I47 출력
+ Warning3 : UDINT; // 경고장: 하위 I51 STATUS2 (I48 경고 없음) / 상위 I49 바이패스
+ Fault1 : UDINT; // 중고장: 하위 I44 입력 / 상위 I45 정류부
+ Fault2 : UDINT; // 중고장: 하위 I46 BBC / 상위 I47 출력
+ Fault3 : UDINT; // 중고장: 하위 I48 인버터 / 상위 I50 STATUS1 OR I51 STATUS2 (I49 고장 없음)
+END_STRUCT
+END_TYPE]]></Declaration></DUT></TcPlcObject>

@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_GroupState" Id="{ffd7c196-3080-4841-94d9-ee1d63fbf6ad}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_GroupState :
+(
+	Init			:= 0,	// 부팅 직후: 첫 스냅샷 대기, 쓰기 금지
+	Stopped			:= 1,
+	BatConnecting	:= 2,	// 배터리 투입 확인
+	PcsStandby		:= 3,	// PCS 대기 (활성 + 출력 0)
+	StartWait		:= 4,	// 기동 조건(I_StartPermit) 대기. 등록된 조건이 없으면 바로 통과
+	Running			:= 5,
+	Stopping		:= 6	// 정지 램프 → 정지 명령 확인
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

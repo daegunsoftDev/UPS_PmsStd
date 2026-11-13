@@ -1,0 +1,105 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ModuleList" Id="{27fa6847-290e-4da7-8437-cd71380eac5d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ModuleList	// 등록된 모듈 전부를 한 목록으로 (모듈 ID 점검·이름·이유 문구 찾기는 이 목록만 봄). 유닛·BMS 설치 여부도 냄 (등록 정보)
+// 새 등록 배열을 추가하면 여기와 GVL_PARAM.MODULE_MAX만 고침. 칸 순서는 아래 등록 순서, 빈 칸은 0
+// 같은 인스턴스를 여러 배열에 등록하면 목록에는 한 번만 (예: 차단기 모듈 = 보호 규칙 + 출력 규칙 2칸, 드라이버 하나가 I_Meter + I_AuxDevice)
+VAR_IN_OUT
+	iq_aipPcs	: ARRAY[1..GVL_PARAM.PCS_COUNT] OF I_Pcs;
+	iq_aipBms	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF I_Bms;
+	iq_aipMeter	: ARRAY[1..GVL_PARAM.METER_COUNT] OF I_Meter;
+	iq_aipAux	: ARRAY[1..GVL_PARAM.AUX_COUNT] OF I_AuxDevice;
+	iq_aipSource	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF I_CommandSource;
+	iq_aipLimit	: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF I_LimitRule;
+	iq_aipPermit	: ARRAY[1..GVL_PARAM.PERMIT_COUNT] OF I_StartPermit;
+	iq_aipComp	: ARRAY[1..GVL_PARAM.COMP_COUNT] OF I_Compensator;
+	iq_aipRule	: ARRAY[1..GVL_PARAM.RULE_COUNT] OF I_ProtectionRule;
+	iq_aipResp		: ARRAY[1..GVL_PARAM.RULE_COUNT] OF I_ProtResponse;
+	iq_aipOutput	: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF I_OutputRule;
+	iq_aipUnitRule	: ARRAY[1..GVL_PARAM.UNIT_RULE_COUNT] OF I_UnitLimitRule;
+	iq_aipBatRule	: ARRAY[1..GVL_PARAM.BAT_RULE_COUNT] OF I_BatLimitRule;
+	iq_aipSelPolicy	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF I_SelectPolicy;
+	iq_aipDistPolicy	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF I_DistPolicy;
+	iq_ipAutoGate	: I_Gate;
+	iq_ipManualGate	: I_Gate;
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+END_VAR
+VAR_OUTPUT
+	q_aipModule	: ARRAY[1..GVL_PARAM.MODULE_MAX] OF I_Module;	// 등록된 모듈 (같은 인스턴스는 한 번만, 나머지 칸은 0)
+	q_abUnitInstalled	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 유닛의 PCS 칸이 등록됨. FALSE = 미설치 (보호·가용·설정 점검에서 뺌)
+	q_abBmsInstalled	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF BOOL;	// BMS 칸이 등록됨
+END_VAR
+VAR
+	_n	: UINT;		// 목록에 넣은 칸 수 (M_Add)
+END_VAR
+VAR_TEMP
+	i	: UINT;
+	nPcs	: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[_n := 0;
+FOR i := 1 TO GVL_PARAM.PCS_COUNT DO M_Add(iq_aipPcs[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.BMS_COUNT DO M_Add(iq_aipBms[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.METER_COUNT DO M_Add(iq_aipMeter[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.AUX_COUNT DO M_Add(iq_aipAux[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.SOURCE_COUNT DO M_Add(iq_aipSource[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.LIMIT_COUNT DO M_Add(iq_aipLimit[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.PERMIT_COUNT DO M_Add(iq_aipPermit[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.COMP_COUNT DO M_Add(iq_aipComp[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.RULE_COUNT DO M_Add(iq_aipRule[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.RULE_COUNT DO M_Add(iq_aipResp[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.OUTPUT_COUNT DO M_Add(iq_aipOutput[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.UNIT_RULE_COUNT DO M_Add(iq_aipUnitRule[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.BAT_RULE_COUNT DO M_Add(iq_aipBatRule[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.GROUP_COUNT DO M_Add(iq_aipSelPolicy[i]); END_FOR
+FOR i := 1 TO GVL_PARAM.GROUP_COUNT DO M_Add(iq_aipDistPolicy[i]); END_FOR
+M_Add(iq_ipAutoGate);
+M_Add(iq_ipManualGate);
+
+(* 설치 여부: 칸이 비어 있으면 미설치 *)
+FOR i := 1 TO GVL_PARAM.UNIT_COUNT DO
+	nPcs := iq_astUnitCfg[i].nPcs;
+	q_abUnitInstalled[i] := nPcs >= 1 AND nPcs <= GVL_PARAM.PCS_COUNT AND_THEN iq_aipPcs[nPcs] <> 0;
+END_FOR
+FOR i := 1 TO GVL_PARAM.BMS_COUNT DO
+	q_abBmsInstalled[i] := iq_aipBms[i] <> 0;
+END_FOR]]></ST>
+    </Implementation>
+    <Method Name="M_Add" Id="{9f4a6517-5629-4bc7-ab0f-0a4f0b910602}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Add		// 다음 칸에 모듈을 넣음. 빈 칸이거나 이미 넣은 인스턴스면 0
+VAR_INPUT
+	i_ipModule	: I_Module;
+END_VAR
+VAR
+	k		: UINT;
+	pNew	: POINTER TO BYTE;		// 인스턴스 주소 (같은 인스턴스인지 비교)
+	pOld	: POINTER TO BYTE;
+	bDup	: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_n := _n + 1;
+IF _n > GVL_PARAM.MODULE_MAX THEN
+	RETURN;
+END_IF
+q_aipModule[_n] := 0;
+IF i_ipModule = 0 THEN
+	RETURN;
+END_IF
+__QUERYPOINTER(i_ipModule, pNew);
+FOR k := 1 TO _n - 1 DO
+	IF q_aipModule[k] <> 0 THEN
+		__QUERYPOINTER(q_aipModule[k], pOld);
+		IF pOld = pNew THEN
+			bDup := TRUE;
+		END_IF
+	END_IF
+END_FOR
+IF NOT bDup THEN
+	q_aipModule[_n] := i_ipModule;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

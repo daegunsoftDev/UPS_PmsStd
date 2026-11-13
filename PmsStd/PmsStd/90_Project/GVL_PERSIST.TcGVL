@@ -1,0 +1,73 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <GVL Name="GVL_PERSIST" Id="{e8beea41-63c5-4c92-9790-3ba62a083fcb}">
+    <Declaration><![CDATA[VAR_GLOBAL PERSISTENT
+	(* ================================================================
+	   운영 설정 (HMI에서 바꿈, 재기동 후에도 유지)
+	   - 칸 순서는 GVL_SITE 등록 배열과 같다
+	   - 설정을 추가하면 MAIN.fbPersistSave에도 연결한다 (바뀌면 바로 저장)
+	   ================================================================ *)
+	g_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;	// 유닛별 운전 모드 요청 (HMI가 쓰고, 보호가 ToManual이면 FB_ModeSwitch가 Manual로 바꿈). 실제 모드는 MAIN.fbModeSwitch.q_aeOpMode
+	g_astGroupSet	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupSet;	// 제어 그룹별 선택 방식·램프·Q 필터
+	g_astManualPolicy: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_ManualPolicy;	// 제어 그룹별 Manual 경로에 적용할 단계 (운전 정책·장비 보호 켜고 끄기)
+
+	g_astSourceReg	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceReg := [
+						(bEnable := TRUE, nGrade := 1, stStateMode := (stPcs := (eRun := E_SourceMode.Both, eStandby := E_SourceMode.Both, eStop := E_SourceMode.Both, eEStop := E_SourceMode.Both), stBat := (eClose := E_SourceMode.Both, eOpen := E_SourceMode.Both)), ePowerMode := E_SourceMode.Both, nGroup := 0, tExpire := T#10S),	// 1 시험 지령원 (상태·출력 모두 Auto·Manual에서 받음)
+						(bEnable := TRUE, nGrade := 2, stStateMode := (stPcs := (eRun := E_SourceMode.None, eStandby := E_SourceMode.None, eStop := E_SourceMode.None, eEStop := E_SourceMode.None), stBat := (eClose := E_SourceMode.None, eOpen := E_SourceMode.None)), ePowerMode := E_SourceMode.Auto, nGroup := 0, tExpire := T#10S),	// 2 제어 모드 관리자 접속점 그룹 1 (Auto 유닛 P·Q만, 상태 요청 안 받음) [16번 수정 2026-11-09: 원래 2 = 관리자 PCS1, 3 = 관리자 PCS2]
+						(bEnable := TRUE, nGrade := 2, ePowerMode := E_SourceMode.Auto, nGroup := 0, tExpire := T#60S, bLostAlarm := FALSE,
+							stStateMode := (stPcs := (eRun := E_SourceMode.Auto, eStandby := E_SourceMode.Auto, eStop := E_SourceMode.Both, eEStop := E_SourceMode.Both),
+											stBat := (eClose := E_SourceMode.Auto, eOpen := E_SourceMode.Auto)))];	// 3 EMS [9번 수정 2026-11-09: bLostAlarm FALSE — '지령원 끊김' 대신 '브로커 끊김' 알람 (g_stBrokerWatch)] (상태 명령은 Auto에서 받고 정지·비상정지는 Manual에서도 받음. P 지령은 FB_SrcEms.i_bPEnable이 켜질 때만. EMS가 60 s 안에 다시 말하지 않으면 끊김)
+	g_astLimitReg	: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF ST_ModuleReg;
+	g_astPermitReg	: ARRAY[1..GVL_PARAM.PERMIT_COUNT] OF ST_ModuleReg;
+	g_astCompReg	: ARRAY[1..GVL_PARAM.COMP_COUNT] OF ST_ModuleReg;
+	g_astRuleCfg	: ARRAY[1..GVL_PARAM.RULE_COUNT] OF ST_RuleCfg := [	// 보호 규칙 (칸 = GVL_SITE.g_aipRule·g_aipResp). nTarget 0 = 범위 안 대상 전부. stProt 조치는 표준 대응(대응 칸에 g_fbProtRespStd)이 씀. 대응 칸이 비면 조치 없음 ([결함 8 수정 2026-11-03: 주석 고침. 원래 '표준 대응(대응 칸이 빈 칸)이 씀'])
+						(stProt := (ePcsAction := E_PcsAction.Stop), eScope := E_ProtScope.Unit),		// 1 PCS 고장 → 그 유닛 정지
+						(stProt := (ePcsAction := E_PcsAction.Standby), eScope := E_ProtScope.Unit),	// 2 PCS 통신 끊김 → 그 유닛 대기
+						(stProt := (ePcsAction := E_PcsAction.Stop, eBatAction := E_BatAction.Stop), eScope := E_ProtScope.Bms),	// 3 BMS 고장 → 그 BMS 정지 + 같은 배터리 그룹 유닛 정지
+						(stProt := (ePcsAction := E_PcsAction.Standby), eScope := E_ProtScope.Bms),		// 4 BMS 통신 끊김 → 같은 배터리 그룹 유닛 대기
+						(stProt := (ePcsAction := E_PcsAction.Standby), eScope := E_ProtScope.Group),	// 5 접속점 계측 무효 → 그룹 대기
+						(stProt := (ePcsAction := E_PcsAction.None), eScope := E_ProtScope.Site),		// 6 연기 감지 (TS-60) → 알람만
+						(stProt := (ePcsAction := E_PcsAction.None), eScope := E_ProtScope.Site)];		// 7 연기 감지 (ASD-57) → 알람만
+						(* BMS 하나가 빠져도 남은 BMS로 계속 돌리려면 3·4번 ePcsAction을 None으로 (3번은 eBatAction도 None: 배터리 조치는 PCS 정지·비상정지와만) *)
+	g_astOutputCfg	: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF ST_OutputCfg;	// 출력 규칙 (어느 장비·점, 임계값, 지연, 유지)
+	g_astUnitRuleReg	: ARRAY[1..GVL_PARAM.UNIT_RULE_COUNT] OF ST_RuleTargetReg;	// 유닛 제한 모듈 등록 (대상 유닛, 적용 운전 모드)
+	g_astBatRuleReg	: ARRAY[1..GVL_PARAM.BAT_RULE_COUNT] OF ST_RuleTargetReg;	// 버스 제한 모듈 등록 (대상 배터리 그룹, 적용 운전 모드). 1 = SOC 정책 (기본: 전체 버스, Auto·Manual)
+
+	(* UPS 설정 보관값 (명세 CF-UPS-02). EMS에서 받은 설정. FB_UpsConfigApply가 쓰고, 바뀌면 fbPersistSave가 바로 저장 *)
+	g_astUpsDesired	: ARRAY[1..GVL_PARAM.UPS_COUNT] OF ST_UpsDesiredSet;
+	(* BMS 랙 선택표 (BMS 40001 랙 비트, 비트 n-1 = 랙 n). EMS 랙 명령(11·12)으로 바뀜. 0 = 저장 안 됨 → 설치된 랙 전부 *)
+	g_awBmsRackMask	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF WORD;
+
+	(* 지령 거르기·시퀀스 (코어) *)
+	g_stCmdFilter	: ST_CmdFilterSet := (
+						bBadValue		:= TRUE,	fBadFactor	:= 1.5);	// 이상값: NaN·무한대 + 정격 × 1.5 초과 무시 (Auto·Manual)
+	g_stManualCmdSet	: ST_ManualCmdSet := (
+						bReverse		:= TRUE,	fDirBand	:= 1.0,	// Manual 방향 반대 지령 무시 (정격 1% 이하는 멈춘 것)
+						bClearOnStop	:= TRUE);					// Manual: Run 확인 뒤 들어온 지령만 씀
+	g_stSeqSet		: ST_SeqSet := (							// 시퀀스: 쓰기 주기, 명령 확인·재시도, 배터리 투입
+						tWritePeriod	:= T#200MS,
+						stPcs := (
+							tCmdConfirm		:= T#30S,
+							tStopRetry		:= T#5S,
+							nStopRetry		:= 3,
+							bStopRamp		:= FALSE,
+							fStopDonePct	:= 1.0,
+							tStopRampMax	:= T#30S),
+						stBat := (
+							eClose			:= E_BatClose.OnStart,
+							bOpenOnStop		:= FALSE,
+							tConfirm		:= T#60S,
+							tOpenRetry		:= T#5S,
+							nOpenRetry		:= 3));
+	(* 현장 모듈 설정 (모듈마다 칸 하나, 타입 ST_ModuleSet은 90_Project). MAIN 액션 A_PassModuleSet에서 각 모듈 i_stSet에 넘김 *)
+	g_stModuleSet	: ST_ModuleSet;
+
+	(* MQTT 브로커 끊김 감시 [9번 수정 2026-11-09: 추가]. 고른 브로커 접속이 tLostDelay 넘게 끊기면 '브로커 끊김' 알람 + 운전 모드 요청을 모두 Manual로 (한 번, 다시 접속하면 다시 무장) *)
+	g_stBrokerWatch	: ST_BrokerWatchSet;	// 기본: Local 브로커, 30 s
+
+	(* 재기동 기록 (FB_AliveRecorder가 1 s마다 갱신, 파일 저장은 주기 저장) *)
+	g_nLastAliveLocal	: ULINT;	// 마지막 동작 시각 (FILETIME 모양, 현지 시각). 2026-11-03 UTC(g_nLastAlive) → 현지로 바꾸며 이름 바꿈: 바꾼 뒤 첫 시작은 '기록 없음'
+	g_sLastAlive	: STRING(31);	// 같은 시각, 현지 시각 글자
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

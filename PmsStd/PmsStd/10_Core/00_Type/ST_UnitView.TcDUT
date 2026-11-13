@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_UnitView" Id="{998242a0-d8f7-47c8-8ac6-7b5392a02736}">
+    <Declaration><![CDATA[TYPE ST_UnitView :		// 유닛(PCS) 하나 기준 값 (FB_UnitView). 유닛마다 둔 제어 모드 관리자(FB_CtrlModeMgr.i_nUnit ≠ 0)가 봄
+STRUCT
+	nUnit			: UINT;
+	bAvail			: BOOL;				// 가용 (FB_UnitAvail)
+	stView			: ST_GroupView;		// 유닛 기준. 정격·가용 한도·출력 = 이 유닛, 배터리 한도·용량 = 연결 버스 값을 버스 가용 유닛 정격 비율로 나눈 몫, SOC = 연결 배터리 그룹, 접속점(stPcc)·상태 = 소속 그룹 그대로
+	fGroupPOut		: REAL;				// kW, 소속 그룹 유닛 출력 합 (실측). 접속점 몫 계산용 (그룹 부하 = 그룹 출력 - 접속점 P)
+	fGroupQOut		: REAL;				// kvar
+	fRatingShare	: REAL;				// 0~1, 소속 그룹 가용 P 한도 합 중 이 유닛 몫. 가용이 아니면 0
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

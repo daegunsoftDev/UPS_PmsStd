@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_PcsSeqSet" Id="{2cb0e9f8-839a-4805-ac96-ed631c744f35}">
+    <Declaration><![CDATA[TYPE ST_PcsSeqSet :		// PCS(유닛) 시퀀스 설정
+STRUCT
+	tCmdConfirm		: TIME := T#30S;		// 기동 쪽 명령(Run) 접수 확인 시간. 지나면 실패 알람 (재시도 없음)
+	tStopRetry		: TIME := T#5S;			// 정지 쪽 명령(Stop·EStop) 확인 시간·재시도 간격
+	nStopRetry		: UINT := 3;			// 보호 명령(정지 쪽) 재시도 횟수. 넘으면 실패 알람만 (잠그지 않음)
+	// 지령원 명령(운전원·EMS)은 운전 모드와 관계없이 재시도하지 않음: 한 번만 보내고, 확인 시간이 지나면 명령 실패 기록
+	bStopRamp		: BOOL;					// 정지 전에 출력을 0까지 내림 (기본: 바로 Stop)
+	fStopDonePct	: REAL := 1.0;			// 정지 램프 완료: |P| ≤ 유닛 정격의 이 %
+	tStopRampMax	: TIME := T#30S;		// 정지 램프 최대 대기. 지나면 그대로 Stop
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

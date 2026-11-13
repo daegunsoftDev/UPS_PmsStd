@@ -1,0 +1,78 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<POU Name="FB_UpsModbusJob" Id="{a844d21a-7d55-41f6-acd0-89fac562fee0}"><Declaration><![CDATA[FUNCTION_BLOCK FB_UpsModbusJob
+// One latched Modbus transaction. FC06 only; no FC16 ambiguity for BMS writes.
+VAR_INPUT
+ i_sIpAddr : STRING(15);
+ i_nPort : UINT := 502;
+ i_nUnitId : BYTE := 1;
+ i_tTimeout : TIME := T#1S;
+ i_bExecute : BOOL;
+ i_bWritePermit : BOOL;
+ i_nFunction : UINT;
+ i_nAddress : WORD;
+ i_nQuantity : WORD;
+ i_wValue : WORD;
+END_VAR
+VAR_OUTPUT
+ q_bBusy : BOOL;
+ q_bDone : BOOL;
+ q_bError : BOOL;
+ q_nErrorId : UDINT;
+ q_awData : ARRAY[0..124] OF WORD;
+END_VAR
+VAR
+ _fbInput : FB_MBReadInputRegs;
+ _fbHolding : FB_MBReadRegs;
+ _fbSingle : FB_MBWriteSingleReg;
+ _rtExecute : R_TRIG;
+ _sIpAddr : STRING(15);
+ _nPort : UINT;
+ _nUnitId : BYTE;
+ _tTimeout : TIME;
+ _nAddress : WORD;
+ _wValue : WORD;
+ _nFunction : UINT;
+ _nQuantity : WORD;
+ _bStartInput : BOOL;
+ _bStartHolding : BOOL;
+ _bStartWrite : BOOL;
+END_VAR]]></Declaration><Implementation><ST><![CDATA[q_bDone := FALSE;
+q_bError := FALSE;
+_bStartInput := FALSE; _bStartHolding := FALSE; _bStartWrite := FALSE;
+_rtExecute(CLK := i_bExecute);
+IF _rtExecute.Q AND NOT q_bBusy THEN
+ q_nErrorId := 0;
+ IF i_sIpAddr = '' OR i_nPort = 0 OR i_nQuantity = 0 OR i_nQuantity > 125 THEN
+  q_bDone := TRUE; q_bError := TRUE; q_nErrorId := 16#F001;
+ ELSIF i_nFunction = 6 AND (NOT GVL_PARAM.UPS_CONTROL_ENABLED OR NOT i_bWritePermit OR i_nQuantity <> 1) THEN
+  q_bDone := TRUE; q_bError := TRUE; q_nErrorId := 16#F002;
+ ELSIF i_nFunction <> 3 AND i_nFunction <> 4 AND i_nFunction <> 6 THEN
+  q_bDone := TRUE; q_bError := TRUE; q_nErrorId := 16#F003;
+ ELSE
+  _sIpAddr:=i_sIpAddr; _nPort:=i_nPort; _nUnitId:=i_nUnitId;
+  _tTimeout:=i_tTimeout; _nAddress:=i_nAddress; _wValue:=i_wValue;
+  _nFunction := i_nFunction; _nQuantity := i_nQuantity; q_bBusy := TRUE;
+  _bStartInput := _nFunction = 4; _bStartHolding := _nFunction = 3; _bStartWrite := _nFunction = 6;
+ END_IF
+END_IF
+// Call all instances every scan, also while disabled, to drain an in-flight transaction.
+_fbInput(sIPAddr:=_sIpAddr,nTCPPort:=_nPort,nUnitID:=_nUnitId,nMBAddr:=_nAddress,nQuantity:=_nQuantity,
+ cbLength:=SIZEOF(q_awData),pDestAddr:=ADR(q_awData),tTimeout:=_tTimeout,bExecute:=_bStartInput);
+_fbHolding(sIPAddr:=_sIpAddr,nTCPPort:=_nPort,nUnitID:=_nUnitId,nMBAddr:=_nAddress,nQuantity:=_nQuantity,
+ cbLength:=SIZEOF(q_awData),pDestAddr:=ADR(q_awData),tTimeout:=_tTimeout,bExecute:=_bStartHolding);
+_fbSingle(sIPAddr:=_sIpAddr,nTCPPort:=_nPort,nUnitID:=_nUnitId,nMBAddr:=_nAddress,nValue:=_wValue,tTimeout:=_tTimeout,bExecute:=_bStartWrite);
+IF q_bBusy THEN
+ CASE _nFunction OF
+  4: IF NOT _fbInput.bBusy AND NOT _bStartInput THEN
+    q_bDone := TRUE; q_bError := _fbInput.bError OR (_fbInput.cbRead <> WORD_TO_UDINT(_nQuantity)*2);
+    q_nErrorId := _fbInput.nErrId; q_bBusy := FALSE; END_IF
+  3: IF NOT _fbHolding.bBusy AND NOT _bStartHolding THEN
+    q_bDone := TRUE; q_bError := _fbHolding.bError OR (_fbHolding.cbRead <> WORD_TO_UDINT(_nQuantity)*2);
+    q_nErrorId := _fbHolding.nErrId; q_bBusy := FALSE; END_IF
+  6: IF NOT _fbSingle.bBusy AND NOT _bStartWrite THEN
+    q_bDone := TRUE; q_bError := _fbSingle.bError; q_nErrorId := _fbSingle.nErrId; q_bBusy := FALSE; END_IF
+ END_CASE
+ IF q_bDone AND q_bError AND q_nErrorId = 0 THEN q_nErrorId := 16#F004; END_IF
+END_IF]]></ST></Implementation></POU>
+</TcPlcObject>

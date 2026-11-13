@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_DiagStage" Id="{76238351-cefd-48c4-8cf3-69cdc2dff46f}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_DiagStage :
+(
+	None		:= 0,	// 요청대로 나감
+	NoRequest	:= 1,	// 출력 요청 없음 (정상)
+	NotRunning	:= 2,	// 그룹이 운전 중 아님
+	Ramp		:= 3,	// 램프로 따라가는 중
+	PccLimit	:= 4,	// 접속점 제한
+	DeviceLimit	:= 5,	// 설비 제한 (정격·배터리·설비 기준 모듈)
+	UnitLimit	:= 6,	// 유닛 한도·분배
+	NoUnit		:= 7	// 그룹에 이 모드(Auto/Manual) 유닛이 없음 (정상, 로그 안 남김)
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,108 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_CmPeakCut" Id="{d476939d-beee-4907-b2b0-8c22dcd5c5a0}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_CmPeakCut EXTENDS FB_CmTariffBase		// 제어 모드: 피크컷 (Messis PEAK_SHAVING_MODE). 15분 평균 수전이 목표를 넘지 않게 방전
+// 우선순위: 자동 충전 시간 → 잔량 방전 시간 (잔량 방전과 피크 제어 중 큰 값, 방전 허용 시간에만) → 피크 제어 (방전 허용 시간에만). 휴일·시각 무효 → 0
+// 방전은 모두 역송 방지 (공통 설정). 피크 제어량 계산은 FB_CmPeakCalc (통합 모드와 같음)
+VAR_INPUT
+	i_stSet		: ST_CmPeakCutSet;		// 설정 (A_PassModuleSet이 GVL_PERSIST.g_stModuleSet.stCmPeakCut을 매 스캔 넘김)
+END_VAR
+VAR_OUTPUT
+	q_fPeakCtrl	: REAL;		// 진단: 피크 제어량 (kW, FB_CmPeakCalc)
+	q_nRemainMin	: UINT;		// 진단: 15분 구간 남은 분
+	q_fExceeded	: REAL;		// 진단: 구간 목표 초과 수전 누적 (kW·분)
+	q_fLoad1m	: REAL;		// 진단: 직전 1분 평균 부하 (kW)
+END_VAR
+VAR
+	_fbPeak		: FB_CmPeakCalc;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Enter" Id="{40bd43d8-cb9c-49d1-a980-aa94296a159b}">
+      <Declaration><![CDATA[METHOD M_Enter
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SUPER^.M_Enter(i_stView := i_stView);
+_fbPeak.M_Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Calc" Id="{6cb0ee1e-f417-43ac-b137-bf855dd4bcd3}">
+      <Declaration><![CDATA[METHOD M_Calc : ST_CtrlModeOut
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;
+END_VAR
+VAR
+	nNow	: UINT;
+	fP		: REAL;
+	fRem	: REAL;
+	nRsn	: UINT;
+	bNoCap	: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fP := 0.0;
+_fbPeak(i_stSet := i_stSet.stPeak, i_fRevMargin := i_stCommon.stNoRev.fMargin, i_stView := i_stView);		// 휴일에도 평균은 셈
+q_fPeakCtrl		:= _fbPeak.q_fCtrl;
+q_nRemainMin	:= _fbPeak.q_nRemainMin;
+q_fExceeded		:= _fbPeak.q_fExceeded;
+q_fLoad1m		:= _fbPeak.q_fLoad1m;
+IF M_Begin(i_stView := i_stView) THEN
+	nNow := F_TimeHhmm(i_stTime := i_stView.stTime);
+	IF i_stSet.stAutoChg.bUse AND F_InHhmmWindow(i_nNow := nNow, i_nStart := i_stSet.stAutoChg.nStart, i_nEnd := i_stSet.stAutoChg.nEnd) THEN
+		// 1) 자동 충전 (Messis MT_auto_charge)
+		fP			:= -M_AutoChg(i_stView := i_stView, i_stWin := i_stSet.stAutoChg, q_bNoCap => bNoCap);
+		q_nState	:= SEL(bNoCap, GVL_CM_RSN.AUTO_CHG, GVL_CM_RSN.NO_CAP);
+	ELSIF i_stSet.stRemain.bUse AND F_InHhmmWindow(i_nNow := nNow, i_nStart := i_stSet.stRemain.nStart, i_nEnd := i_stSet.stRemain.nEnd) THEN
+		// 2) 잔량 방전 (Messis MT_remain_discharge): 잔량 방전량이 있을 때만, 피크 제어량이 더 크면 그 값
+		// [14번 수정 2026-11-09: 방전 허용 시간(공통 stDis: 시간·일요일) 밖이면 잔량 방전·피크 제어 모두 0, 상태 DIS_TIME.
+		//   원래는 잔량 방전 시간이면 방전 허용 시간을 보지 않고 방전함]
+		IF NOT M_DisAllowed(i_stTime := i_stView.stTime) THEN
+			q_nState := GVL_CM_RSN.DIS_TIME;
+		ELSE
+			fRem		:= M_RemainDis(i_stView := i_stView, i_stWin := i_stSet.stRemain, q_bNoCap => bNoCap);
+			q_nState	:= SEL(bNoCap, GVL_CM_RSN.REMAIN_DIS, GVL_CM_RSN.NO_CAP);
+			IF fRem > 0.0 THEN
+				fP := M_NoReverse(i_fReq := MAX(fRem, _fbPeak.q_fCtrl), i_stView := i_stView, q_nRsn => nRsn);
+				IF nRsn <> 0 THEN
+					q_nState := nRsn;
+				END_IF
+			END_IF
+		END_IF
+	ELSIF _fbPeak.q_bNewInterval THEN
+		q_nState := GVL_CM_RSN.NEW_INTERVAL;
+	ELSIF _fbPeak.q_fCtrl <= 0.0 THEN
+		q_nState := GVL_CM_RSN.BELOW_PEAK;
+	ELSIF NOT M_DisAllowed(i_stTime := i_stView.stTime) THEN
+		q_nState := GVL_CM_RSN.DIS_TIME;
+	ELSE
+		// 3) 피크 제어 (Messis MT_peak_shaving_mode)
+		fP			:= M_NoReverse(i_fReq := _fbPeak.q_fCtrl, i_stView := i_stView, q_nRsn => nRsn);
+		q_nState	:= SEL(nRsn <> 0, GVL_CM_RSN.PEAK, nRsn);
+	END_IF
+END_IF
+M_Calc := M_Finish(i_fP := fP);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckSet" Id="{975702c3-73a6-4d14-be8d-5b031b58e7e3}">
+      <Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckSet := SUPER^.M_CheckSet();
+IF M_CheckSet <> "" THEN
+	RETURN;
+END_IF
+// [결함 13 수정 2026-11-04: 피크 설정이 숫자인지 먼저]
+IF NOT (F_RealOk(i_stSet.stPeak.fTarget) AND F_RealOk(i_stSet.stPeak.fBandSens) AND F_RealOk(i_stSet.stPeak.fLoadRatio) AND F_RealOk(i_stSet.stPeak.fMinOut)) THEN
+	M_CheckSet := "피크컷: 피크 설정 숫자 아님";
+ELSIF i_stSet.stPeak.fTarget < 0.0 OR i_stSet.stPeak.fBandSens < 0.0 OR i_stSet.stPeak.fLoadRatio < 0.0 OR i_stSet.stPeak.fLoadRatio > 1.0 OR i_stSet.stPeak.fMinOut < 0.0 THEN
+	M_CheckSet := "피크컷: 목표·감도·부하 비율(0~1)·최소 출력";
+ELSIF NOT M_CheckWindow(i_stWin := i_stSet.stAutoChg) THEN
+	M_CheckSet := "피크컷: 자동 충전 시간·SOC";
+ELSIF NOT M_CheckWindow(i_stWin := i_stSet.stRemain) THEN
+	M_CheckSet := "피크컷: 잔량 방전 시간·SOC";
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="ST_CommonConfig_UDINT" Id="{8c700301-1424-4c80-96bb-6e08330d775f}">
+    <Declaration><![CDATA[TYPE ST_CommonConfig_UDINT :
+STRUCT
+	value	: UDINT;
+	is_available : UDINT;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

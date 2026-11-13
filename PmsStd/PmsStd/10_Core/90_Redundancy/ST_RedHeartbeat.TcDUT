@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
+  <DUT Name="ST_RedHeartbeat" Id="{5f41ee79-e099-4837-9c1d-49558fa23959}">
+    <Declaration><![CDATA[TYPE ST_RedHeartbeat :		// 이중화 하트비트: 두 PLC가 EAP로 서로에게 매 스캔 보냄 (FB_RedLink). 필드를 바꾸면 두 PLC의 EAP 변수 연결도 같이 바꿈
+STRUCT
+	nProtoVer	: UINT := 2;	// 형식 번호. 상대와 다르면 필드 뜻이 다름
+	nCounter	: UDINT;		// 보낼 때마다 1 증가. 상대가 이 값이 바뀌는지로 살아 있음을 봄
+	nRole		: INT;			// 보낸 PLC의 역할 (E_RedRole)
+	bActive		: BOOL;			// 보낸 PLC가 지금 장비에 쓰는가 (GVL_IF.g_bRedActive)
+	nState		: INT;			// 보낸 PLC의 이중화 상태 (E_RedState). Primary가 Handover이면 Secondary가 Active를 내려놓음
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

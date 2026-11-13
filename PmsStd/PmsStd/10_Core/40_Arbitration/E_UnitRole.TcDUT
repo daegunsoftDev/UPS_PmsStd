@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_UnitRole" Id="{1f2b01d3-7ee1-4296-a48a-2451c35b4388}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_UnitRole :
+(
+	None			:= 0,
+	Fixed			:= 1,	// 유닛별 값을 따름
+	AutoShare		:= 2,	// Auto 그룹 몫을 받음
+	ManualShare		:= 3	// Manual 그룹 몫을 받음
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

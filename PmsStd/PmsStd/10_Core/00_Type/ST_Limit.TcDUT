@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_Limit" Id="{15f3eee2-ad4a-4342-ab08-069a8676b0ab}">
+    <Declaration><![CDATA[TYPE ST_Limit :
+STRUCT
+	bActive		: BOOL;
+	fMax		: REAL;		// 상한 (방전·공급 쪽)
+	fMin		: REAL;		// 하한 (충전·흡수 쪽)
+	nModule		: UINT;		// 낸 모듈 ID. 0 = 코어
+	nReason		: UINT;		// 모듈 안의 이유 코드. 0 = 없음
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

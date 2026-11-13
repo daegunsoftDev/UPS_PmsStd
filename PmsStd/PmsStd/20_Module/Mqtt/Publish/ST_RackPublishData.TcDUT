@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_RackPublishData" Id="{96467bc2-dab5-4f2d-bc2a-9d0671b9a4fd}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_RackPublishData :
+STRUCT
+	Header		:	ST_MqttHeader;
+	Devices		:	ARRAY[0..GVL_PARAM.RACK_COUNT-1] OF ST_RackPublish_V1;
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

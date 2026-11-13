@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtBatCmd" Id="{c64104e3-b7a8-4e0e-8a3e-bfb1549ef29d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtBatCmd : WSTRING(31)
+VAR_INPUT
+	i_e		: E_BatCmd;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_e OF
+	E_BatCmd.None:		F_TxtBatCmd := "없음";
+	E_BatCmd.Close:		F_TxtBatCmd := "배터리 투입";
+	E_BatCmd.Open:		F_TxtBatCmd := "배터리 개방";
+	E_BatCmd.EStop:		F_TxtBatCmd := "배터리 비상정지";
+	E_BatCmd.Reset:		F_TxtBatCmd := "배터리 Reset";
+ELSE
+	F_TxtBatCmd := "?";
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

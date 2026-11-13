@@ -1,0 +1,828 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_EventLog" Id="{cd728247-d03a-4c36-8327-9475ff1b5c21}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_EventLog		// 기록하는 유일한 곳: 결과를 보고 바뀔 때만 이벤트 로거에 남김
+VAR_INPUT
+	i_stSet			: ST_LogSet;
+	i_bTestMode		: BOOL;			// 시험 모드에서만 가상신호를 씀 (가상신호 알람도)
+	i_bSetChanged	: BOOL;			// 운영 설정이 바뀌어 저장 시작 (FB_PersistSave.q_bSetChanged, 1스캔)
+	i_sSetChanged	: WSTRING(63);	// 바뀐 설정 이름
+	i_bSetRejected	: BOOL;			// 잘못된 설정 값을 마지막 정상값으로 되돌림 (FB_SettingGuard.q_bRejected, 1스캔)
+	i_sSetRejected	: WSTRING(63);	// 되돌린 설정과 이유
+	i_bPersistError	: BOOL;			// 설정 저장 실패 (FB_PersistSave.q_bError)
+	i_nPersistErrorId	: UDINT;	// 그 오류 번호
+	i_nConfigErrors	: UINT;			// 설정 오류 수 (FB_ConfigCheck.q_nErrors)
+	i_bPmsStart		: BOOL;			// PMS 시작 (FB_AliveRecorder.q_bStartEvent, 1스캔)
+	i_sStartLastAlive	: WSTRING(63);	// 직전 동작 시각 (글자)
+	i_sStartOffTime	: WSTRING(63);	// 꺼져 있던 시간 (글자)
+	(* 이중화 (GVL_IF) *)
+	i_bRedUse		: BOOL;			// 이중화를 씀 (GVL_SITE.RED_SET.bUse)
+	i_eRedRole		: E_RedRole;
+	i_eRedState		: E_RedState;
+	i_ePeer			: E_RedPeer;
+	i_nSwitchCount	: UDINT;		// Active가 바뀐 횟수 (GVL_IF.g_nRedSwitchCount)
+	i_eSwitch		: E_RedSwitch;	// 마지막으로 바뀐 이유
+	i_nResumeCount	: UDINT;		// PLC가 멈췄다 이어진 횟수
+	i_nSyncApplied	: UDINT;		// 상대 값으로 설정을 덮어쓴 횟수
+	i_bSyncFresh	: BOOL;			// 상대의 동기화 값이 낡지 않음
+	i_bPeerEapOk	: BOOL;
+	i_bRoleConflict	: BOOL;			// 두 PLC 역할이 같음
+	(* MQTT 브로커 끊김 (FB_BrokerWatch) [9번 수정 2026-11-09: 추가] *)
+	i_bBrokerLost	: BOOL;			// 고른 브로커가 판정 시간 넘게 끊김 (알람)
+	i_sBrokerName	: WSTRING(15);	// 브로커 이름 (Cloud·Local·Azure)
+	i_sBrokerDelay	: WSTRING(31);	// 판정 시간 (글자)
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_asConfigErrors	: ARRAY[1..10] OF WSTRING(63);	// 설정 오류 문구 (FB_ConfigCheck.q_asErrors)
+	(* 보호 *)
+	iq_aabRule		: ARRAY[1..GVL_PARAM.RULE_COUNT, 1..GVL_PARAM.PROT_TARGET_MAX] OF BOOL;	// 보호 발생 [규칙 칸, 대상] (FB_Protection.q_aabRule)
+	iq_astRuleCfg	: ARRAY[1..GVL_PARAM.RULE_COUNT] OF ST_RuleCfg;
+	(* 시퀀스 *)
+	iq_aeUnitSeq	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_UnitSeq;
+	iq_aeRefuse		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_SeqRefuse;
+	iq_aeBatRefuse	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF E_SeqRefuse;	// 배터리 그룹별 요청 거부 이유
+	iq_abBatRefusedNow: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;		// 이번 스캔에 배터리 요청 거부
+	iq_aeFailCmd	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_PcsCmd;
+	iq_aeBmsFailCmd	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF E_BatCmd;	// 확인되지 않은 BMS 명령 (FB_Sequencer)
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;
+	iq_abModeForced	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 보호가 요청 모드를 Manual로 바꾼 스캔 (FB_ModeSwitch.q_abModeForced, 1스캔)
+	iq_astUnitProt	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitProt;	// 보호 결과 (모드 조치를 건 주체 이름)
+	(* 명령 필터 *)
+	iq_abBadValue	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF BOOL;
+	iq_afBadValue	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF REAL;
+	iq_aeManualRefuse	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_CmdRefuse;
+	iq_anManualRefuseModule: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;
+	(* 지령원 *)
+	iq_astSrcOut	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceOutput;
+	iq_abPcsReqTaken: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF BOOL;
+	iq_abBatReqTaken: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF BOOL;		// 시퀀서가 받은 배터리 요청
+	iq_astReg		: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceReg;
+	(* 출력 *)
+	iq_astAutoPDiag	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_OutputDiag;
+	iq_astUnitDiag	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitDiag;
+	iq_astVirtual	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_VirtualSet;
+	iq_abBadSet		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 지령값 NaN·무한대 → 0 (FB_Dispatcher.q_abBadSet)
+	(* 기동 조건 *)
+	iq_abWaitPermit	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// 기동 조건 기다리는 중 (FB_Sequencer.q_abWaitPermit)
+	iq_abPermit		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// 기동 조건 (FB_PermitEval)
+	iq_anPermitModule: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF UINT;		// 막은 모듈
+	iq_anPermitReason: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF UINT;
+	(* 장비 상태 (쓰기 실패) *)
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;	// FB_Snapshot.q_astUnit
+	iq_astBms		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatState;		// FB_Snapshot.q_astBms
+END_VAR
+VAR_IN_OUT
+	iq_aipRule		: ARRAY[1..GVL_PARAM.RULE_COUNT] OF I_ProtectionRule;
+	iq_aipResp		: ARRAY[1..GVL_PARAM.RULE_COUNT] OF I_ProtResponse;	// [결함 8 수정 2026-11-03: 추가] 보호 대응 (GVL_SITE.g_aipResp). 빈 칸은 조치 없음 → 알람 문구·심각도도 조치 없음으로
+	iq_aipSource	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF I_CommandSource;
+	iq_aipModule	: ARRAY[1..GVL_PARAM.MODULE_MAX] OF I_Module;	// 등록된 모듈 전부 (FB_ModuleList): 이름·이유 문구 찾기
+	iq_fbCtrlMode	: FB_CtrlModeMgr;	// 제어 모드 관리자 (GVL_SITE.g_fbCtrlMode1): 켜진 모드 바뀜·요청 거부·스스로 끝남 기록. 관리자를 늘리면 입력도 늘림 [7번 수정 2026-11-09: 추가]
+END_VAR
+VAR
+	(* 알람 *)
+	_aafbRule		: ARRAY[1..GVL_PARAM.RULE_COUNT, 1..GVL_PARAM.PROT_TARGET_MAX] OF FB_LogAlarm;	// 보호 [규칙 칸, 대상]
+	_afbBmsCmdFail	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF FB_LogAlarm;
+	_afbCmdFail		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF FB_LogAlarm;
+	_afbSrcLost		: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF FB_LogAlarm;
+	_afbVirtual		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF FB_LogAlarm;
+	_afbUnitWriteFail	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF FB_LogAlarm;	// 유닛 쓰기 실패
+	_afbBmsWriteFail	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF FB_LogAlarm;		// BMS 쓰기 실패
+	_fbPersistFail	: FB_LogAlarm;		// 설정 저장 실패
+	_fbControlBlocked	: FB_LogAlarm;	// 설정 오류로 장비 제어 중지
+	_fbConfigError	: FB_LogMsg;		// 설정 오류 문구
+	_asCfgLogged	: ARRAY[1..10] OF WSTRING(63);	// 마지막으로 기록한 설정 오류 문구
+	_nCfgLogged		: UINT;
+	_bCfgStarted	: BOOL;
+	(* 메시지 *)
+	_fbStateReq		: FB_LogMsg;
+	_fbLimited		: FB_LogMsg;
+	_fbFree			: FB_LogMsg;
+	_fbUnitLim		: FB_LogMsg;
+	_fbRefused		: FB_LogMsg;
+	_fbSeqChange	: FB_LogMsg;
+	_fbModeChange	: FB_LogMsg;
+	_fbCmdRefused	: FB_LogMsg;
+	_fbSetChanged	: FB_LogMsg;		// 운영 설정 바뀜
+	_fbSetRejected	: FB_LogMsg;		// 잘못된 설정 값 되돌림
+	_fbPermitWait	: FB_LogMsg;		// 기동 조건 대기
+	_fbBadSet		: FB_LogMsg;		// 지령값 이상
+	_fbPmsStart		: FB_LogMsg;		// PMS 시작
+	(* 이중화 *)
+	_fbRedStart		: FB_LogMsg;		// Active로 시작
+	_fbRedFailover	: FB_LogMsg;		// 절체
+	_fbRedFailback	: FB_LogMsg;		// 복귀
+	_fbRedYield		: FB_LogMsg;		// Active 양보
+	_fbRedResume	: FB_LogMsg;		// 멈췄다 이어짐
+	_fbRedSyncApplied: FB_LogMsg;		// 동기화로 설정을 맞춤
+	_fbRedPeerLost	: FB_LogAlarm;		// 상대 PLC 끊김
+	_fbRedLinkFault	: FB_LogAlarm;		// 통신 한쪽 고장
+	_fbRedSyncLost	: FB_LogAlarm;		// 동기화 값을 못 받음
+	_fbRedFailed	: FB_LogAlarm;		// 이중화 설정 오류
+	_tonRedSync		: TON;
+	_tonRedQuiet	: TON;
+	_bRedQuiet		: BOOL;				// 멈췄다 이어진 직후: 횟수·이유가 어긋나게 읽힐 수 있어 절체 기록을 잠시 건너뜀
+	_bRedInit		: BOOL;
+	_bRedSwitchPending: BOOL;
+	_nRedSwitchLast	: UDINT;
+	_nRedResumeLast	: UDINT;
+	_nRedAppliedLast: UDINT;
+	_fbModeForced	: FB_LogMsg;		// 보호가 운전 모드를 Manual로 바꿈
+	(* [7번 수정 2026-11-09: 추가] 제어 모드 *)
+	_fbCmChange		: FB_LogMsg;		// 켜진 제어 모드 바뀜
+	_fbCmRefused	: FB_LogMsg;		// 제어 모드 요청 거부
+	_fbCmExit		: FB_LogMsg;		// 제어 모드 스스로 끝남
+	_nCmLogged		: UINT;				// 마지막으로 기록한 켜진 모드 칸 (0 = 없음)
+	_fbBrokerLost	: FB_LogAlarm;		// MQTT 브로커 끊김 [9번 수정 2026-11-09: 추가]
+	(* 이전 값 *)
+	_aeLastPcsReq	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF E_PcsCmd;	// 지령원별 마지막으로 기록한 PCS 요청
+	_anLastPcsUnit	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF UINT;
+	_abEverValid	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF BOOL;
+	_anVirtualKind	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF UINT;	// 알람에 올린 가상신호 종류
+	_astLogged		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_OutputDiag;	// 마지막으로 기록한 출력 진단
+	_astCand		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_OutputDiag;	// 유지 시간 재는 중인 후보
+	_atonHold		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF TON;
+	_aeLastLimBy	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_UnitLimitBy;
+	_aeLastRefuse	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_SeqRefuse;
+	_aeLastSeq		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_UnitSeq;
+	_aeLastMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;
+	_abLastBad		: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF BOOL;
+	_aeLastCmdRefuse: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_CmdRefuse;
+	_abPermitLogged	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;	// 이번 대기에서 기동 조건 대기를 기록함
+	_anPermitModule	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF UINT;	// 기록한 막은 모듈·이유 (바뀌면 다시 기록)
+	_anPermitReason	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF UINT;
+	_abLastBadSet	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;
+	_abModeForcedLogged	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 이번 보호(모드 조치)에서 기록함. 보호가 풀리면 다시 기록 가능 (Auto 재요청을 되돌릴 때마다 남기지 않음)
+	_bInit			: BOOL;
+	(* 모듈 이름 찾기용 사본 (메서드에서 씀) *)
+	_aipModule	: ARRAY[1..GVL_PARAM.MODULE_MAX] OF I_Module;
+	(* 반복 변수·임시값: 본문과 기록 액션(A_Log...)이 함께 씀. 액션이 본문의 VAR_TEMP를 못 볼 수 있어 VAR에 둠 *)
+	_i				: UINT;
+	_g				: UINT;
+	_u				: UINT;
+	_m				: UINT;
+	_t				: UINT;			// 보호 대상 번호
+	_dwBadBits		: DWORD;		// 이상값 비트 (NaN 구별). [결함 9 수정 2026-11-03: 추가]
+	_stProtTxt		: ST_ProtCfg;	// [결함 8 수정 2026-11-03: 추가] 알람 문구에 쓰는 조치 (대응 칸이 비면 조치 없음)
+	_b				: UINT;
+	_nVirtualKind	: UINT;		// 가상신호 종류: 0 없음, 1 전압, 2 유효전력, 3 둘 다
+	_bLost			: BOOL;
+	_bCfgChanged	: BOOL;
+	_asArg			: ARRAY[1..6] OF WSTRING(63);
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[_aipModule := iq_aipModule;
+
+// 이번 스캔 인자 비움 (예전 VAR_TEMP와 같은 동작)
+FOR _i := 1 TO 6 DO
+	_asArg[_i] := "";
+END_FOR
+
+IF NOT _bInit THEN
+	FOR _u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		_aeLastSeq[_u]	:= iq_aeUnitSeq[_u];
+		_aeLastMode[_u]	:= iq_aeOpMode[_u];
+	END_FOR
+END_IF
+
+_fbStateReq(i_stEntry := TC_EVENTS.PmsSeq.StateRequest);
+_fbLimited(i_stEntry := TC_EVENTS.PmsOutput.OutputLimited);
+_fbFree(i_stEntry := TC_EVENTS.PmsOutput.OutputFree);
+_fbUnitLim(i_stEntry := TC_EVENTS.PmsOutput.UnitLimited);
+_fbRefused(i_stEntry := TC_EVENTS.PmsSeq.ReqRefused);
+_fbSeqChange(i_stEntry := TC_EVENTS.PmsSeq.SeqChange);
+_fbModeChange(i_stEntry := TC_EVENTS.PmsSeq.ModeChange);
+_fbCmdRefused(i_stEntry := TC_EVENTS.PmsSeq.CmdRefused);
+_fbSetChanged(i_stEntry := TC_EVENTS.PmsSystem.SettingChanged);
+_fbConfigError(i_stEntry := TC_EVENTS.PmsSystem.ConfigError);
+_fbPermitWait(i_stEntry := TC_EVENTS.PmsSeq.PermitWait);
+_fbBadSet(i_stEntry := TC_EVENTS.PmsOutput.BadSetpoint);
+_fbPmsStart(i_stEntry := TC_EVENTS.PmsSystem.PmsStart);
+_fbRedStart(i_stEntry := TC_EVENTS.PmsSystem.RedStart);
+_fbRedFailover(i_stEntry := TC_EVENTS.PmsSystem.RedFailover);
+_fbRedFailback(i_stEntry := TC_EVENTS.PmsSystem.RedFailback);
+_fbRedYield(i_stEntry := TC_EVENTS.PmsSystem.RedYield);
+_fbRedResume(i_stEntry := TC_EVENTS.PmsSystem.RedResume);
+_fbRedSyncApplied(i_stEntry := TC_EVENTS.PmsSystem.RedSyncApplied);
+_fbModeForced(i_stEntry := TC_EVENTS.PmsSeq.ModeForced);
+_fbCmChange(i_stEntry := TC_EVENTS.PmsSeq.CtrlModeChange);		// [7번 수정 2026-11-09]
+_fbCmRefused(i_stEntry := TC_EVENTS.PmsSeq.CtrlModeRefused);
+_fbCmExit(i_stEntry := TC_EVENTS.PmsSeq.CtrlModeExit);
+
+(* ===== 기록 구간: 아래 순서대로 한 번씩 (순서는 예전 본문과 같음) ===== *)
+A_LogSystem();		// 시스템: 설정 오류·PMS 시작·운영 설정
+A_LogRedundancy();	// 이중화: 절체·복귀·끊김·동기화
+A_LogProtection();		// 보호 알람
+A_LogDeviceFail();		// 명령 실패·장비 쓰기 실패
+A_LogSource();		// 지령원 요청·끊김, 코어 상태 요청
+A_LogRefused();		// 무시한 지령·기동 조건 대기·지령값 이상·배터리 요청 거부
+A_LogOutput();		// 출력 제한, 자세한 기록
+
+(* ===== 제어 모드 (메시지): 스스로 끝남 → 요청 거부 → 켜진 모드 바뀜 (전환 중 0을 내는 동안은 기다렸다가 끝난 뒤 한 번) [7번 수정 2026-11-09: 추가] ===== *)
+IF iq_fbCtrlMode.q_bExitedNow THEN
+	_asArg[1] := STRING_TO_WSTRING(iq_fbCtrlMode.ModuleName);
+	_asArg[2] := iq_fbCtrlMode.M_SlotName(i_nSlot := iq_fbCtrlMode.q_nExitSlot);
+	_asArg[3] := iq_fbCtrlMode.M_ModeReasonText(i_nSlot := iq_fbCtrlMode.q_nExitSlot, i_nReason := iq_fbCtrlMode.q_nExitReason);
+	IF iq_fbCtrlMode.q_eStep = E_CtrlModeStep.Leaving THEN
+		_asArg[4] := iq_fbCtrlMode.M_SlotName(i_nSlot := iq_fbCtrlMode.q_nTarget);	// 대체 모드로 가는 중
+	ELSE
+		_asArg[4] := iq_fbCtrlMode.M_SlotName(i_nSlot := iq_fbCtrlMode.q_nActive);
+	END_IF
+	_fbCmExit.M_SendEvent(4, _asArg);
+END_IF
+IF iq_fbCtrlMode.q_bRefusedNow THEN
+	_asArg[1] := STRING_TO_WSTRING(iq_fbCtrlMode.ModuleName);
+	_asArg[2] := iq_fbCtrlMode.M_SlotName(i_nSlot := iq_fbCtrlMode.q_nRefuseSlot);
+	_asArg[3] := iq_fbCtrlMode.M_RefuseText();
+	_fbCmRefused.M_SendEvent(3, _asArg);
+END_IF
+IF iq_fbCtrlMode.q_eStep <> E_CtrlModeStep.Leaving AND iq_fbCtrlMode.q_nActive <> _nCmLogged THEN
+	_asArg[1] := STRING_TO_WSTRING(iq_fbCtrlMode.ModuleName);
+	_asArg[2] := iq_fbCtrlMode.M_SlotName(i_nSlot := _nCmLogged);
+	_asArg[3] := iq_fbCtrlMode.M_SlotName(i_nSlot := iq_fbCtrlMode.q_nActive);
+	_fbCmChange.M_SendEvent(3, _asArg);
+	_nCmLogged := iq_fbCtrlMode.q_nActive;
+END_IF
+
+(* ===== MQTT 브로커 끊김 (알람) [9번 수정 2026-11-09: 추가] ===== *)
+IF _fbBrokerLost.q_bRaised <> i_bBrokerLost THEN
+	_asArg[1] := i_sBrokerName;
+	_asArg[2] := i_sBrokerDelay;
+END_IF
+_fbBrokerLost(i_stEntry := TC_EVENTS.PmsOutput.BrokerLost, i_bActive := i_bBrokerLost, i_nArgs := 2, i_asArg := _asArg);
+
+_bInit := TRUE;]]></ST>
+    </Implementation>
+    <Method Name="M_FillProtArgs" Id="{7ba54105-f52d-41d1-b2ca-ade10669567b}">
+      <Declaration><![CDATA[METHOD PRIVATE M_FillProtArgs		// 보호 알람 인자: 모듈 이름, 모듈 ID, 대상, PCS 조치, 배터리 조치
+VAR_INPUT
+	i_nModule	: UINT;
+	i_sTarget	: WSTRING(31);
+	i_stCfg		: ST_ProtCfg;
+END_VAR
+VAR_IN_OUT
+	iq_asArg	: ARRAY[1..6] OF WSTRING(63);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[iq_asArg[1] := M_ModuleName(i_nModule);
+iq_asArg[2] := TO_WSTRING(i_nModule);
+iq_asArg[3] := i_sTarget;
+iq_asArg[4] := F_TxtPcsAction(i_stCfg.ePcsAction);
+iq_asArg[5] := F_TxtBatAction(i_stCfg.eBatAction);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_IsLoggedStage" Id="{95aa5471-f73c-4f8f-8ec6-c57b0042451b}">
+      <Declaration><![CDATA[METHOD PRIVATE M_IsLoggedStage : BOOL		// 로그에 남기는 단계 (요청 없음·운전 아님·램프는 정상 동작이라 안 남김)
+VAR_INPUT
+	i_eStage	: E_DiagStage;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_IsLoggedStage := i_eStage = E_DiagStage.PccLimit OR i_eStage = E_DiagStage.DeviceLimit OR i_eStage = E_DiagStage.UnitLimit;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ModuleName" Id="{76d2f837-56ad-476c-b0af-98bb1c00fe55}">
+      <Declaration><![CDATA[METHOD PRIVATE M_ModuleName : WSTRING(63)	// 모듈 ID → 이름 (등록된 모듈 목록에서 찾음)
+VAR_INPUT
+	i_nModule	: UINT;
+END_VAR
+VAR
+	i	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_ModuleName := WCONCAT("모듈 ", TO_WSTRING(i_nModule));
+IF i_nModule = 0 THEN
+	M_ModuleName := "코어";
+	RETURN;
+END_IF
+FOR i := 1 TO GVL_PARAM.MODULE_MAX DO
+	IF _aipModule[i] <> 0 AND_THEN _aipModule[i].ModuleId = i_nModule THEN
+		M_ModuleName := STRING_TO_WSTRING(_aipModule[i].ModuleName);
+		RETURN;
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ProtEventBySeverity" Id="{2ec976a1-7550-460f-aaec-ff1330d01f1a}">
+      <Declaration><![CDATA[METHOD PRIVATE M_ProtEventBySeverity : TcEventEntry		// 보호 이벤트 + 조치에 맞는 심각도
+VAR_INPUT
+	i_stCfg		: ST_ProtCfg;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_ProtEventBySeverity := TC_EVENTS.PmsProt.ProtActive;
+IF i_stCfg.ePcsAction = E_PcsAction.EStop OR i_stCfg.eBatAction = E_BatAction.EStop THEN
+	M_ProtEventBySeverity.eSeverity := TcEventSeverity.Critical;
+ELSIF i_stCfg.ePcsAction = E_PcsAction.Stop OR i_stCfg.eBatAction = E_BatAction.Stop THEN
+	M_ProtEventBySeverity.eSeverity := TcEventSeverity.Error;
+ELSE
+	M_ProtEventBySeverity.eSeverity := TcEventSeverity.Warning;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ReasonText" Id="{8dbe217c-f7cf-4c39-836a-524bcd47f977}">
+      <Declaration><![CDATA[METHOD PRIVATE M_ReasonText : WSTRING(63)	// "모듈 이름: 이유 문구" (모듈이 M_ReasonText로 직접 돌려준 문구. 모듈 0 = 코어 이유)
+VAR_INPUT
+	i_nModule	: UINT;
+	i_nReason	: UINT;
+END_VAR
+VAR
+	i	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nModule = 0 THEN
+	M_ReasonText := F_TxtCoreReason(i_nReason);
+	RETURN;
+END_IF
+M_ReasonText := M_ModuleName(i_nModule);
+FOR i := 1 TO GVL_PARAM.MODULE_MAX DO
+	IF _aipModule[i] <> 0 AND_THEN _aipModule[i].ModuleId = i_nModule THEN
+		M_ReasonText := WCONCAT(M_ReasonText, WCONCAT(": ", _aipModule[i].M_ReasonText(i_nReason)));
+		RETURN;
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_RuleTarget" Id="{bd8e162e-de6a-4a40-b496-69b0348a37d1}">
+      <Declaration><![CDATA[METHOD PRIVATE M_RuleTarget : WSTRING(31)		// 보호 대상 문구 (범위 + 대상 번호)
+VAR_INPUT
+	i_eScope	: E_ProtScope;
+	i_nTarget	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE i_eScope OF
+	E_ProtScope.Unit:		M_RuleTarget := F_TxtNum("유닛 ", i_nTarget);
+	E_ProtScope.Bms:		M_RuleTarget := F_TxtNum("BMS ", i_nTarget);
+	E_ProtScope.BatGroup:	M_RuleTarget := F_TxtNum("배터리 그룹 ", i_nTarget);
+	E_ProtScope.Group:		M_RuleTarget := F_TxtNum("그룹 ", i_nTarget);
+ELSE
+	M_RuleTarget := "사이트";
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SameLimitReason" Id="{35a8a816-e61f-4ae6-b967-0c0c8f33e4c1}">
+      <Declaration><![CDATA[METHOD PRIVATE M_SameLimitReason : BOOL		// 기록 기준(단계·모듈·이유)이 같은가. 값은 안 봄
+VAR_INPUT
+	i_stDiagA		: ST_OutputDiag;
+	i_stDiagB		: ST_OutputDiag;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_SameLimitReason := i_stDiagA.eStage = i_stDiagB.eStage AND i_stDiagA.nModule = i_stDiagB.nModule AND i_stDiagA.nReason = i_stDiagB.nReason
+					AND i_stDiagA.eUnitBy = i_stDiagB.eUnitBy;]]></ST>
+      </Implementation>
+    </Method>
+    <Action Name="A_LogSystem" Id="{1f80eb07-c277-46cf-a933-1dc707c97d88}">
+      <Implementation>
+        <ST><![CDATA[// 시스템: 설정 오류·PMS 시작·운영 설정
+(* ===== 0-1) 설정 오류: 문구(메시지, 내용이 바뀔 때만, 처음 스캔 포함, 최대 10건), 장비 제어 중지(알람) ===== *)
+_bCfgChanged := NOT _bCfgStarted OR i_nConfigErrors <> _nCfgLogged;
+FOR _i := 1 TO MIN(i_nConfigErrors, 10) DO
+	IF iq_asConfigErrors[_i] <> _asCfgLogged[_i] THEN
+		_bCfgChanged := TRUE;
+	END_IF
+END_FOR
+IF _bCfgChanged THEN
+	FOR _i := 1 TO MIN(i_nConfigErrors, 10) DO
+		_asArg[1] := iq_asConfigErrors[_i];
+		_fbConfigError.M_SendEvent(1, _asArg);
+		_asCfgLogged[_i] := iq_asConfigErrors[_i];
+	END_FOR
+	_nCfgLogged := i_nConfigErrors;
+END_IF
+_bCfgStarted := TRUE;
+IF _fbControlBlocked.q_bRaised <> (i_nConfigErrors > 0) THEN
+	_asArg[1] := TO_WSTRING(i_nConfigErrors);
+END_IF
+_fbControlBlocked(i_stEntry := TC_EVENTS.PmsSystem.ControlBlocked, i_bActive := i_nConfigErrors > 0, i_nArgs := 1, i_asArg := _asArg);
+_fbSetRejected(i_stEntry := TC_EVENTS.PmsSystem.SettingRejected);
+
+(* ===== 0-0) PMS 시작: 직전 동작 시각과 꺼져 있던 시간 (FB_AliveRecorder가 알려 줌) ===== *)
+IF i_bPmsStart THEN
+	_asArg[1] := i_sStartLastAlive;
+	_asArg[2] := i_sStartOffTime;
+	_fbPmsStart.M_SendEvent(2, _asArg);
+END_IF
+
+(* ===== 0) 운영 설정: 잘못된 값 되돌림(메시지), 바뀜(메시지, 저장할 때 1회), 저장 실패(알람) ===== *)
+IF i_bSetRejected THEN
+	_asArg[1] := i_sSetRejected;
+	_fbSetRejected.M_SendEvent(1, _asArg);
+END_IF
+IF i_bSetChanged THEN
+	_asArg[1] := i_sSetChanged;
+	_fbSetChanged.M_SendEvent(1, _asArg);
+END_IF
+IF _fbPersistFail.q_bRaised <> i_bPersistError THEN
+	_asArg[1] := TO_WSTRING(i_nPersistErrorId);
+END_IF
+_fbPersistFail(i_stEntry := TC_EVENTS.PmsSystem.PersistSaveFail, i_bActive := i_bPersistError, i_nArgs := 1, i_asArg := _asArg);]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_LogRedundancy" Id="{53ed7883-6320-41d5-860f-6fd377776062}">
+      <Implementation>
+        <ST><![CDATA[// 이중화: Active가 바뀜(메시지), 상대 끊김·통신 한쪽 고장·동기화 끊김·설정 오류(알람), 설정 맞춤(메시지)
+IF NOT _bRedInit THEN
+	_nRedSwitchLast		:= i_nSwitchCount;		// 시작 전에 있었던 일은 기록하지 않음
+	_nRedResumeLast		:= i_nResumeCount;
+	_nRedAppliedLast	:= i_nSyncApplied;
+	_bRedInit			:= TRUE;
+END_IF
+
+(* 멈췄다 이어짐: 상태가 Init으로 돌아가면서 Active 횟수도 오르는데 이유는 옛 값 그대로라, 이 직후 절체 기록은 건너뜀 *)
+IF i_nResumeCount <> _nRedResumeLast THEN
+	_nRedResumeLast := i_nResumeCount;
+	_asArg[1] := TO_WSTRING(i_nResumeCount);
+	_fbRedResume.M_SendEvent(1, _asArg);
+	_bRedQuiet := TRUE;
+END_IF
+_tonRedQuiet(IN := _bRedQuiet, PT := T#500MS);
+IF _tonRedQuiet.Q THEN
+	_bRedQuiet := FALSE;
+END_IF
+
+(* Active가 바뀜: 횟수가 바뀐 다음 스캔에 이유를 읽음 (횟수와 이유가 다른 태스크에서 따로 쓰여서 한 스캔 기다림) *)
+IF _bRedSwitchPending THEN
+	_bRedSwitchPending := FALSE;
+	IF NOT _bRedQuiet THEN
+		IF i_eRedRole = E_RedRole.Primary THEN
+			_asArg[1] := "Primary";
+		ELSE
+			_asArg[1] := "Secondary";
+		END_IF
+		CASE i_eSwitch OF
+		E_RedSwitch.Start:		_fbRedStart.M_SendEvent(1, _asArg);
+		E_RedSwitch.PeerLost:	_fbRedFailover.M_SendEvent(1, _asArg);
+		E_RedSwitch.Failback:	_fbRedFailback.M_SendEvent(1, _asArg);
+		E_RedSwitch.Yield:		_fbRedYield.M_SendEvent(1, _asArg);
+		END_CASE
+	END_IF
+END_IF
+IF i_nSwitchCount <> _nRedSwitchLast THEN
+	_nRedSwitchLast := i_nSwitchCount;
+	_bRedSwitchPending := TRUE;
+END_IF
+
+(* 상대 PLC 끊김 / 통신 한쪽 고장 *)
+_fbRedPeerLost(i_stEntry := TC_EVENTS.PmsSystem.RedPeerLost, i_bActive := i_bRedUse AND i_ePeer = E_RedPeer.Lost, i_nArgs := 0, i_asArg := _asArg);
+IF _fbRedLinkFault.q_bRaised <> (i_bRedUse AND (i_ePeer = E_RedPeer.EapLost OR i_ePeer = E_RedPeer.WireLost)) THEN
+	IF i_ePeer = E_RedPeer.EapLost THEN
+		_asArg[1] := "EAP";
+	ELSE
+		_asArg[1] := "접점";
+	END_IF
+END_IF
+_fbRedLinkFault(i_stEntry := TC_EVENTS.PmsSystem.RedLinkFault, i_bActive := i_bRedUse AND (i_ePeer = E_RedPeer.EapLost OR i_ePeer = E_RedPeer.WireLost), i_nArgs := 1, i_asArg := _asArg);
+
+(* 동기화 값을 못 받음: EAP는 살아 있는데 동기화 값이 5 s 넘게 안 옴 *)
+_tonRedSync(IN := i_bRedUse AND i_bPeerEapOk AND NOT i_bSyncFresh, PT := T#5S);
+_fbRedSyncLost(i_stEntry := TC_EVENTS.PmsSystem.RedSyncLost, i_bActive := _tonRedSync.Q, i_nArgs := 0, i_asArg := _asArg);
+
+(* 이중화 설정 오류: 두 PLC 역할이 같거나 Net ID가 RED_SET과 안 맞음 *)
+IF _fbRedFailed.q_bRaised <> (i_eRedState = E_RedState.Failed) THEN
+	IF i_bRoleConflict THEN
+		_asArg[1] := "두 PLC의 역할이 같음";
+	ELSE
+		_asArg[1] := "이 PLC의 Net ID가 RED_SET과 맞지 않음";
+	END_IF
+END_IF
+_fbRedFailed(i_stEntry := TC_EVENTS.PmsSystem.RedFailed, i_bActive := i_eRedState = E_RedState.Failed, i_nArgs := 1, i_asArg := _asArg);
+
+(* 동기화로 설정을 맞춤 (Active가 바꾼 설정이 이 PLC에 반영됨) *)
+IF i_nSyncApplied <> _nRedAppliedLast THEN
+	_asArg[1] := TO_WSTRING(i_nSyncApplied - _nRedAppliedLast);
+	_nRedAppliedLast := i_nSyncApplied;
+	_fbRedSyncApplied.M_SendEvent(1, _asArg);
+END_IF]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_LogProtection" Id="{1e82e187-bec5-498c-8370-fd94a6b192df}">
+      <Implementation>
+        <ST><![CDATA[// 보호 알람
+(* ===== 1) 보호 (알람: 발생·해소 1회씩). 규칙 칸·대상마다. 심각도는 처음 만들 때 조치 기준 ===== *)
+FOR _i := 1 TO GVL_PARAM.RULE_COUNT DO
+	_m := 0;
+	IF iq_aipRule[_i] <> 0 THEN _m := iq_aipRule[_i].ModuleId; END_IF
+	FOR _t := 1 TO GVL_PARAM.PROT_TARGET_MAX DO
+		// [결함 8 수정 2026-11-03: 대응 칸이 비면 조치가 안 걸리므로 문구·심각도도 조치 없음 (알람만). 원래는 설정 stProt를 그대로 씀:
+		//   M_FillProtArgs(..., iq_astRuleCfg[_i].stProt, _asArg) / M_ProtEventBySeverity(iq_astRuleCfg[_i].stProt)]
+		_stProtTxt := iq_astRuleCfg[_i].stProt;
+		IF iq_aipResp[_i] = 0 THEN
+			_stProtTxt.ePcsAction	:= E_PcsAction.None;
+			_stProtTxt.eBatAction	:= E_BatAction.None;
+			_stProtTxt.eModeAction	:= E_ModeAction.None;
+			_stProtTxt.fPPct		:= 100.0;
+			_stProtTxt.fQPct		:= 100.0;
+		END_IF
+		IF _aafbRule[_i, _t].q_bRaised <> iq_aabRule[_i, _t] THEN
+			M_FillProtArgs(_m, M_RuleTarget(iq_astRuleCfg[_i].eScope, _t), _stProtTxt, _asArg);
+		END_IF
+		_aafbRule[_i, _t](i_stEntry := M_ProtEventBySeverity(_stProtTxt), i_bActive := iq_aabRule[_i, _t], i_nArgs := 5, i_asArg := _asArg);
+	END_FOR
+END_FOR
+
+(* ===== BMS 명령 실패 (알람, 잠그지 않음). 이벤트 항목은 PmsProt.BatLocked를 씀 (문구는 이벤트 클래스에서) ===== *)
+FOR _m := 1 TO GVL_PARAM.BMS_COUNT DO
+	IF _afbBmsCmdFail[_m].q_bRaised <> (iq_aeBmsFailCmd[_m] <> E_BatCmd.None) THEN
+		_asArg[1] := TO_WSTRING(_m);
+		_asArg[2] := WCONCAT(F_TxtBatCmd(iq_aeBmsFailCmd[_m]), " 명령 접수 안 됨");
+	END_IF
+	_afbBmsCmdFail[_m](i_stEntry := TC_EVENTS.PmsProt.BatLocked, i_bActive := iq_aeBmsFailCmd[_m] <> E_BatCmd.None, i_nArgs := 2, i_asArg := _asArg);
+END_FOR
+
+(* ===== 가상신호 (알람): 종류가 바뀌면(전압 → 유효전력 등) 해소 후 새 종류로 다시 발생 ===== *)
+FOR _g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	_nVirtualKind := SEL(i_bTestMode AND iq_astVirtual[_g].bVEna, 0, 1) + SEL(i_bTestMode AND iq_astVirtual[_g].bPEna, 0, 2);
+	IF _nVirtualKind <> _anVirtualKind[_g] THEN
+		IF _afbVirtual[_g].q_bRaised THEN
+			_afbVirtual[_g](i_stEntry := TC_EVENTS.PmsOutput.VirtualOn, i_bActive := FALSE, i_nArgs := 0, i_asArg := _asArg);
+		END_IF
+		_asArg[1] := TO_WSTRING(_g);
+		CASE _nVirtualKind OF
+			1:	_asArg[2] := "전압";
+			2:	_asArg[2] := "유효전력";
+			3:	_asArg[2] := "전압·유효전력";
+		END_CASE
+		_anVirtualKind[_g] := _nVirtualKind;
+	END_IF
+	_afbVirtual[_g](i_stEntry := TC_EVENTS.PmsOutput.VirtualOn, i_bActive := _nVirtualKind <> 0, i_nArgs := 2, i_asArg := _asArg);
+END_FOR
+
+// 보호가 요청 모드를 Manual로 바꿈 (메시지, 보호가 걸릴 때마다 1회. 걸려 있는 동안 Auto 재요청을 되돌려도 다시 남기지 않음)
+FOR _u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF iq_abModeForced[_u] AND NOT _abModeForcedLogged[_u] THEN
+		_asArg[1] := TO_WSTRING(_u);
+		_asArg[2] := M_ModuleName(iq_astUnitProt[_u].nModeModule);
+		_asArg[3] := TO_WSTRING(iq_astUnitProt[_u].nModeModule);
+		_fbModeForced.M_SendEvent(3, _asArg);
+		_abModeForcedLogged[_u] := TRUE;
+	END_IF
+	IF NOT iq_astUnitProt[_u].bModeManualReq THEN
+		_abModeForcedLogged[_u] := FALSE;
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_LogDeviceFail" Id="{c0be09a6-9a4c-433b-b0bd-1889fc3d70e0}">
+      <Implementation>
+        <ST><![CDATA[// 명령 실패·장비 쓰기 실패
+(* ===== 2) 명령 실패 (알람) ===== *)
+FOR _u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF _afbCmdFail[_u].q_bRaised <> (iq_aeFailCmd[_u] <> E_PcsCmd.None) THEN
+		_asArg[1] := TO_WSTRING(_u);
+		_asArg[2] := F_TxtPcsCmd(iq_aeFailCmd[_u]);
+	END_IF
+	_afbCmdFail[_u](i_stEntry := TC_EVENTS.PmsSeq.CmdFail, i_bActive := iq_aeFailCmd[_u] <> E_PcsCmd.None, i_nArgs := 2, i_asArg := _asArg);
+END_FOR
+
+(* ===== 2-0) 장비 쓰기 실패 (알람): 드라이버가 상태 bWriteFail로 알림 (FB_DeviceBase.M_MarkWriteResult) ===== *)
+FOR _u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF _afbUnitWriteFail[_u].q_bRaised <> iq_astUnit[_u].bWriteFail THEN
+		_asArg[1] := F_TxtNum("유닛 ", _u);
+	END_IF
+	_afbUnitWriteFail[_u](i_stEntry := TC_EVENTS.PmsSystem.WriteFail, i_bActive := iq_astUnit[_u].bWriteFail, i_nArgs := 1, i_asArg := _asArg);
+END_FOR
+FOR _m := 1 TO GVL_PARAM.BMS_COUNT DO
+	IF _afbBmsWriteFail[_m].q_bRaised <> iq_astBms[_m].bWriteFail THEN
+		_asArg[1] := F_TxtNum("BMS ", _m);
+	END_IF
+	_afbBmsWriteFail[_m](i_stEntry := TC_EVENTS.PmsSystem.WriteFail, i_bActive := iq_astBms[_m].bWriteFail, i_nArgs := 1, i_asArg := _asArg);
+END_FOR
+]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_LogSource" Id="{9dfd4923-4b4f-41ad-8466-af227f60dad1}">
+      <Implementation>
+        <ST><![CDATA[// 지령원 요청·끊김, 코어 상태 요청
+(* ===== 3) 지령원: 상태 변경 요청(메시지), 끊김(알람) ===== *)
+FOR _i := 1 TO GVL_PARAM.SOURCE_COUNT DO
+	IF iq_aipSource[_i] <> 0 AND_THEN iq_astSrcOut[_i].bValid THEN
+		_asArg[1] := STRING_TO_WSTRING(iq_aipSource[_i].ModuleName);
+		_asArg[2] := TO_WSTRING(iq_aipSource[_i].ModuleId);
+		// PCS 요청: 받은 것은 지금 요청과 다를 때만(Reset은 항상), 운전 모드 설정 때문에 무시한 것은 지령 무시로
+		IF iq_astSrcOut[_i].stPcsReq.eCmd <> E_PcsCmd.None THEN
+			_asArg[3] := F_TxtPcsCmd(iq_astSrcOut[_i].stPcsReq.eCmd);
+			IF iq_astSrcOut[_i].stPcsReq.nUnit = 0 THEN
+				_asArg[4] := "전체";
+			ELSE
+				_asArg[4] := F_TxtNum("유닛 ", iq_astSrcOut[_i].stPcsReq.nUnit);
+			END_IF
+			IF iq_abPcsReqTaken[_i] OR iq_astSrcOut[_i].stPcsReq.eCmd = E_PcsCmd.Reset THEN
+				IF iq_astSrcOut[_i].stPcsReq.eCmd <> _aeLastPcsReq[_i] OR iq_astSrcOut[_i].stPcsReq.nUnit <> _anLastPcsUnit[_i]
+					OR iq_astSrcOut[_i].stPcsReq.eCmd = E_PcsCmd.Reset THEN
+					_fbStateReq.M_SendEvent(4, _asArg);
+					_aeLastPcsReq[_i]	:= iq_astSrcOut[_i].stPcsReq.eCmd;
+					_anLastPcsUnit[_i]	:= iq_astSrcOut[_i].stPcsReq.nUnit;
+				END_IF
+			ELSIF i_stSet.bCmdRefused THEN
+				_asArg[3] := WCONCAT(_asArg[3], WCONCAT(" ", _asArg[4]));
+				_asArg[4] := "이 운전 모드에서 받지 않음 (stStateMode·모드 전환)";
+				_fbCmdRefused.M_SendEvent(4, _asArg);
+			END_IF
+		END_IF
+		// 배터리 요청: 받은 것은 항상, 무시한 것은 지령 무시로. Reset은 운전 모드와 관계없이 시퀀서가 보내므로 받은 것으로 기록 (PCS Reset과 같음)
+		IF iq_astSrcOut[_i].stBatReq.eCmd <> E_BatCmd.None THEN
+			_asArg[3] := F_TxtBatCmd(iq_astSrcOut[_i].stBatReq.eCmd);
+			IF iq_astSrcOut[_i].stBatReq.nBatGroup = 0 THEN
+				_asArg[4] := "전체";
+			ELSE
+				_asArg[4] := F_TxtNum("배터리 그룹 ", iq_astSrcOut[_i].stBatReq.nBatGroup);
+			END_IF
+			IF iq_abBatReqTaken[_i] OR iq_astSrcOut[_i].stBatReq.eCmd = E_BatCmd.Reset THEN
+				_fbStateReq.M_SendEvent(4, _asArg);
+			ELSIF i_stSet.bCmdRefused THEN
+				_asArg[3] := WCONCAT(_asArg[3], WCONCAT(" ", _asArg[4]));
+				_asArg[4] := "이 운전 모드에서 받지 않음 (stStateMode)";
+				_fbCmdRefused.M_SendEvent(4, _asArg);
+			END_IF
+		END_IF
+	END_IF
+
+	IF iq_astSrcOut[_i].bValid THEN
+		_abEverValid[_i] := TRUE;
+	END_IF
+	// [9번 수정 2026-11-09: 등록 bLostAlarm FALSE면 알람 안 냄 (EMS → 브로커 끊김 알람으로 대신). 원래 조건에 bLostAlarm 없음]
+	_bLost := iq_aipSource[_i] <> 0 AND_THEN (iq_astReg[_i].bEnable AND iq_astReg[_i].bLostAlarm AND _abEverValid[_i] AND NOT iq_astSrcOut[_i].bValid);
+	IF _afbSrcLost[_i].q_bRaised <> _bLost AND iq_aipSource[_i] <> 0 THEN
+		_asArg[1] := STRING_TO_WSTRING(iq_aipSource[_i].ModuleName);
+		_asArg[2] := TO_WSTRING(iq_aipSource[_i].ModuleId);
+	END_IF
+	_afbSrcLost[_i](i_stEntry := TC_EVENTS.PmsOutput.SourceLost, i_bActive := _bLost, i_nArgs := 2, i_asArg := _asArg);
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_LogRefused" Id="{0c324bdb-040f-4728-b56f-5876143389a9}">
+      <Implementation>
+        <ST><![CDATA[// 무시한 지령·기동 조건 대기·지령값 이상·배터리 요청 거부
+(* ===== 3-2) 무시한 지령 (메시지): 이상값(지령원별), 방향 반대(유닛별). 새로 생길 때 1회 ===== *)
+FOR _i := 1 TO GVL_PARAM.SOURCE_COUNT DO
+	IF i_stSet.bCmdRefused AND iq_abBadValue[_i] AND NOT _abLastBad[_i] AND iq_aipSource[_i] <> 0 THEN
+		_asArg[1] := STRING_TO_WSTRING(iq_aipSource[_i].ModuleName);
+		_asArg[2] := TO_WSTRING(iq_aipSource[_i].ModuleId);
+		_asArg[3] := "지령값";
+		// [결함 9 수정 2026-11-03: NaN을 비교하지 않고 비트로 봄 (원래 IF iq_afBadValue[_i] <> iq_afBadValue[_i] THEN → FPU 예외)]
+		MEMCPY(ADR(_dwBadBits), ADR(iq_afBadValue[_i]), SIZEOF(_dwBadBits));
+		IF (_dwBadBits AND 16#7F800000) = 16#7F800000 AND (_dwBadBits AND 16#007FFFFF) <> 0 THEN
+			_asArg[4] := "이상값 (숫자 아님)";
+		ELSIF (_dwBadBits AND 16#7F800000) = 16#7F800000 OR_ELSE ABS(iq_afBadValue[_i]) >= 1.0E9 THEN
+			_asArg[4] := "이상값 (너무 큼)";
+		ELSE
+			_asArg[4] := WCONCAT("이상값 ", TO_WSTRING(F_RealToDint(iq_afBadValue[_i])));	// [결함 13 수정 2026-11-04: REAL_TO_DINT → F_RealToDint]
+		END_IF
+		_fbCmdRefused.M_SendEvent(4, _asArg);
+	END_IF
+	_abLastBad[_i] := iq_abBadValue[_i];
+END_FOR
+FOR _u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF i_stSet.bCmdRefused AND iq_aeManualRefuse[_u] <> _aeLastCmdRefuse[_u] AND iq_aeManualRefuse[_u] = E_CmdRefuse.Reversed THEN
+		_asArg[1] := M_ModuleName(iq_anManualRefuseModule[_u]);
+		_asArg[2] := TO_WSTRING(iq_anManualRefuseModule[_u]);
+		_asArg[3] := F_TxtNum("유닛 ", _u);
+		_asArg[4] := "방향 반대 (운전 중인 방향과 다름, 앞 값 유지)";
+		_fbCmdRefused.M_SendEvent(4, _asArg);
+	END_IF
+	_aeLastCmdRefuse[_u] := iq_aeManualRefuse[_u];
+END_FOR
+
+(* ===== 3-2-1) 기동 조건 대기 (메시지): 대기가 시작되거나 막은 모듈·이유가 바뀔 때 1회 ===== *)
+FOR _g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	IF iq_abWaitPermit[_g] AND NOT iq_abPermit[_g] THEN
+		IF NOT _abPermitLogged[_g] OR iq_anPermitModule[_g] <> _anPermitModule[_g] OR iq_anPermitReason[_g] <> _anPermitReason[_g] THEN
+			_asArg[1] := TO_WSTRING(_g);
+			_asArg[2] := M_ModuleName(iq_anPermitModule[_g]);
+			_asArg[3] := M_ReasonText(iq_anPermitModule[_g], iq_anPermitReason[_g]);
+			_asArg[4] := TO_WSTRING(iq_anPermitModule[_g]);
+			_fbPermitWait.M_SendEvent(4, _asArg);
+			_abPermitLogged[_g]	:= TRUE;
+			_anPermitModule[_g]	:= iq_anPermitModule[_g];
+			_anPermitReason[_g]	:= iq_anPermitReason[_g];
+		END_IF
+	ELSE
+		_abPermitLogged[_g] := FALSE;
+	END_IF
+END_FOR
+
+(* ===== 3-2-2) 지령값 이상 (메시지): 디스패처가 NaN·무한대를 0으로 바꾼 유닛, 생길 때 1회 ===== *)
+FOR _u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF iq_abBadSet[_u] AND NOT _abLastBadSet[_u] THEN
+		_asArg[1] := TO_WSTRING(_u);
+		_fbBadSet.M_SendEvent(1, _asArg);
+	END_IF
+	_abLastBadSet[_u] := iq_abBadSet[_u];
+END_FOR
+
+(* ===== 3-3) 배터리 요청 거부 (메시지): 거부된 요청마다 1회 ===== *)
+FOR _b := 1 TO GVL_PARAM.BAT_COUNT DO
+	IF i_stSet.bBatRefused AND iq_abBatRefusedNow[_b] THEN
+		_asArg[1] := F_TxtNum("배터리 그룹 ", _b);
+		IF iq_aeBatRefuse[_b] = E_SeqRefuse.UnitRunning THEN
+			_asArg[2] := "배터리 개방";
+			_asArg[3] := "버스의 유닛이 운전 중 (정지 후 개방)";
+		ELSE
+			_asArg[2] := "배터리";
+			_asArg[3] := F_TxtRefuse(iq_aeBatRefuse[_b]);
+		END_IF
+		_fbRefused.M_SendEvent(3, _asArg);
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_LogOutput" Id="{a6e2ea68-9526-433d-929e-09ed6b3f19e6}">
+      <Implementation>
+        <ST><![CDATA[// 출력 제한, 자세한 기록
+(* ===== 4) 출력 제한: 이유(단계·모듈·이유)가 바뀌고 유지 시간이 지나야 기록 ===== *)
+FOR _g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	IF NOT M_SameLimitReason(iq_astAutoPDiag[_g], _astCand[_g]) THEN
+		_astCand[_g] := iq_astAutoPDiag[_g];
+		_atonHold[_g](IN := FALSE);
+	END_IF
+	_atonHold[_g](IN := NOT M_SameLimitReason(_astCand[_g], _astLogged[_g]), PT := i_stSet.tHold);
+	IF _atonHold[_g].Q THEN
+		IF M_IsLoggedStage(_astCand[_g].eStage) THEN
+			_asArg[1] := TO_WSTRING(_g);
+			_asArg[2] := F_TxtStage(_astCand[_g].eStage);
+			IF _astCand[_g].eStage = E_DiagStage.UnitLimit THEN
+				_asArg[3] := F_TxtLimitBy(_astCand[_g].eUnitBy);
+			ELSE
+				_asArg[3] := M_ReasonText(_astCand[_g].nModule, _astCand[_g].nReason);
+			END_IF
+			_asArg[4] := TO_WSTRING(_astCand[_g].nModule);
+			_asArg[5] := TO_WSTRING(F_RealToDint(iq_astAutoPDiag[_g].fReq));	// [결함 13 수정 2026-11-04: REAL_TO_DINT → F_RealToDint (NaN·범위 밖 예외 없음)]
+			_asArg[6] := TO_WSTRING(F_RealToDint(iq_astAutoPDiag[_g].fOut));
+			_fbLimited.M_SendEvent(6, _asArg);
+		ELSIF M_IsLoggedStage(_astLogged[_g].eStage) THEN
+			_asArg[1] := TO_WSTRING(_g);
+			_fbFree.M_SendEvent(1, _asArg);
+		END_IF
+		_astLogged[_g] := _astCand[_g];
+		_atonHold[_g](IN := FALSE);
+	END_IF
+END_FOR
+
+(* ===== 5) 자세한 기록 (설정으로 켬) ===== *)
+FOR _u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF i_stSet.bUnitLimited AND iq_astUnitDiag[_u].ePBy <> _aeLastLimBy[_u]
+		AND iq_astUnitDiag[_u].ePBy <> E_UnitLimitBy.NotRun AND iq_astUnitDiag[_u].ePBy <> E_UnitLimitBy.NotAvail THEN
+		_asArg[1] := TO_WSTRING(_u);
+		_asArg[2] := F_TxtLimitBy(iq_astUnitDiag[_u].ePBy);
+		_asArg[3] := TO_WSTRING(F_RealToDint(iq_astUnitDiag[_u].fPReq));	// [결함 13 수정 2026-11-04: REAL_TO_DINT → F_RealToDint]
+		_asArg[4] := TO_WSTRING(F_RealToDint(iq_astUnitDiag[_u].fPOut));
+		_fbUnitLim.M_SendEvent(4, _asArg);
+	END_IF
+	_aeLastLimBy[_u] := iq_astUnitDiag[_u].ePBy;
+
+	IF i_stSet.bReqRefused AND iq_aeRefuse[_u] <> _aeLastRefuse[_u] AND iq_aeRefuse[_u] <> E_SeqRefuse.None THEN
+		_asArg[1] := F_TxtNum("유닛 ", _u);
+		_asArg[2] := "기동";
+		_asArg[3] := F_TxtRefuse(iq_aeRefuse[_u]);
+		_fbRefused.M_SendEvent(3, _asArg);
+	END_IF
+	_aeLastRefuse[_u] := iq_aeRefuse[_u];
+
+	IF i_stSet.bSeqChange AND iq_aeUnitSeq[_u] <> _aeLastSeq[_u] THEN
+		_asArg[1] := TO_WSTRING(_u);
+		_asArg[2] := F_TxtSeq(_aeLastSeq[_u]);
+		_asArg[3] := F_TxtSeq(iq_aeUnitSeq[_u]);
+		_fbSeqChange.M_SendEvent(3, _asArg);
+	END_IF
+	_aeLastSeq[_u] := iq_aeUnitSeq[_u];
+
+	IF i_stSet.bModeChange AND iq_aeOpMode[_u] <> _aeLastMode[_u] THEN
+		_asArg[1] := TO_WSTRING(_u);
+		_asArg[2] := F_TxtOpMode(_aeLastMode[_u]);
+		_asArg[3] := F_TxtOpMode(iq_aeOpMode[_u]);
+		_fbModeChange.M_SendEvent(3, _asArg);
+	END_IF
+	_aeLastMode[_u] := iq_aeOpMode[_u];
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <LineIds Name="FB_EventLog">
+      <LineId Id="3" Count="272" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_EventLog.M_FillProtArgs">
+      <LineId Id="3" Count="7" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_EventLog.M_IsLoggedStage">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_EventLog.M_ModuleName">
+      <LineId Id="3" Count="21" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_EventLog.M_ProtEventBySeverity">
+      <LineId Id="3" Count="6" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_EventLog.M_ReasonText">
+      <LineId Id="3" Count="15" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_EventLog.M_RuleTarget">
+      <LineId Id="3" Count="6" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_EventLog.M_SameLimitReason">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

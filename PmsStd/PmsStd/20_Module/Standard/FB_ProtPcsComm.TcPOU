@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ProtPcsComm" Id="{c34ac720-62fa-4abd-bd98-8f4ffd1662c7}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ProtPcsComm EXTENDS FB_ModuleBase IMPLEMENTS I_ProtectionRule		// 표준 보호: PCS 통신 끊김 (범위 Unit). 기본 등록. 빼면 이 보호 없음. 현장마다 다르면 복사해 이름을 바꿔 그 칸에 대신 등록
+VAR
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Evaluate" Id="{5ae33049-963a-48c6-ba22-884553742cf7}">
+      <Declaration><![CDATA[METHOD M_Evaluate : BOOL		// 범위가 맞지 않게 등록되면 FALSE (보호 안 걸림)
+VAR_INPUT
+	i_stView	: ST_ProtView;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Evaluate := i_stView.eScope = E_ProtScope.Unit AND i_stView.bInstalled AND NOT i_stView.stUnit.bComm;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

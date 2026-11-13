@@ -1,0 +1,217 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_OutputDiag" Id="{95ed4420-64e2-4917-9ba0-6ff4d64693ee}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_OutputDiag		// 그룹마다 출력을 처음 막은 단계·주체·이유 (매 스캔). 경로(Auto/Manual)·P/Q별로 4개. 두 경로가 같은 방식
+// 이벤트 로그(출력 제한·해소)와 보고는 Auto P(q_astAutoPDiag)만 씀
+VAR_IN_OUT CONSTANT
+	iq_astAutoShape		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_ShapeDiag;
+	iq_astManualShape	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_ShapeDiag;
+	iq_astDist			: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_DistDiag;
+	iq_astUnitDiag		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitDiag;
+	iq_aeOpMode			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;
+	iq_aeGroupState		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF E_GroupState;
+	iq_astWritten		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_PQ;
+	iq_astUnitSet		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_PQ;		// 분배 결과 (추적표용)
+	iq_astUnitCfg		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+END_VAR
+VAR_OUTPUT
+	q_astAutoPDiag		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_OutputDiag;		// Auto 유닛 P (kW). 이벤트 로그·보고는 이것만 씀
+	q_astManualPDiag	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_OutputDiag;		// Manual 유닛 P (kW)
+	q_astAutoQDiag		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_OutputDiag;		// Auto 유닛 Q (kvar)
+	q_astManualQDiag	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_OutputDiag;		// Manual 유닛 Q (kvar)
+	q_astAutoPTrace		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_PTrace;		// Auto P 추적표: 요청 → … → 쓴 값 (접속점 기준이라 그룹 전체 유닛 합)
+	q_astManualPTrace	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_PTrace;		// Manual P 추적표: 요청 → … → 쓴 값 (Manual 유닛 합)
+END_VAR
+VAR_TEMP
+	g				: UINT;
+	u				: UINT;
+	nAutoUnits		: UINT;
+	nManualUnits	: UINT;
+	eAutoPBy		: E_UnitLimitBy;	// 그룹 안 그 경로 유닛 중 처음 찾은 제한 이유
+	eManualPBy			: E_UnitLimitBy;
+	eAutoQBy		: E_UnitLimitBy;
+	eManualQBy			: E_UnitLimitBy;
+	fAllSet			: REAL;			// 분배 후 그룹 전체 유닛 P 합
+	fAllWritten		: REAL;			// 장비에 쓴 그룹 전체 유닛 P 합
+	fManualSet			: REAL;			// 분배 후 Manual 유닛 P 합
+	fManualWritten		: REAL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	q_astAutoPDiag[g]	:= M_Clear(iq_aeGroupState[g]);
+	q_astManualPDiag[g]	:= M_Clear(iq_aeGroupState[g]);
+	q_astAutoQDiag[g]	:= M_Clear(iq_aeGroupState[g]);
+	q_astManualQDiag[g]	:= M_Clear(iq_aeGroupState[g]);
+	nAutoUnits		:= 0;
+	nManualUnits	:= 0;
+	eAutoPBy		:= E_UnitLimitBy.None;
+	eManualPBy			:= E_UnitLimitBy.None;
+	eAutoQBy		:= E_UnitLimitBy.None;
+	eManualQBy			:= E_UnitLimitBy.None;
+	fAllSet			:= 0;
+	fAllWritten		:= 0;
+	fManualSet			:= 0;
+	fManualWritten		:= 0;
+
+	// 경로별 유닛 수와 쓴 값 합 (각 진단은 그 경로 유닛만)
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		IF iq_astUnitCfg[u].nGroup = g THEN
+			fAllSet		:= fAllSet + iq_astUnitSet[u].fP;
+			fAllWritten	:= fAllWritten + iq_astWritten[u].fP;
+			IF iq_aeOpMode[u] = E_OpMode.Manual THEN
+				nManualUnits				:= nManualUnits + 1;
+				fManualSet						:= fManualSet + iq_astUnitSet[u].fP;
+				fManualWritten					:= fManualWritten + iq_astWritten[u].fP;
+				q_astManualPDiag[g].fOut	:= q_astManualPDiag[g].fOut + iq_astWritten[u].fP;
+				q_astManualQDiag[g].fOut	:= q_astManualQDiag[g].fOut + iq_astWritten[u].fQ;
+				M_FirstBy(iq_eBy := eManualPBy, i_eUnitBy := iq_astUnitDiag[u].ePBy);
+				M_FirstBy(iq_eBy := eManualQBy, i_eUnitBy := iq_astUnitDiag[u].eQBy);
+			ELSE
+				nAutoUnits					:= nAutoUnits + 1;
+				q_astAutoPDiag[g].fOut		:= q_astAutoPDiag[g].fOut + iq_astWritten[u].fP;
+				q_astAutoQDiag[g].fOut		:= q_astAutoQDiag[g].fOut + iq_astWritten[u].fQ;
+				M_FirstBy(iq_eBy := eAutoPBy, i_eUnitBy := iq_astUnitDiag[u].ePBy);
+				M_FirstBy(iq_eBy := eAutoQBy, i_eUnitBy := iq_astUnitDiag[u].eQBy);
+			END_IF
+		END_IF
+	END_FOR
+
+	// 추적표: 성형이 만든 줄 뒤에 유닛 한도·분배 후 합, 쓴 값 합을 덧붙임
+	q_astAutoPTrace[g]		:= M_AddUnitSteps(i_stTrace := iq_astAutoShape[g].stTrace, i_fUnitSum := fAllSet, i_fWritten := fAllWritten);
+	q_astManualPTrace[g]	:= M_AddUnitSteps(i_stTrace := iq_astManualShape[g].stTrace, i_fUnitSum := fManualSet, i_fWritten := fManualWritten);
+
+	// P: 요청 → 이 경로 유닛 → 그룹 운전 → 최종 값을 정한 곳 (추적표에서 값을 바꾼 마지막 단계)
+	M_StageP(iq_stDiag := q_astAutoPDiag[g], i_stShape := iq_astAutoShape[g], i_stTrace := q_astAutoPTrace[g], i_eUnitBy := eAutoPBy, i_nUnits := nAutoUnits);
+	M_StageP(iq_stDiag := q_astManualPDiag[g], i_stShape := iq_astManualShape[g], i_stTrace := q_astManualPTrace[g], i_eUnitBy := eManualPBy, i_nUnits := nManualUnits);
+	// Manual P: 추적표에서 값이 안 바뀌었어도 Manual 유닛이 유닛 한도에 걸렸으면 표시 (Manual 진단은 처음 막은 곳)
+	IF q_astManualPDiag[g].eStage = E_DiagStage.None AND eManualPBy <> E_UnitLimitBy.None THEN
+		q_astManualPDiag[g].eStage	:= E_DiagStage.UnitLimit;
+		q_astManualPDiag[g].eUnitBy	:= eManualPBy;
+	END_IF
+
+	// Q: 요청 → 이 경로 유닛 → 그룹 운전 → 설비 제한 → 유닛 한도·분배 (UnitLimit 이유는 eUnitBy, 분배 축소만이면 None)
+	M_StageQ(iq_stDiag := q_astAutoQDiag[g], i_stShape := iq_astAutoShape[g], i_stDist := iq_astDist[g].stAutoQ, i_eUnitBy := eAutoQBy, i_nUnits := nAutoUnits);
+	M_StageQ(iq_stDiag := q_astManualQDiag[g], i_stShape := iq_astManualShape[g], i_stDist := iq_astDist[g].stManualQ, i_eUnitBy := eManualQBy, i_nUnits := nManualUnits);
+END_FOR]]></ST>
+    </Implementation>
+    <Method Name="M_Clear" Id="{02e7fc33-5a44-4a94-a122-a996b320ace2}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Clear : ST_OutputDiag		// 빈 진단 + 그룹 상태
+VAR_INPUT
+	i_eState	: E_GroupState;
+END_VAR
+VAR
+	stNone		: ST_OutputDiag;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Clear := stNone;
+M_Clear.eGroupState := i_eState;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_FirstBy" Id="{7d1050f6-6fcd-47c8-8dfa-daed31999848}">
+      <Declaration><![CDATA[METHOD PRIVATE M_FirstBy		// 처음 찾은 유닛 제한 이유만 남김 (모드 전환은 제외)
+VAR_IN_OUT
+	iq_eBy		: E_UnitLimitBy;
+END_VAR
+VAR_INPUT
+	i_eUnitBy	: E_UnitLimitBy;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF iq_eBy = E_UnitLimitBy.None AND i_eUnitBy <> E_UnitLimitBy.ModeSwitch THEN
+	iq_eBy := i_eUnitBy;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_AddUnitSteps" Id="{37ab4c10-c8f1-4cba-ad84-3314fb09caea}">
+      <Declaration><![CDATA[METHOD PRIVATE M_AddUnitSteps : ST_PTrace		// 추적표 끝에 분배 후 합·쓴 값 합 두 줄
+VAR_INPUT
+	i_stTrace	: ST_PTrace;
+	i_fUnitSum	: REAL;
+	i_fWritten	: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_AddUnitSteps := i_stTrace;
+IF M_AddUnitSteps.nCount >= 1 AND M_AddUnitSteps.nCount <= GVL_PARAM.TRACE_STEP_MAX - 2 THEN
+	M_AddUnitSteps.nCount := M_AddUnitSteps.nCount + 1;
+	M_AddUnitSteps.astStep[M_AddUnitSteps.nCount].eStep		:= E_TraceStep.UnitDist;
+	M_AddUnitSteps.astStep[M_AddUnitSteps.nCount].fValue	:= i_fUnitSum;
+	M_AddUnitSteps.astStep[M_AddUnitSteps.nCount].bCut		:= ABS(i_fUnitSum - M_AddUnitSteps.astStep[M_AddUnitSteps.nCount - 1].fValue) > 1.0;
+	M_AddUnitSteps.nCount := M_AddUnitSteps.nCount + 1;
+	M_AddUnitSteps.astStep[M_AddUnitSteps.nCount].eStep		:= E_TraceStep.Written;
+	M_AddUnitSteps.astStep[M_AddUnitSteps.nCount].fValue	:= i_fWritten;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_StageP" Id="{ff86058f-6108-469a-a205-52ccfe759f33}">
+      <Declaration><![CDATA[METHOD PRIVATE M_StageP		// P 진단: 요청 → 유닛 → 운전 → 추적표에서 값을 바꾼 마지막 단계
+VAR_IN_OUT
+	iq_stDiag	: ST_OutputDiag;
+END_VAR
+VAR_INPUT
+	i_stShape	: ST_ShapeDiag;
+	i_stTrace	: ST_PTrace;
+	i_eUnitBy	: E_UnitLimitBy;	// 그 경로 유닛 중 처음 찾은 유닛 한도 이유
+	i_nUnits	: UINT;
+END_VAR
+VAR
+	k			: INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[iq_stDiag.fReq := i_stShape.fPReq;		// 그룹 지령 또는 유닛 지령 합
+IF NOT i_stShape.bPGroupCmd AND NOT i_stShape.bPUnitCmd THEN
+	iq_stDiag.eStage := E_DiagStage.NoRequest;
+ELSIF i_nUnits = 0 THEN
+	iq_stDiag.eStage := E_DiagStage.NoUnit;
+ELSIF iq_stDiag.eGroupState <> E_GroupState.Running THEN
+	iq_stDiag.eStage := E_DiagStage.NotRunning;
+ELSE
+	FOR k := TO_INT(i_stTrace.nCount) TO 1 BY -1 DO
+		IF iq_stDiag.eStage = E_DiagStage.None AND i_stTrace.astStep[k].bCut THEN
+			CASE i_stTrace.astStep[k].eStep OF
+				E_TraceStep.Ramp:		iq_stDiag.eStage := E_DiagStage.Ramp;
+				E_TraceStep.PccLimit:	iq_stDiag.eStage := E_DiagStage.PccLimit;
+				E_TraceStep.DevRating, E_TraceStep.DevBattery, E_TraceStep.DevLimit:
+										iq_stDiag.eStage := E_DiagStage.DeviceLimit;
+				E_TraceStep.UnitDist:	iq_stDiag.eStage := E_DiagStage.UnitLimit;
+			END_CASE
+			IF iq_stDiag.eStage = E_DiagStage.UnitLimit THEN
+				iq_stDiag.eUnitBy	:= i_eUnitBy;		// 유닛 한도 이유 (분배 축소만이면 None)
+			ELSIF iq_stDiag.eStage <> E_DiagStage.None THEN
+				iq_stDiag.nModule	:= i_stTrace.astStep[k].nModule;
+				iq_stDiag.nReason	:= i_stTrace.astStep[k].nReason;
+			END_IF
+		END_IF
+	END_FOR
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_StageQ" Id="{5a24654d-7dbc-4f26-a144-8dfc40afbb81}">
+      <Declaration><![CDATA[METHOD PRIVATE M_StageQ		// Q 진단: 요청 → 유닛 → 운전 → 설비 제한 → 유닛 한도·분배 (Q는 램프 없음)
+VAR_IN_OUT
+	iq_stDiag	: ST_OutputDiag;
+END_VAR
+VAR_INPUT
+	i_stShape	: ST_ShapeDiag;
+	i_stDist	: ST_DistPathDiag;
+	i_eUnitBy	: E_UnitLimitBy;
+	i_nUnits	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[iq_stDiag.fReq := i_stShape.stQ.fIn;
+IF NOT i_stShape.bQGroupCmd AND NOT i_stShape.bQUnitCmd THEN
+	iq_stDiag.eStage := E_DiagStage.NoRequest;
+ELSIF i_nUnits = 0 THEN
+	iq_stDiag.eStage := E_DiagStage.NoUnit;
+ELSIF iq_stDiag.eGroupState <> E_GroupState.Running THEN
+	iq_stDiag.eStage := E_DiagStage.NotRunning;
+ELSIF i_stShape.stQ.bClamped THEN
+	iq_stDiag.eStage	:= E_DiagStage.DeviceLimit;
+	iq_stDiag.nModule	:= i_stShape.stQ.nModule;
+	iq_stDiag.nReason	:= i_stShape.stQ.nReason;
+ELSIF ABS(i_stDist.fShareReq - i_stDist.fShareGot) > 1.0 OR i_stDist.fFixedScale < 0.999 OR i_eUnitBy <> E_UnitLimitBy.None THEN
+	iq_stDiag.eStage	:= E_DiagStage.UnitLimit;
+	iq_stDiag.eUnitBy	:= i_eUnitBy;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

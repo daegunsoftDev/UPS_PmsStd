@@ -1,0 +1,75 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
+  <POU Name="FB_RedLink" Id="{21424f77-36d9-4e68-bc15-ec7a48672637}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_RedLink		// 이중화 연결: EAP 하트비트 보내기·받기 + 접점 신호(EL2004 출력·EL1004 입력) 보내기·받기 + 상대 상태 판정 (FB_RedPeerMonitor)
+(* - I/O 연결(AT %I*·%Q)은 설치할 때 XAE에서 한다. 인스턴스는 RedundancyTask를 도는 PRG_Redundancy에 둔다
+   - EAP 보내기 _stTx → 상대가 받음, 받기 _stRx ← 상대가 보냄, Quality _nEapQuality: EAP 변수 연결 (값 = 마지막 갱신 뒤 지난 시간, 100 us 단위)
+   - 접점: _bDoAlive(EL2004 채널 1)는 주기적으로 뒤집음 → 상대 _bDiPeerAlive(EL1004 채널 1). _bDoActive(채널 2)는 이 PLC가 Active인 동안 TRUE → 상대 _bDiPeerActive(채널 2)
+   - 두 PLC에 같은 프로그램을 넣고, 두 PLC의 I/O 연결이 서로 마주 보게 한다 *)
+VAR_INPUT
+	i_stSet			: ST_RedSet;
+	i_eRole			: E_RedRole;
+	i_bActive		: BOOL;
+	i_eState		: E_RedState;		// 이 PLC의 이중화 상태 (상대에게 알림)
+END_VAR
+VAR_OUTPUT
+	q_ePeer			: E_RedPeer;		// 상대 상태
+	q_bEapOk		: BOOL;
+	q_bWireOk		: BOOL;
+	q_stPeer		: ST_RedHeartbeat;	// 상대가 보낸 역할·Active (EAP 정상일 때만)
+	q_bPeerWireActive: BOOL;			// 상대 Active 접점 (EAP와 따로 보는 값)
+	q_bRoleConflict	: BOOL;				// 두 PLC 역할이 같음
+	q_nTxCount		: UDINT;			// 보낸 하트비트 수
+END_VAR
+VAR CONSTANT
+	PULSE_HALF		: TIME := T#100MS;	// alive 접점을 뒤집는 간격 (접점 타임아웃보다 충분히 짧게)
+END_VAR
+VAR
+	(* I/O: XAE에서 연결 *)
+	_stTx			AT %Q* : ST_RedHeartbeat;
+	_stRx			AT %I* : ST_RedHeartbeat;
+	_nEapQuality	AT %I* : UINT;		// EAP Subscriber의 Quality = 갱신 안 된 시간 (100 us 단위). tEapTimeout 이하면 정상
+	_bDoAlive		AT %Q* : BOOL;		// EL2004 채널 1
+	_bDoActive		AT %Q* : BOOL;		// EL2004 채널 2
+	_bDiPeerAlive	AT %I* : BOOL;		// EL1004 채널 1
+	_bDiPeerActive	AT %I* : BOOL;		// EL1004 채널 2
+
+	_fbMon			: FB_RedPeerMonitor;
+	_tonPulse		: TON;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 1) 보내기 *)
+q_nTxCount			:= q_nTxCount + 1;
+_stTx.nProtoVer		:= 2;
+_stTx.nCounter		:= q_nTxCount;
+_stTx.nRole			:= TO_INT(i_eRole);
+_stTx.bActive		:= i_bActive;
+_stTx.nState		:= TO_INT(i_eState);
+
+_tonPulse(IN := NOT _tonPulse.Q, PT := PULSE_HALF);		// Q가 한 스캔 켜질 때마다 뒤집음
+IF _tonPulse.Q THEN
+	_bDoAlive := NOT _bDoAlive;
+END_IF
+_bDoActive			:= i_bActive;
+
+(* 2) 받아서 판정 *)
+_fbMon(	i_stRx			:= _stRx,
+		i_nMyRole		:= TO_INT(i_eRole),
+		i_bEapQualityOk	:= UINT_TO_UDINT(_nEapQuality) <= TIME_TO_UDINT(i_stSet.tEapTimeout) * 10,	// Quality = 갱신 안 된 시간 (100 us 단위)
+		i_bWireAlive	:= _bDiPeerAlive,
+		i_tEapTimeout	:= i_stSet.tEapTimeout,
+		i_tWireTimeout	:= i_stSet.tWireTimeout,
+		i_tStartGrace	:= i_stSet.tStartGrace);
+q_ePeer				:= _fbMon.q_ePeer;
+q_bEapOk			:= _fbMon.q_bEapOk;
+q_bWireOk			:= _fbMon.q_bWireOk;
+q_stPeer			:= _fbMon.q_stPeer;
+q_bPeerWireActive	:= _bDiPeerActive;
+q_bRoleConflict		:= _fbMon.q_bRoleConflict;]]></ST>
+    </Implementation>
+    <LineIds Name="FB_RedLink">
+      <LineId Id="3" Count="23" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

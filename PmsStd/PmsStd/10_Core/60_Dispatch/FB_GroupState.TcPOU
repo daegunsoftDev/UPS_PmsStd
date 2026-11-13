@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_GroupState" Id="{d15d284d-edf2-4c0e-abfd-c477205625c8}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_GroupState		// 그룹 상태 요약: 유닛 시퀀스 상태 → 그룹 상태 (그룹 보기에 다음 스캔부터 들어감)
+// 우선순위: 운전 > 기동 중 > Standby > 배터리 투입 중 > 정지 중 > 정지. PMS 시작 첫 스캔은 Init
+VAR_IN_OUT CONSTANT
+	iq_aeUnitSeq	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_UnitSeq;		// fbSequencer.q_aeUnitSeq
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+END_VAR
+VAR_OUTPUT
+	q_aeGroupState	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF E_GroupState;
+END_VAR
+VAR
+	_bInit			: BOOL;
+END_VAR
+VAR_TEMP
+	u				: UINT;
+	g				: UINT;
+	abRunning		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;
+	abStarting		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;
+	abStandby		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;
+	abBatWait		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;
+	abStopping		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	g := iq_astUnitCfg[u].nGroup;
+	IF g >= 1 AND g <= GVL_PARAM.GROUP_COUNT THEN
+		CASE iq_aeUnitSeq[u] OF
+			E_UnitSeq.Running:						abRunning[g] := TRUE;
+			E_UnitSeq.ToRun, E_UnitSeq.WaitPermit:	abStarting[g] := TRUE;
+			E_UnitSeq.Standby:	abStandby[g] := TRUE;
+			E_UnitSeq.WaitBat:						abBatWait[g] := TRUE;
+			E_UnitSeq.StopRamp, E_UnitSeq.ToStop:	abStopping[g] := TRUE;
+		END_CASE
+	END_IF
+END_FOR
+
+FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	IF NOT _bInit THEN
+		q_aeGroupState[g] := E_GroupState.Init;
+	ELSIF abRunning[g] THEN
+		q_aeGroupState[g] := E_GroupState.Running;
+	ELSIF abStarting[g] THEN
+		q_aeGroupState[g] := E_GroupState.StartWait;
+	ELSIF abStandby[g] THEN
+		q_aeGroupState[g] := E_GroupState.PcsStandby;
+	ELSIF abBatWait[g] THEN
+		q_aeGroupState[g] := E_GroupState.BatConnecting;
+	ELSIF abStopping[g] THEN
+		q_aeGroupState[g] := E_GroupState.Stopping;
+	ELSE
+		q_aeGroupState[g] := E_GroupState.Stopped;
+	END_IF
+END_FOR
+_bInit := TRUE;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

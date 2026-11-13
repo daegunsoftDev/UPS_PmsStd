@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_ModeStep" Id="{7f7a0538-b0fd-4a95-8ceb-9c8811763bcf}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_ModeStep :
+(
+	Idle		:= 0,	// 전환 없음
+	Zero		:= 1,	// 출력 0, 지연 중
+	WaitStop	:= 2	// Standby 보냄, Run이 아니게 되기를 기다림
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

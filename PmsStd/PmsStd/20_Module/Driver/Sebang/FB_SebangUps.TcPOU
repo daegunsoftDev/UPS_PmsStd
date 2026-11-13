@@ -1,0 +1,149 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<POU Name="FB_SebangUps" Id="{0c9985f4-9478-49a8-9f87-be1c0bf6e2c2}"><Declaration><![CDATA[FUNCTION_BLOCK FB_SebangUps EXTENDS FB_DeviceBase IMPLEMENTS I_Ups
+
+VAR_INPUT
+ i_bEnable : BOOL;
+ i_sIpAddr : STRING(15);
+ i_nPort : UINT := 502;
+ i_nUnitId : BYTE := 1;
+ i_tTimeout : TIME := T#1S;
+ i_bWritePermit : BOOL; // site dispatcher: config OK AND active PLC
+END_VAR
+VAR_OUTPUT
+ q_eRequestResult : E_UpsResult;
+ q_nTransportError : UDINT;
+END_VAR
+VAR
+ _fbJob : FB_UpsModbusJob;
+ _bLaunch : BOOL;
+ _bCurrentWrite : BOOL;
+ _bDiscardResponse : BOOL; // response started before a disable must not complete a new snapshot
+ _nFunction : UINT;
+ _nAddress : WORD;
+ _nQuantity : WORD;
+ _wValue : WORD;
+ _bPendingWrite : BOOL;
+ _nPendingAddress : WORD;
+ _wPendingValue : WORD;
+ _nPoll : UINT;
+ _nCopy : UINT;
+ _bReadDue : BOOL;
+END_VAR
+
+VAR_OUTPUT
+ q_stRaw : ST_UpsRaw;
+ q_stState : ST_UpsState;
+END_VAR
+VAR
+ _stWork : ST_UpsRaw;
+ _nSampleSeq : UDINT;
+END_VAR]]></Declaration><Implementation><ST><![CDATA[]]></ST></Implementation><Method Name="M_Cycle" Id="{2ef678e4-14c1-48ed-a2ea-e27f658b3416}"><Declaration><![CDATA[METHOD M_Cycle]]></Declaration><Implementation><ST><![CDATA[_bReadDue := M_IsReadTime();
+IF NOT i_bEnable THEN
+ _bDiscardResponse:=_bDiscardResponse OR _fbJob.q_bBusy;
+ _bLaunch:=FALSE;
+END_IF
+IF NOT i_bEnable OR NOT i_bWritePermit OR NOT GVL_PARAM.UPS_CONTROL_ENABLED THEN
+ _bPendingWrite := FALSE;
+ // A queued but not yet started FC06 must not survive a gate transition.
+ IF _bLaunch AND _bCurrentWrite THEN _bLaunch := FALSE; END_IF
+END_IF
+_fbJob(i_sIpAddr:=i_sIpAddr,i_nPort:=i_nPort,i_nUnitId:=i_nUnitId,i_tTimeout:=i_tTimeout,
+ i_bExecute:=_bLaunch,i_bWritePermit:=i_bWritePermit AND i_bEnable,
+ i_nFunction:=_nFunction,i_nAddress:=_nAddress,i_nQuantity:=_nQuantity,i_wValue:=_wValue);
+_bLaunch := FALSE;
+IF _fbJob.q_bDone THEN
+ q_nTransportError := _fbJob.q_nErrorId;
+ IF _bCurrentWrite THEN M_MarkWriteResult(NOT _fbJob.q_bError); END_IF
+END_IF
+
+IF _fbJob.q_bDone AND _bDiscardResponse THEN
+ _bDiscardResponse:=FALSE; _nPoll:=0;
+ELSIF _fbJob.q_bDone AND NOT _bCurrentWrite THEN
+ IF _fbJob.q_bError THEN _nPoll:=0;
+ ELSE
+  CASE _nPoll OF
+   0: FOR _nCopy:=0 TO 34 DO _stWork.awInput[_nCopy]:=_fbJob.q_awData[_nCopy]; END_FOR
+   1: FOR _nCopy:=0 TO 15 DO _stWork.awInput[_nCopy+38]:=_fbJob.q_awData[_nCopy]; END_FOR
+   2: FOR _nCopy:=0 TO 11 DO _stWork.awParam[_nCopy]:=_fbJob.q_awData[_nCopy]; END_FOR
+   3: FOR _nCopy:=0 TO 16 DO _stWork.awParam[_nCopy+50]:=_fbJob.q_awData[_nCopy]; END_FOR
+  END_CASE
+  IF _nPoll=3 THEN
+   q_stRaw:=_stWork; _nSampleSeq:=F_UpsNextSeq(_nSampleSeq); M_MarkAlive(); _nPoll:=0;
+  ELSE _nPoll:=_nPoll+1; END_IF
+ END_IF
+END_IF
+M_UpdateComm();
+q_stState:=F_DecodeSebangUps(q_stRaw);
+q_stState.bComm:=_bComm AND i_bEnable;
+q_stState.bValid:=q_stState.bComm AND _nSampleSeq<>0;
+q_stState.nSampleSeq:=_nSampleSeq;
+q_stState.bWriteFail:=_bWriteFail;
+IF NOT _fbJob.q_bBusy AND NOT _fbJob.q_bDone AND i_bEnable AND i_sIpAddr<>'' THEN
+IF _bPendingWrite THEN
+ _nFunction:=6; _nAddress:=_nPendingAddress; _nQuantity:=1; _wValue:=_wPendingValue;
+ _bCurrentWrite:=TRUE; _bPendingWrite:=FALSE; _bLaunch:=TRUE;
+ELSIF _bReadDue THEN
+ _bCurrentWrite:=FALSE;
+
+ CASE _nPoll OF
+  0: _nFunction:=4; _nAddress:=0; _nQuantity:=35;
+  1: _nFunction:=4; _nAddress:=38; _nQuantity:=16;
+  2: _nFunction:=3; _nAddress:=0; _nQuantity:=12;
+  3: _nFunction:=3; _nAddress:=50; _nQuantity:=17;
+ END_CASE
+ _bLaunch:=TRUE;
+ END_IF
+END_IF
+IF NOT i_bEnable THEN _nSampleSeq:=0; _nPoll:=0; _bLaunch:=FALSE; END_IF]]></ST></Implementation></Method><Property Name="UpsState" Id="{72b1bfe7-b4e7-4959-8881-4270baa537ff}"><Declaration><![CDATA[PROPERTY UpsState : ST_UpsState]]></Declaration><Get Name="Get" Id="{ae98f2b4-08a3-411e-ac9f-c92d3c9a8f28}"><Declaration><![CDATA[]]></Declaration><Implementation><ST><![CDATA[UpsState:=q_stState;]]></ST></Implementation></Get></Property><Method Name="M_QueueWrite" Id="{d3f32322-f621-4dbb-8180-ffb2012f4a14}"><Declaration><![CDATA[METHOD PRIVATE M_QueueWrite : BOOL
+VAR_INPUT i_nAddress : WORD; i_wValue : WORD; END_VAR]]></Declaration><Implementation><ST><![CDATA[q_eRequestResult := E_UpsResult.Disabled;
+IF NOT GVL_PARAM.UPS_CONTROL_ENABLED OR NOT i_bWritePermit OR NOT i_bEnable THEN RETURN; END_IF
+q_eRequestResult := E_UpsResult.CommUnavailable;
+IF NOT _bComm THEN RETURN; END_IF
+q_eRequestResult := E_UpsResult.Busy;
+IF _bPendingWrite OR _bCurrentWrite AND (_fbJob.q_bBusy OR _bLaunch) THEN RETURN; END_IF
+_nPendingAddress := i_nAddress; _wPendingValue := i_wValue; _bPendingWrite := TRUE;
+q_eRequestResult := E_UpsResult.Accepted;
+M_QueueWrite := TRUE;]]></ST></Implementation></Method><Method Name="M_RequestCommand" Id="{14a19047-abbe-485c-94f5-af0758611c26}"><Declaration><![CDATA[METHOD M_RequestCommand : BOOL
+VAR_INPUT i_eCommand : E_UpsCommand; END_VAR]]></Declaration><Implementation><ST><![CDATA[CASE i_eCommand OF
+ E_UpsCommand.Reset,
+ E_UpsCommand.BuzzerStop,
+ E_UpsCommand.RectifierOn,
+ E_UpsCommand.RectifierOff,
+ E_UpsCommand.InverterOn,
+ E_UpsCommand.InverterOff,
+ E_UpsCommand.BbcOn,
+ E_UpsCommand.BbcOff,
+ E_UpsCommand.ToInverter,
+ E_UpsCommand.ToBypass,
+ E_UpsCommand.FloatCharge,
+ E_UpsCommand.EqualCharge,
+ E_UpsCommand.AutoOn,
+ E_UpsCommand.AutoOff,
+ E_UpsCommand.EmergencyDischarge,
+ E_UpsCommand.PeriodicDischarge,
+ E_UpsCommand.PulseDischarge,
+ E_UpsCommand.CancelDischarge,
+ E_UpsCommand.TrickleOn,
+ E_UpsCommand.TrickleOff,
+ E_UpsCommand.TemperatureOn,
+ E_UpsCommand.TemperatureOff,
+ E_UpsCommand.EcoOn,
+ E_UpsCommand.EcoOff,
+ E_UpsCommand.PrltOn,
+ E_UpsCommand.PrltOff:
+ M_RequestCommand:=M_QueueWrite(INT_TO_WORD(TO_INT(i_eCommand)),16#0055);
+ELSE q_eRequestResult:=E_UpsResult.Unsupported;
+END_CASE]]></ST></Implementation></Method><Method Name="M_SetParameter" Id="{a90f619b-62e8-4237-9ee2-b1cb1a637595}"><Declaration><![CDATA[METHOD M_SetParameter : BOOL
+// Explicit RAW register value only. Unresolved SOC/base-cell encodings are rejected.
+VAR_INPUT i_nAddress : WORD; i_wRawValue : WORD; END_VAR]]></Declaration><Implementation><ST><![CDATA[CASE i_nAddress OF
+ 7,8,10,50,51,52,53,54,55,56,60,61,63,64:
+  M_SetParameter:=M_QueueWrite(i_nAddress,i_wRawValue);
+ELSE q_eRequestResult:=E_UpsResult.Unsupported;
+END_CASE]]></ST></Implementation></Method><Method Name="M_CheckSet" Id="{0f33d8d9-56d7-4223-800b-f933769393cd}"><Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)]]></Declaration><Implementation><ST><![CDATA[M_CheckSet:="";
+IF i_bEnable THEN
+ IF i_sIpAddr='' OR i_nPort=0 THEN M_CheckSet:="TCP endpoint missing";
+ ELSIF i_tReadPeriod<=T#0MS OR i_tTimeout<=T#0MS OR i_tCommTimeout<=i_tReadPeriod THEN M_CheckSet:="Invalid timing";
+ END_IF
+END_IF]]></ST></Implementation></Method></POU>
+</TcPlcObject>

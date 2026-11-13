@@ -1,0 +1,96 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_BatRequest" Id="{7ddf520b-a7d7-46cd-a1cd-785ae83a190f}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_BatRequest		// 배터리 그룹(DC 버스)마다 투입·개방 요청 정리: 지령원 BatClose·BatOpen, 정지 시 개방, 운전원이 연 배터리 유지, 거부 이유
+// FB_Sequencer 본체가 유닛 시퀀서 다음, BMS 시퀀서 앞에서 부름 (판단만. 명령은 BMS 시퀀서가 만듦)
+// 지령원 BatOpen은 버스 유닛이 모두 정지(또는 통신 끊김)했을 때만 (아니면 UnitRunning). 그렇게 연 배터리는 BatClose 또는 그 버스 유닛의 새 기동 요청까지 자동 투입 안 함
+VAR_INPUT
+	i_bOpenOnStop	: BOOL;			// 정지하면 배터리 개방 (g_stSeqSet.stBat.bOpenOnStop)
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astSrcOut	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceOutput;
+	iq_astReg		: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceReg;		// 배터리 요청을 받을 운전 모드 (stStateMode.stBat)
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;			// 실제 운전 모드
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;		// 버스 유닛 정지 확인
+	iq_abNewReq		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 이번 스캔에 접수된 지령원 상태 요청 있음
+	iq_aeReq		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_PcsCmd;	// 그 요청
+	iq_abWantBat	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;		// 이번 스캔 배터리 투입이 필요함 (순서 기동 유닛, 유닛 시퀀서 결과)
+END_VAR
+VAR_OUTPUT
+	q_abCloseReq	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;		// 지령원 BatClose (이번 스캔)
+	q_abOpenReq		: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;		// 개방 요청 (지령원 BatOpen 또는 정지 시 개방)
+	q_abBusStopped	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;		// 버스 유닛이 모두 정지 확인 (통신 있고 Stop·Fault). 정지 시 개방 기준
+	q_abBusStopOk	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;		// 버스 유닛이 모두 정지 또는 통신 끊김. 보호 개방·비상정지와 지령원 BatOpen 기준
+	q_abHoldOpen	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;		// 지령원 BatOpen으로 연 배터리: 다음 투입 요청까지 자동 투입 안 함
+	q_aeRefuse		: ARRAY[1..GVL_PARAM.BAT_COUNT] OF E_SeqRefuse;	// 마지막 요청 거부 이유 (새 요청을 받아들이면 None)
+	q_abRefusedNow	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;		// 이번 스캔에 요청을 거부함 (1스캔, 로그용)
+	q_abReqTaken	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF BOOL;		// 지령원의 이번 요청을 받은 배터리 그룹이 있음 (로그용)
+END_VAR
+VAR_TEMP
+	u				: UINT;
+	b				: UINT;
+	i				: UINT;
+	bModeOk			: BOOL;		// 이 지령원의 배터리 요청을 받는가 (버스의 유닛 중 하나라도 등록된 운전 모드)
+	abReqNow		: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;		// 이번 스캔에 지령원 요청을 받음
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 1) 버스마다: 유닛이 모두 정지했나, 그 버스 유닛의 새 기동 요청이 있나 (운전원이 연 배터리도 다시 투입할 수 있음) *)
+FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+	q_abBusStopped[b] := TRUE;
+	q_abBusStopOk[b]	:= TRUE;
+END_FOR
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	b := iq_astUnitCfg[u].nBatGroup;
+	IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT THEN
+		IF iq_abNewReq[u] AND (iq_aeReq[u] = E_PcsCmd.Run OR iq_aeReq[u] = E_PcsCmd.Standby) THEN
+			q_abHoldOpen[b] := FALSE;
+		END_IF
+		// 정지 확인은 통신이 있고 Stop·Fault일 때 (통신 끊김·Unknown은 정지로 보지 않음)
+		IF NOT (iq_astUnit[u].bComm AND F_IsStopped(iq_astUnit[u].eRunState)) THEN
+			q_abBusStopped[b] := FALSE;
+		END_IF
+		// 보호 개방·지령원 BatOpen: 통신이 끊긴 유닛은 정지를 확인할 수 없어 기다리지 않음
+		IF iq_astUnit[u].bComm AND NOT F_IsStopped(iq_astUnit[u].eRunState) THEN
+			q_abBusStopOk[b] := FALSE;
+		END_IF
+	END_IF
+END_FOR
+
+(* 2) 지령원 배터리 요청 (stBatReq: 배터리 그룹, 0 = 전부). 개방은 버스 유닛이 모두 정지했을 때만 *)
+FOR i := 1 TO GVL_PARAM.SOURCE_COUNT DO
+	q_abReqTaken[i] := FALSE;
+END_FOR
+FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+	q_abCloseReq[b]	:= FALSE;
+	abReqNow[b]		:= FALSE;
+	q_abOpenReq[b]	:= i_bOpenOnStop AND q_abBusStopped[b] AND NOT iq_abWantBat[b];
+	FOR i := 1 TO GVL_PARAM.SOURCE_COUNT DO
+		bModeOk := FALSE;
+		FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+			IF iq_astUnitCfg[u].nBatGroup = b AND F_BatCmdAllowed(iq_astReg[i].stStateMode.stBat, iq_astSrcOut[i].stBatReq.eCmd, iq_aeOpMode[u]) THEN
+				bModeOk := TRUE;
+			END_IF
+		END_FOR
+		IF iq_astSrcOut[i].bValid AND bModeOk AND (iq_astSrcOut[i].stBatReq.nBatGroup = 0 OR iq_astSrcOut[i].stBatReq.nBatGroup = b) THEN
+			q_abReqTaken[i]	:= TRUE;
+			abReqNow[b]		:= TRUE;
+			q_aeRefuse[b]	:= E_SeqRefuse.None;
+			IF iq_astSrcOut[i].stBatReq.eCmd = E_BatCmd.Close THEN
+				q_abCloseReq[b]	:= TRUE;
+				q_abHoldOpen[b]	:= FALSE;
+			ELSIF iq_astSrcOut[i].stBatReq.eCmd = E_BatCmd.Open THEN
+				IF q_abBusStopOk[b] THEN
+					q_abOpenReq[b]	:= TRUE;
+					q_abHoldOpen[b]	:= TRUE;		// 운전원이 연 것: 다음 투입 요청까지 자동 투입 안 함
+				ELSE
+					q_aeRefuse[b] := E_SeqRefuse.UnitRunning;
+				END_IF
+			END_IF
+		END_IF
+	END_FOR
+	q_abRefusedNow[b] := abReqNow[b] AND q_aeRefuse[b] <> E_SeqRefuse.None;
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

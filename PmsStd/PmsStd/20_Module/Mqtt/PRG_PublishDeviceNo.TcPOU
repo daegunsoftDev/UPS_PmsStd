@@ -1,0 +1,55 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="PRG_PublishDeviceNo" Id="{4b481e39-b31b-43f6-8520-1a41eb5284c5}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_PublishDeviceNo		// 발행 패킷 장치 번호·랙 소속·모듈 수 채우기: 모든 장치 번호(DeviceIndex·BatIndex·RackIndex·DeviceId) = 1부터 순번. 배열 칸은 0부터(메시지 안의 몇 번째 레코드) [1부터 2026-11-10] (PRG_Mqtt가 부름)
+(* DB 키: PcsLog·BatLog는 DeviceIndex, RackLog는 DeviceIndex로 UNIQUE(TimeStamp, 장치키) 저장·조회한다.
+   번호가 비면(모두 0) 1분 회차의 두 번째 장치부터 INSERT가 실패하므로 측정값과 따로 항상 채운다.
+   측정값은 보고 매핑(FB_Report, 인터페이스 확정 후)이 채운다 *)
+VAR
+	i		: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR i := 0 TO GVL_PARAM.PCS_COUNT - 1 DO
+	g_stPcsPublish.Devices[i].DeviceIndex := UINT_TO_UDINT(i + 1);
+END_FOR
+
+FOR i := 0 TO GVL_PARAM.BMS_COUNT - 1 DO
+	g_stBatPublish.Devices[i].DeviceIndex := UINT_TO_UDINT(i + 1);
+	g_astBatConfig[i].DeviceId := UINT_TO_UDINT(i + 1);
+END_FOR
+
+FOR i := 0 TO GVL_PARAM.RACK_COUNT - 1 DO
+	g_stRackPublish.Devices[i].DeviceIndex := UINT_TO_UDINT(i + 1);
+	// 소속·수량은 측정값이 아닌 시험 구성 메타데이터. 더미 발행을 꺼도 번호와 함께 유지한다.
+	g_stRackPublish.Devices[i].BatIndex := UINT_TO_UDINT(i / GVL_PARAM.RACKS_PER_BMS + 1);
+	g_stRackPublish.Devices[i].ModuleCount := UINT_TO_UDINT(GVL_PARAM.MODULES_PER_RACK);
+END_FOR
+FOR i:=0 TO GVL_PARAM.UPS_COUNT-1 DO
+ g_stUpsPublish.Devices[i].DeviceIndex:=UINT_TO_UDINT(i+1); // UPS는 1부터
+ g_astUpsConfig[i].DeviceId:=UINT_TO_UDINT(i+1);
+ // Scaffold is not a measurement mapping: mark unavailable, and keep publish gate FALSE.
+ g_stUpsPublish.Devices[i].Status:=1;
+END_FOR
+FOR i:=0 TO GVL_PARAM.BMS_COUNT-1 DO
+ g_stBatPublish.Devices[i].Status:=1;
+END_FOR
+FOR i:=0 TO GVL_PARAM.RACK_COUNT-1 DO
+ g_stRackPublish.Devices[i].Status:=1;
+END_FOR
+FOR i:=0 TO GVL_PARAM.BAT_MODULE_COUNT-1 DO
+ g_stModulePublish.Devices[i].BatIndex:=UINT_TO_UDINT(i / (GVL_PARAM.RACKS_PER_BMS * GVL_PARAM.MODULES_PER_RACK) + 1);
+ g_stModulePublish.Devices[i].RackIndex:=UINT_TO_UDINT((i / GVL_PARAM.MODULES_PER_RACK) MOD GVL_PARAM.RACKS_PER_BMS + 1);
+ g_stModulePublish.Devices[i].DeviceIndex:=UINT_TO_UDINT(i MOD GVL_PARAM.MODULES_PER_RACK + 1);
+END_FOR
+// 값을 채우는 매핑이 없는 토픽도 번호는 1부터 [1부터 2026-11-10]
+g_stPmsPublish.Devices[0].DeviceIndex := 1;
+FOR i:=0 TO GVL_PARAM.PV_COUNT-1 DO g_stPvPublish.Devices[i].DeviceIndex:=UINT_TO_UDINT(i + 1); END_FOR
+FOR i:=0 TO GVL_PARAM.ESS_COUNT-1 DO g_stEssPublish.Devices[i].DeviceIndex:=UINT_TO_UDINT(i + 1); END_FOR
+FOR i:=0 TO GVL_PARAM.TEMP_COUNT-1 DO g_stTempPublish.Devices[i].DeviceIndex:=UINT_TO_UDINT(i + 1); END_FOR
+FOR i:=0 TO GVL_PARAM.AIR_CONDITIONER_COUNT-1 DO g_stAirConditionerPublish.Devices[i].DeviceIndex:=UINT_TO_UDINT(i + 1); END_FOR
+FOR i:=0 TO GVL_PARAM.IMD_COUNT-1 DO g_stImdPublish.Devices[i].DeviceIndex:=UINT_TO_UDINT(i + 1); g_stImdPublish.Devices[i].Status:=1; END_FOR // 매핑이 채우기 전에는 통신 이상
+FOR i:=0 TO GVL_PARAM.FIRE_COUNT-1 DO g_stFirePublish.Devices[i].DeviceIndex:=UINT_TO_UDINT(i + 1); g_stFirePublish.Devices[i].Status:=1; END_FOR // 매핑이 채우기 전에는 통신 이상
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

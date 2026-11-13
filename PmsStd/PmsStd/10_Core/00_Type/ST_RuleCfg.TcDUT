@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_RuleCfg" Id="{88be213b-8a7a-4752-920d-11b0307d2938}">
+    <Declaration><![CDATA[TYPE ST_RuleCfg :		// 현장 보호 규칙(모듈) 하나의 설정
+STRUCT
+	stProt		: ST_ProtCfg;			// 사용 모드 (bAuto·bManual)·표준 대응 조치
+	eScope		: E_ProtScope;			// Unit / Bms / BatGroup / Group / Site
+	nTarget		: UINT;					// 대상 번호 (유닛·배터리 그룹·제어 그룹). Site면 무시
+	fThreshold	: REAL;					// 임계값 (단위는 규칙마다)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

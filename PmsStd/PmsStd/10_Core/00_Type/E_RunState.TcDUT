@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_RunState" Id="{5fec4399-8289-406c-a986-c7817a26fb6d}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_RunState :
+(
+	Unknown		:= 0,	// 통신 전, 해석 불가
+	Stop		:= 1,
+	Standby		:= 2,	// 대기: 활성인데 출력 0 (Total Interface 대기)
+	Run			:= 3,	// 활성: 출력 지령을 받음 (크기 무관)
+	Fault		:= 4
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

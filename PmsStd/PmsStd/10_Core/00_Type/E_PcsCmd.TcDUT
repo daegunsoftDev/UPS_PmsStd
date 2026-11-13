@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_PcsCmd" Id="{67f57eb2-dc4d-4ac9-938d-4453c2c14889}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_PcsCmd :		// PCS(유닛) 상태 명령
+(
+	None		:= 0,
+	Run			:= 1,	// 활성 (정지면 기동)
+	Standby		:= 2,	// 대기 = 활성 + 출력 0 (정지면 기동 후 대기)
+	Stop		:= 3,
+	Reset		:= 4,	// 고장 리셋: 그 장비에 고장 리셋 명령 (PMS 상태는 바꾸지 않음)
+	EStop		:= 5	// 비상정지
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

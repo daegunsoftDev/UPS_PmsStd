@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_MeterState" Id="{194c76f3-f673-413f-aa1d-cb0762ac475c}">
+    <Declaration><![CDATA[TYPE ST_MeterState :
+STRUCT
+	bComm		: BOOL;
+	stP			: ST_Val;					// kW
+	stQ			: ST_Val;					// kvar
+	stV			: ST_Val;					// V, 상전압 평균
+	astV		: ARRAY[1..3] OF ST_Val;	// V, A·B·C 상전압
+	stF			: ST_Val;					// Hz
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

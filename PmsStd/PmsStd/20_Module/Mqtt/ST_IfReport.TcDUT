@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_IfReport" Id="{fb3bab4e-2f3b-4c32-b1ab-9885b0acba76}">
+    <Declaration><![CDATA[TYPE ST_IfReport :		// MAIN → MQTT 보고 칸 (GVL_IF.g_stReport). 쓰는 곳: MAIN 액션 A_Report (PCS·BAT 보고 매핑 결과), 읽는 곳: PRG_Mqtt
+STRUCT
+	abPcsMapped		: ARRAY[1..GVL_PARAM.PCS_COUNT] OF BOOL;			// 이 PCS를 매핑 모듈이 채움. FALSE면 PRG_Mqtt는 발행 구조체를 건드리지 않음 (시험 더미 유지)
+	abPcsComm		: ARRAY[1..GVL_PARAM.PCS_COUNT] OF BOOL;			// 통신 정상. FALSE면 astPcs는 모두 0
+	astPcs			: ARRAY[1..GVL_PARAM.PCS_COUNT] OF ST_PcsPublish_V1;	// 발행 직전 레코드 (칸 = PCS 번호 = 발행 DeviceIndex, 1부터)
+ abBatMapped : ARRAY[1..GVL_PARAM.BMS_COUNT] OF BOOL; // BAT 매핑 연결 여부
+ abBatValid : ARRAY[1..GVL_PARAM.BMS_COUNT] OF BOOL; // BAT 데이터 유효 여부
+ astBat : ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatPublish_V1; // BAT 보고값
+ astRack : ARRAY[1..GVL_PARAM.RACK_COUNT] OF ST_RackPublish_V1; // RACK 보고값. abBatMapped를 따름
+ astModule : ARRAY[1..GVL_PARAM.BAT_MODULE_COUNT] OF ST_ModulePublish_V1; // MODULE 보고값. abBatMapped를 따름
+ abUpsMapped : ARRAY[1..GVL_PARAM.UPS_COUNT] OF BOOL; // UPS 매핑 연결 여부
+ abUpsValid : ARRAY[1..GVL_PARAM.UPS_COUNT] OF BOOL; // UPS 데이터 유효 여부
+ astUps : ARRAY[1..GVL_PARAM.UPS_COUNT] OF ST_UpsPublish_V1; // UPS 보고값
+ abImdMapped : ARRAY[1..GVL_PARAM.IMD_COUNT] OF BOOL; // IMD 매핑 연결 여부
+ abImdValid : ARRAY[1..GVL_PARAM.IMD_COUNT] OF BOOL; // IMD 데이터 유효 여부
+ astImd : ARRAY[1..GVL_PARAM.IMD_COUNT] OF ST_ImdPublish_V1; // IMD 보고값
+ abFireMapped : ARRAY[1..GVL_PARAM.FIRE_COUNT] OF BOOL; // 화재감지기 매핑 연결 여부
+ astFire : ARRAY[1..GVL_PARAM.FIRE_COUNT] OF ST_FirePublish_V1; // 화재감지기 보고값
+ abTempMapped : ARRAY[1..GVL_PARAM.TEMP_COUNT] OF BOOL; // 온습도 매핑 연결 여부
+ astTemp : ARRAY[1..GVL_PARAM.TEMP_COUNT] OF ST_TempPublish_V1; // 온습도 보고값
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

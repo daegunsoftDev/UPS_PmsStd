@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<DUT Name="E_UpsResult" Id="{f8ea8a91-1630-4396-919c-84d890f60072}"><Declaration><![CDATA[// UPS·BMS 드라이버의 쓰기 요청 처리 결과.
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_UpsResult : (
+	None := 0, // 결과 없음
+	Accepted := 1, // 요청 접수
+	Disabled := 2, // 쓰기 비활성
+	Busy := 3, // 다른 요청 처리 중
+	Unsupported := 4, // 지원하지 않는 요청
+	BadConfig := 5, // 설정값 오류
+	WrongDevice := 6, // 대상 장치 불일치
+	RevisionConflict := 7, // 설정 버전 불일치
+	BadRequest := 8, // 잘못된 요청
+	Duplicate := 9, // 중복 요청
+	CommUnavailable := 10 // 통신 불가
+) INT;
+END_TYPE]]></Declaration></DUT>
+</TcPlcObject>

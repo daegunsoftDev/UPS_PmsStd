@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtCoreReason" Id="{e31abbb2-63d3-419d-bd92-b8df60bc5e07}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtCoreReason : WSTRING(63)		// 코어 제한 이유 문구 (모듈 ID 0)
+VAR_INPUT
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF i_nReason = GVL_REASON.RSN_RATING THEN
+	F_TxtCoreReason := "가용 유닛 정격";
+ELSIF i_nReason = GVL_REASON.RSN_BAT THEN
+	F_TxtCoreReason := "배터리 충·방전 한도";
+ELSIF i_nReason = GVL_REASON.RSN_RATING_Q THEN
+	F_TxtCoreReason := "가용 유닛 Q 정격";
+ELSIF i_nReason = GVL_REASON.RSN_DERATE THEN
+	F_TxtCoreReason := "보호 Derate";
+ELSE
+	F_TxtCoreReason := WCONCAT("코어 이유 ", TO_WSTRING(i_nReason));
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

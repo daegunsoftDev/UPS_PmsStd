@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.9">
+  <DUT Name="ST_MqttCommand_Rx" Id="{151a57c0-4a25-41d6-bd3b-a15635e8751f}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_MqttCommand_Rx :
+STRUCT
+	DeviceIndex	:	UDINT;
+	CommandType	:	UDINT;
+	Value		:	REAL;	// kW 등, CommandType에 따라 의미가 다름
+	delay		:	udint;	//명령받는 시간
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

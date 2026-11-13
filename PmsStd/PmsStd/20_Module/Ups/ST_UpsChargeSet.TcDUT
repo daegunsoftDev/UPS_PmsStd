@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<DUT Name="ST_UpsChargeSet" Id="{4c236457-4bcd-4079-9031-1a7b079dbb09}"><Declaration><![CDATA[// 간헐충전·주기적 방전·펄스 방전·온도보상 설정값 묶음.
+// 기본값은 예시이며 LiB 운전값은 미확정.
+TYPE ST_UpsChargeSet :
+STRUCT
+ nTrickleCriterion : UINT; // 1: 전압, 2: SOC
+ fStartVoltageV : REAL; // 재충전 시작 전압 (V)
+ fEndVoltageV : REAL; // 추가충전 시작 전압 (V)
+ fStartSocPct : REAL; // 재충전 시작 SOC (%)
+ fEndSocPct : REAL; // 추가충전 시작 SOC (%)
+ tExtraCharge : TIME := T#120M; // 추가 충전 시간
+ tRestart : TIME := T#30D; // 대기 후 재충전 기간
+ fFloatVoltageV : REAL; // 기준 부동충전 전압 (V)
+ tInitialCharge : TIME := T#120M; // 주기적 방전 전 충전 시간
+ fPeriodicCurrentA : REAL; // 주기적 방전 전류 (A)
+ tPeriodicDischarge : TIME := T#10M; // 주기적 방전 시간
+ wMonthMask : WORD; // 1~12월 선택 비트 0~11
+ nWeek : UINT; // 월내 1~4주차 (1~7일이 1주차)
+ nWeekDay : UINT; // 0: 일요일 ~ 6: 토요일
+ nHour : UINT; // 실행 시간 (0~23)
+ fPulseChargeA : REAL; // 펄스 충전 전류 (A)
+ fPulseDischargeA : REAL; // 펄스 방전 전류 (A)
+ tPulseCharge : TIME := T#5S; // 펄스 충전 시간
+ tPulseDischarge : TIME := T#5S; // 펄스 방전 시간
+ nPulseCycles : UINT; // DSP 실행 횟수
+ tRunTimeout : TIME := T#1H; // 방전 완료 감시 시간
+ tRequestTimeout : TIME := T#10S; // 요청 확인 대기 시간
+ tModeTimeout : TIME := T#30S; // 운전 모드 확인 대기 시간
+ fBaseCellVoltageV : REAL; // 25℃ 기준 셀 전압 (V)
+ nSeriesCells : UINT; // 직렬 셀 수
+ fSlopeMvPerC : REAL; // 셀당 온도 기울기 (mV/℃)
+ fMinChargeVoltageV : REAL; // 적용 가능한 최저 전압 (V)
+ fMaxChargeVoltageV : REAL; // 적용 가능한 최고 전압 (V)
+ fMinTemperatureC : REAL; // 보상 가능한 최저 온도 (℃)
+ fMaxTemperatureC : REAL; // 보상 가능한 최고 온도 (℃)
+ tTempUpdate : TIME := T#1M; // 온도보상 갱신 주기
+END_STRUCT
+END_TYPE]]></Declaration></DUT>
+</TcPlcObject>

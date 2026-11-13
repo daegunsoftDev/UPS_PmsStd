@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_CtrlModeStep" Id="{87a1a06b-e204-485c-9eba-307d800d38c1}">
+    <Declaration><![CDATA[{attribute 'strict'}
+TYPE E_CtrlModeStep :		// 제어 모드 관리자 단계
+(
+	Idle		:= 0,	// 켜진 모드 없음 (지령을 내지 않음)
+	Active		:= 1,	// 모드 하나가 동작 중
+	Leaving		:= 2	// 전환 중: 이전 모드는 끝났고 그 모드가 내던 P·Q를 0으로 둠 (ST_CtrlModeSet.tZeroDelay)
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

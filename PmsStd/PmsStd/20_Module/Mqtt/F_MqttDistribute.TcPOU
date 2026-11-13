@@ -1,0 +1,72 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_MqttDistribute" Id="{cfef37b1-be51-4955-9209-468a98b1a005}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_MqttDistribute : UDINT		// 받은 MQTT 메시지(헤더 + 레코드 n개)를 토픽 표대로 수신 배열 칸에 복사. 반환 = 복사한 레코드 수
+VAR_IN_OUT
+	iq_fbMessage	: FB_IotMqttMessage;
+	iq_stEntry		: ST_MqttSubEntry;		// 토픽 표 한 칸 (수신 버퍼·목적지·레코드 크기)
+END_VAR
+VAR_OUTPUT
+	q_nReceived		: UDINT;				// 이 메시지에서 실제로 받은 레코드 수 (UPS: 헤더 DeviceCount만큼 다 받았을 때만 그 수, 아니면 0). [21번 수정 2026-11-09: 추가]
+END_VAR
+VAR CONSTANT
+	DEVICE_ID_BASE	: UDINT := 1;			// 받은 레코드의 DeviceIndex(DeviceId) 시작 번호. 모든 command·config 토픽 1부터 (발행 번호와 같음) [1부터 2026-11-10]. 원래 0
+END_VAR
+VAR
+	pHeader			: POINTER TO ST_MqttCommandHeader;
+	pRecord			: POINTER TO BYTE;
+	pIndex			: POINTER TO UDINT;
+	pDest			: POINTER TO BYTE;
+	nPayloadBytes	: UDINT;			// 받은 메시지 길이 (byte)
+	nRequiredBytes	: UDINT;			// 헤더 DeviceCount에 필요한 길이 (byte)
+	nRecords		: UDINT;
+	nDev			: UDINT;
+	k				: UDINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[q_nReceived := 0;
+// [UPS] 수신 버퍼·목적지·레코드 크기가 없으면, 또는 메시지가 헤더보다 짧거나 수신 버퍼보다 크면 버퍼를 건드리지 않고 버림 (STD 결함 11 수정과 같은 목적, UPS가 더 엄격)
+IF iq_stEntry.pRxBuffer=0 OR iq_stEntry.pDestArray=0 OR iq_stEntry.nElementSize=0 THEN RETURN; END_IF
+nPayloadBytes:=iq_fbMessage.nPayloadSize;
+IF nPayloadBytes<SIZEOF(ST_MqttCommandHeader) OR nPayloadBytes>iq_stEntry.nRxBufferSize THEN RETURN; END_IF
+// [STD 9-21 수정 2026-11-04: 받기 전에 수신 버퍼를 0으로 (지난 메시지 레코드가 남지 않게)]
+MEMSET(destAddr := iq_stEntry.pRxBuffer, fillByte := 0, n := iq_stEntry.nRxBufferSize);
+IF NOT iq_fbMessage.GetPayload(pPayload := iq_stEntry.pRxBuffer, nPayloadSize := iq_stEntry.nRxBufferSize, bSetNullTermination := FALSE) THEN RETURN; END_IF
+
+pHeader := iq_stEntry.pRxBuffer;
+IF pHeader = 0 THEN
+	RETURN;
+END_IF
+IF pHeader^.DeviceCount=0 OR pHeader^.DeviceCount>iq_stEntry.nMaxRecords THEN RETURN; END_IF
+IF pHeader^.DeviceCount>(nPayloadBytes-SIZEOF(ST_MqttCommandHeader))/iq_stEntry.nElementSize THEN RETURN; END_IF
+nRequiredBytes:=SIZEOF(ST_MqttCommandHeader)+pHeader^.DeviceCount*iq_stEntry.nElementSize;
+IF nRequiredBytes>nPayloadBytes THEN RETURN; END_IF
+nRecords := pHeader^.DeviceCount;		// 버퍼에 들어갈 수만큼 (위 검사로 실제 받은 레코드 수 이하)
+q_nReceived := nRecords;		// [STD 21번 수정 2026-11-09: 받은 레코드 수]
+
+(* 1부터 셈: 레코드가 0개면 돌지 않음 (0 - 1을 UDINT로 계산하면 넘쳐서 약 42억 번 돌게 됨) *)
+FOR k := 1 TO nRecords DO
+	pRecord := iq_stEntry.pRxBuffer;
+	pRecord := pRecord + SIZEOF(ST_MqttCommandHeader) + (k - 1) * iq_stEntry.nElementSize;
+
+	IF iq_stEntry.bIndexed THEN
+		pIndex := pRecord;					// 레코드 맨 앞 UDINT = DeviceIndex
+		IF pIndex^ >= DEVICE_ID_BASE + iq_stEntry.nDeviceIdBase THEN
+			nDev := pIndex^ - DEVICE_ID_BASE - iq_stEntry.nDeviceIdBase;
+		ELSE
+			nDev := iq_stEntry.nDeviceCapacity;	// 범위 밖 → 버림
+		END_IF
+	ELSE
+		nDev := 0;							// 단일 레코드 (protection)
+	END_IF
+
+	IF nDev < iq_stEntry.nDeviceCapacity THEN
+		pDest := iq_stEntry.pDestArray;
+		pDest := pDest + nDev * iq_stEntry.nElementSize;
+		MEMCPY(destAddr := pDest, srcAddr := pRecord, n := iq_stEntry.nElementSize);
+		F_MqttDistribute := F_MqttDistribute + 1;
+	END_IF
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,72 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<POU Name="F_DecodeSebangUps" Id="{855fd95c-86f5-4cb2-8137-59cedb64a62b}"><Declaration><![CDATA[FUNCTION F_DecodeSebangUps : ST_UpsState
+VAR_INPUT i_stRaw : ST_UpsRaw; END_VAR
+VAR n : UINT; END_VAR]]></Declaration><Implementation><ST><![CDATA[// UPS Metering Data 주소 순서
+F_DecodeSebangUps.fInputVoltageRV := WORD_TO_REAL(i_stRaw.awInput[0])*0.1; // 0. 입력 선간 전압 R (V)
+F_DecodeSebangUps.fInputVoltageSV := WORD_TO_REAL(i_stRaw.awInput[1])*0.1; // 1. 입력 선간 전압 S (V)
+F_DecodeSebangUps.fInputVoltageTV := WORD_TO_REAL(i_stRaw.awInput[2])*0.1; // 2. 입력 선간 전압 T (V)
+F_DecodeSebangUps.fInputFrequencyHz := WORD_TO_REAL(i_stRaw.awInput[3])*0.1; // 3. 입력 주파수 (Hz)
+F_DecodeSebangUps.fInputCurrentRA := WORD_TO_REAL(i_stRaw.awInput[4])*0.1; // 4. 입력 전류 R (A)
+F_DecodeSebangUps.fInputCurrentSA := WORD_TO_REAL(i_stRaw.awInput[5])*0.1; // 5. 입력 전류 S (A)
+F_DecodeSebangUps.fInputCurrentTA := WORD_TO_REAL(i_stRaw.awInput[6])*0.1; // 6. 입력 전류 T (A)
+F_DecodeSebangUps.fInverterVoltageRV := WORD_TO_REAL(i_stRaw.awInput[7])*0.1; // 7. 인버터 선간 전압 R (V)
+F_DecodeSebangUps.fInverterVoltageSV := WORD_TO_REAL(i_stRaw.awInput[8])*0.1; // 8. 인버터 선간 전압 S (V)
+F_DecodeSebangUps.fInverterVoltageTV := WORD_TO_REAL(i_stRaw.awInput[9])*0.1; // 9. 인버터 선간 전압 T (V)
+F_DecodeSebangUps.fInverterCurrentRA := WORD_TO_REAL(i_stRaw.awInput[10])*0.1; // 10. 인버터 전류 R (A)
+F_DecodeSebangUps.fInverterCurrentSA := WORD_TO_REAL(i_stRaw.awInput[11])*0.1; // 11. 인버터 전류 S (A)
+F_DecodeSebangUps.fInverterCurrentTA := WORD_TO_REAL(i_stRaw.awInput[12])*0.1; // 12. 인버터 전류 T (A)
+F_DecodeSebangUps.fBypassVoltageRV := WORD_TO_REAL(i_stRaw.awInput[13])*0.1; // 13. 바이패스 선간 전압 R (V)
+F_DecodeSebangUps.fBypassVoltageSV := WORD_TO_REAL(i_stRaw.awInput[14])*0.1; // 14. 바이패스 선간 전압 S (V)
+F_DecodeSebangUps.fBypassVoltageTV := WORD_TO_REAL(i_stRaw.awInput[15])*0.1; // 15. 바이패스 선간 전압 T (V)
+F_DecodeSebangUps.fBypassFrequencyHz := WORD_TO_REAL(i_stRaw.awInput[16])*0.1; // 16. 바이패스 주파수 (Hz)
+F_DecodeSebangUps.fOutputVoltageRV := WORD_TO_REAL(i_stRaw.awInput[17])*0.1; // 17. 출력 선간 전압 R (V)
+F_DecodeSebangUps.fOutputVoltageSV := WORD_TO_REAL(i_stRaw.awInput[18])*0.1; // 18. 출력 선간 전압 S (V)
+F_DecodeSebangUps.fOutputVoltageTV := WORD_TO_REAL(i_stRaw.awInput[19])*0.1; // 19. 출력 선간 전압 T (V)
+F_DecodeSebangUps.fOutputFrequencyHz := WORD_TO_REAL(i_stRaw.awInput[20])*0.1; // 20. 출력 주파수 (Hz)
+F_DecodeSebangUps.fOutputCurrentRA := WORD_TO_REAL(i_stRaw.awInput[21])*0.1; // 21. 출력 전류 R (A)
+F_DecodeSebangUps.fOutputCurrentSA := WORD_TO_REAL(i_stRaw.awInput[22])*0.1; // 22. 출력 전류 S (A)
+F_DecodeSebangUps.fOutputCurrentTA := WORD_TO_REAL(i_stRaw.awInput[23])*0.1; // 23. 출력 전류 T (A)
+F_DecodeSebangUps.fDcLinkVoltageV := F_UpsSignedWord(i_stRaw.awInput[24])*0.1; // 24. DC 링크 전압 (V)
+F_DecodeSebangUps.fDcLinkHighVoltageV := F_UpsSignedWord(i_stRaw.awInput[25])*0.1; // 25. DC 링크 상단 전압 (V)
+F_DecodeSebangUps.fDcLinkLowVoltageV := F_UpsSignedWord(i_stRaw.awInput[26])*0.1; // 26. DC 링크 하단 전압 (V)
+F_DecodeSebangUps.fBatteryVoltageV := F_UpsSignedWord(i_stRaw.awInput[27])*0.1; // 27. 배터리 전압 (V)
+F_DecodeSebangUps.fBatteryCurrentA := F_UpsSignedWord(i_stRaw.awInput[28])*0.1; // 28. 배터리 전류 (A)
+F_DecodeSebangUps.fMpiCurrentAA := F_UpsSignedWord(i_stRaw.awInput[29])*0.1; // 29. MPI A상 전류 (A)
+F_DecodeSebangUps.fMpiCurrentBA := F_UpsSignedWord(i_stRaw.awInput[30])*0.1; // 30. MPI B상 전류 (A)
+F_DecodeSebangUps.fMpiCurrentCA := F_UpsSignedWord(i_stRaw.awInput[31])*0.1; // 31. MPI C상 전류 (A)
+F_DecodeSebangUps.fInputApparentPowerKva := F_UpsSignedWord(i_stRaw.awInput[32])*0.1; // 32. 입력 피상 전력 (kVA)
+F_DecodeSebangUps.fOutputApparentPowerKva := F_UpsSignedWord(i_stRaw.awInput[33])*0.1; // 33. 출력 피상 전력 (kVA)
+F_DecodeSebangUps.fOutputActivePowerKw := F_UpsSignedWord(i_stRaw.awInput[34])*0.1; // 34. 출력 유효 전력 (kW)
+F_DecodeSebangUps.fTemperature1C := F_UpsSignedWord(i_stRaw.awInput[38])*0.1; // 38. 온도 1 (℃)
+F_DecodeSebangUps.fTemperature2C := F_UpsSignedWord(i_stRaw.awInput[39])*0.1; // 39. 온도 2 (℃)
+F_DecodeSebangUps.fTemperature3C := F_UpsSignedWord(i_stRaw.awInput[40])*0.1; // 40. 온도 3 (℃)
+F_DecodeSebangUps.fTemperature4C := F_UpsSignedWord(i_stRaw.awInput[41])*0.1; // 41. 온도 4 (℃)
+F_DecodeSebangUps.fTemperature5C := F_UpsSignedWord(i_stRaw.awInput[42])*0.1; // 42. 온도 5 (℃)
+F_DecodeSebangUps.fBatteryRoomTemperatureC := F_UpsSignedWord(i_stRaw.awInput[43])*0.1; // 43. 온도 6 / 배터리실 온도 (℃)
+F_DecodeSebangUps.wInputAlarm := i_stRaw.awInput[44]; // 44. 입력 알람
+F_DecodeSebangUps.wRectAlarm := i_stRaw.awInput[45]; // 45. 정류기 알람
+F_DecodeSebangUps.wBbcAlarm := i_stRaw.awInput[46]; // 46. 배터리 컨버터 알람
+F_DecodeSebangUps.wOutputAlarm := i_stRaw.awInput[47]; // 47. 출력 알람
+F_DecodeSebangUps.wInverterAlarm := i_stRaw.awInput[48]; // 48. 인버터 알람
+F_DecodeSebangUps.wBypassAlarm := i_stRaw.awInput[49]; // 49. 바이패스 알람
+F_DecodeSebangUps.wStatus1 := i_stRaw.awInput[50]; // 50. 상태 워드 1
+F_DecodeSebangUps.wStatus2 := i_stRaw.awInput[51]; // 51. 상태 워드 2
+F_DecodeSebangUps.fHmiVersion := WORD_TO_REAL(i_stRaw.awInput[52])*0.1; // 52. HMI 버전
+F_DecodeSebangUps.fDspVersion := WORD_TO_REAL(i_stRaw.awInput[53])*0.1; // 53. DSP 버전
+
+F_DecodeSebangUps.nBatMode := WORD_TO_UINT(SHR(i_stRaw.awInput[50],8) AND 16#0007);
+F_DecodeSebangUps.bRectOn := i_stRaw.awInput[45].11;
+F_DecodeSebangUps.bRectNormal := i_stRaw.awInput[45].12;
+F_DecodeSebangUps.bBbcOn := i_stRaw.awInput[46].12;
+F_DecodeSebangUps.bBbcNormal := i_stRaw.awInput[46].13;
+F_DecodeSebangUps.bInverterOn := i_stRaw.awInput[48].6;
+F_DecodeSebangUps.bInverterNormal := i_stRaw.awInput[48].14;
+F_DecodeSebangUps.bOnBypass := i_stRaw.awInput[48].12;
+F_DecodeSebangUps.bOnInverter := i_stRaw.awInput[48].13;
+F_DecodeSebangUps.bTemperatureEnabled := i_stRaw.awInput[51].2;
+F_DecodeSebangUps.bBmsMinor := i_stRaw.awInput[51].10;
+F_DecodeSebangUps.bBmsMajor := i_stRaw.awInput[51].11;
+F_DecodeSebangUps.bEmergencyStop := i_stRaw.awInput[50].0;
+FOR n:=0 TO 7 DO F_DecodeSebangUps.awAlarmStatus[n]:=i_stRaw.awInput[n+44]; END_FOR]]></ST></Implementation></POU>
+</TcPlcObject>

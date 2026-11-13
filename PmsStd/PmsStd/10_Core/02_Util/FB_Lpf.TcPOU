@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_Lpf" Id="{4372a54d-746a-4cb8-a0eb-c1369f843493}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Lpf		// 1차 지연 필터
+VAR_INPUT
+	i_fIn			: REAL;
+	i_tTau			: TIME;		// 시정수. T#0S면 필터 없이 통과
+	i_bSync			: BOOL;		// 내부 값을 i_fSyncValue로 맞춤
+	i_fSyncValue	: REAL;
+END_VAR
+VAR_OUTPUT
+	q_fOut			: REAL;
+END_VAR
+VAR
+	_fState			: REAL;
+END_VAR
+VAR_TEMP
+	fDt				: REAL;		// s
+	fTau			: REAL;		// s
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[fDt		:= F_CycleSec();
+fTau	:= TIME_TO_REAL(i_tTau) / 1000.0;
+
+IF i_bSync THEN
+	_fState := i_fSyncValue;
+ELSIF fTau <= 0 THEN
+	_fState := i_fIn;
+ELSE
+	_fState := _fState + (fDt / (fTau + fDt)) * (i_fIn - _fState);
+END_IF
+
+q_fOut := _fState;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

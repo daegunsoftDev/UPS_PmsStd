@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CmPeakCutSet" Id="{d9d3f3e3-b126-4466-b6b5-94b3b2c05c96}">
+    <Declaration><![CDATA[TYPE ST_CmPeakCutSet :		// 피크컷 모드 설정
+STRUCT
+	stPeak		: ST_CmPeakCalcSet;
+	stAutoChg	: ST_CmWindowSet := (fSoc := 100.0);	// 자동 충전 시간 (경부하 시간 충전). fSoc = 채울 목표
+	stRemain	: ST_CmWindowSet := (fSoc := 10.0);		// 잔량 방전 시간 (남은 에너지를 끝 시각까지 고르게). fSoc = 남길 하한
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

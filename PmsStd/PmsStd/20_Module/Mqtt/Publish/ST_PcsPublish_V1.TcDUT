@@ -1,0 +1,63 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.9">
+  <DUT Name="ST_PcsPublish_V1" Id="{d70c14cb-5353-4b10-b599-df4b9922687e}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_PcsPublish_V1 :
+STRUCT
+	DeviceIndex			:	UDINT;
+	SystemOperationMode	:	UDINT;	// 0: 수동, 1: 모드스케줄
+	OperationMode			:	UDINT;
+	PMSActivePower			:	REAL;	// kW
+	RemoteMode				:	UDINT;	// 0: Local, 1: Remote
+	Status					:	UDINT;	// bit0~9
+	AcActivePower			:	REAL;	// kW
+	AcReactivePower			:	REAL;	// kVar
+	PowerFactor				:	REAL;
+	Frequency				:	REAL;	// Hz
+	AcRsVoltage				:	REAL;	// V
+	AcStVoltage				:	REAL;	// V
+	AcTrVoltage				:	REAL;	// V
+	AcRVoltage				:	REAL;	// V
+	AcSVoltage				:	REAL;	// V
+	AcTVoltage				:	REAL;	// V
+	AcRCurrent				:	REAL;	// A
+	AcSCurrent				:	REAL;	// A
+	AcTCurrent				:	REAL;	// A
+	DcLinkVoltage			:	REAL;	// V
+	DcVoltage				:	REAL;	// V
+	DcCurrent				:	REAL;	// A
+	DcActivePower			:	REAL;	// kW
+	InsulationResistance	:	REAL;	// kΩ
+	Temperature1			:	REAL;
+	Temperature2			:	REAL;
+	Temperature3			:	REAL;
+	Temperature4			:	REAL;
+	Temperature5			:	REAL;
+	Temperature6			:	REAL;
+	Temperature7			:	REAL;
+	Temperature8			:	REAL;
+	Warning1				:	UDINT;
+	Warning2				:	UDINT;
+	Warning3				:	UDINT;
+	Warning4				:	UDINT;
+	Warning5				:	UDINT;
+	Warning6				:	UDINT;
+	Warning7				:	UDINT;
+	Warning8				:	UDINT;
+	Warning9				:	UDINT;
+	Warning10				:	UDINT;
+	Fault1					:	UDINT;
+	Fault2					:	UDINT;
+	Fault3					:	UDINT;
+	Fault4					:	UDINT;
+	Fault5					:	UDINT;
+	Fault6					:	UDINT;
+	Fault7					:	UDINT;
+	Fault8					:	UDINT;
+	Fault9					:	UDINT;
+	Fault10					:	UDINT;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_SelectStd" Id="{d7bd218a-6918-4439-b069-13e6976e66e6}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_SelectStd EXTENDS FB_ModuleBase IMPLEMENTS I_SelectPolicy	// 코어 기본 고르기: 유닛별 값은 등급, 그룹 값은 그룹 설정 eSelP·eSelQ (등급 / 절대값 작은 것). 같으면 먼저 등록된 칸]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Select" Id="{0cbe67c8-fd20-4dd5-9f0a-f439c6c3f692}">
+      <Declaration><![CDATA[METHOD M_Select : ST_Pick
+VAR_INPUT
+	i_stView	: ST_SelectView;
+END_VAR
+VAR
+	i		: UINT;
+	eSel	: E_SelectMode;
+	nGrade	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[eSel := E_SelectMode.Grade;		// 유닛별 값은 등급만
+IF i_stView.nUnit = 0 THEN
+	eSel := i_stView.eSel;
+END_IF
+FOR i := 1 TO MIN(i_stView.nCand, GVL_PARAM.SOURCE_COUNT) DO
+	IF F_Better(eSel, M_Select.bActive, i_stView.astCand[i].nGrade, i_stView.astCand[i].fValue, nGrade, M_Select.fValue) THEN
+		M_Select.bActive	:= TRUE;
+		M_Select.fValue		:= i_stView.astCand[i].fValue;
+		M_Select.nModule	:= i_stView.astCand[i].nModule;
+		M_Select.bNew		:= i_stView.astCand[i].bNew;
+		nGrade				:= i_stView.astCand[i].nGrade;
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

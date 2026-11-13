@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_ModeSwitch" Id="{2a5de32b-6c14-443f-9402-3d797588caa0}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_ModeSwitch :		// 모드 전환 때 어디까지 하고 바꾸나
+(
+	Direct		:= 0,	// 바로 바꿈
+	Zero		:= 1,	// 출력 0 → 지연 → 바꿈
+	Standby		:= 2	// 출력 0 → 지연 → Standby (운전 중일 때만) → Run이 아니게 되면 바꿈
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

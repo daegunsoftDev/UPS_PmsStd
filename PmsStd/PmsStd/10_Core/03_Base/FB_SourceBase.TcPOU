@@ -1,0 +1,94 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_SourceBase" Id="{94b0c120-7a2e-426e-9ce4-a911c32a70ea}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK ABSTRACT FB_SourceBase EXTENDS FB_ModuleBase IMPLEMENTS I_CommandSource
+VAR
+	_stOut			: ST_SourceOutput;
+	_stView			: ST_GroupView;		// 이번 스캔 대상 그룹 값 (파생 FB의 M_UpdateOutput에서 읽음)
+	_tonExpire		: TON;
+	_bEverAlive		: BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Property Name="Output" Id="{fd1df387-877a-4a11-80bf-9d14b4535f0e}">
+      <Declaration><![CDATA[PROPERTY Output : ST_SourceOutput]]></Declaration>
+      <Get Name="Get" Id="{362ded4b-2ed7-4959-9c6d-2f6accd6764e}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Output := _stOut;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="M_Cycle" Id="{a59ce4af-bfc6-47c8-962a-8f716785d325}">
+      <Declaration><![CDATA[METHOD M_Cycle
+VAR_INPUT
+	i_stReg		: ST_SourceReg;
+	i_stView	: ST_GroupView;
+END_VAR
+VAR
+	bFresh		: BOOL;
+	u			: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_stView := i_stView;
+
+// 1) 파생 FB가 _stOut을 채운다. 값이 새로 들어왔으면 TRUE
+//    상태 요청은 1스캔만: 파생 FB가 새 요청이 있을 때만 다시 채움
+_stOut.stPcsReq.eCmd := E_PcsCmd.None;
+_stOut.stBatReq.eCmd := E_BatCmd.None;
+_stOut.bNewSet := FALSE;		// 새 지령도 1스캔만: 파생 FB가 새 값이 들어왔을 때 TRUE로
+bFresh := M_UpdateOutput();
+IF bFresh THEN
+	_bEverAlive := TRUE;
+END_IF
+_tonExpire(IN := NOT bFresh, PT := i_stReg.tExpire);
+
+// 2) 공통 처리
+IF NOT i_stReg.bEnable OR NOT _bEverAlive THEN
+	M_ClearAll();
+ELSIF _tonExpire.Q THEN
+	// 끊김: 지령·상태 요청은 무효 (그룹·유닛별 모두), 제한(P·Q)은 마지막 값 유지
+	_stOut.bPSetActive	:= FALSE;
+	_stOut.bQSetActive	:= FALSE;
+	_stOut.stPcsReq.eCmd	:= E_PcsCmd.None;
+	_stOut.stBatReq.eCmd	:= E_BatCmd.None;
+	_stOut.bNewSet		:= FALSE;
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		_stOut.astUnit[u].bPSetActive := FALSE;
+		_stOut.astUnit[u].bQSetActive := FALSE;
+	END_FOR
+	_stOut.bValid		:= _stOut.bPLimActive OR _stOut.bQLimActive;	// 유지할 제한(P·Q)이 있을 때만 유효
+ELSE
+	_stOut.bValid := TRUE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_UpdateOutput" Id="{03cfc0a2-1888-4277-854d-3eedb67593d7}">
+      <Declaration><![CDATA[METHOD ABSTRACT M_UpdateOutput : BOOL		// 파생 FB: _stOut을 채우고, 새 값이 들어왔으면 TRUE]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ClearAll" Id="{5dbdf86e-8ea4-4c49-b678-0b9e76e6ea60}">
+      <Declaration><![CDATA[METHOD PROTECTED M_ClearAll
+VAR
+	stNone		: ST_SourceOutput;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_stOut := stNone;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ReasonText" Id="{fae04c3b-61aa-4ca8-91fa-b4044670d29a}">
+      <Declaration><![CDATA[METHOD M_ReasonText : WSTRING(63)	// 지령원이 낸 P 제한의 이유 문구 (지령원 제한은 이유 코드를 쓰지 않음)
+VAR_INPUT
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_ReasonText := "지령원 제한";]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

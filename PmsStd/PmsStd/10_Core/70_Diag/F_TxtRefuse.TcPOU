@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtRefuse" Id="{116984d1-bb41-4321-bb28-738381d99f0b}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtRefuse : WSTRING(31)		// 거부 이유 문구
+VAR_INPUT
+	i_e		: E_SeqRefuse;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_e OF
+	E_SeqRefuse.None:	F_TxtRefuse := "없음";
+	E_SeqRefuse.NotAvail:	F_TxtRefuse := "가용 아님";
+	E_SeqRefuse.NoBattery:	F_TxtRefuse := "배터리 미투입";
+	E_SeqRefuse.NoPermit:	F_TxtRefuse := "기동 조건 미충족";
+	E_SeqRefuse.CommLost:	F_TxtRefuse := "통신 없음";
+	E_SeqRefuse.UnitRunning:	F_TxtRefuse := "유닛 운전 중";
+	E_SeqRefuse.StopInProgress:	F_TxtRefuse := "정지 진행 중";
+	E_SeqRefuse.ConfigError:	F_TxtRefuse := "설정 오류";
+	E_SeqRefuse.WriteDisabled:	F_TxtRefuse := "장비 쓰기 불가";
+ELSE
+	F_TxtRefuse := "?";
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

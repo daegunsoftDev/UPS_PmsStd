@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_TestTally" Id="{248959ac-2a77-424b-8496-ee03730ba6c7}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_TestTally		// 시험 결과 세기: 통과·실패 수와 실패한 시험 번호
+VAR_OUTPUT
+	q_nPass		: UINT;
+	q_nFail		: UINT;
+	q_anFail	: ARRAY[1..32] OF UINT;		// 실패한 시험 번호 (앞에서부터)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Reset" Id="{dff3a7d3-5579-4f49-a2cc-6baab17f3775}">
+      <Declaration><![CDATA[METHOD M_Reset
+VAR
+	nI	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[q_nPass := 0;
+q_nFail := 0;
+FOR nI := 1 TO 32 DO
+	q_anFail[nI] := 0;
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Check" Id="{28e39da7-43ed-4225-b3e9-e03dadc90644}">
+      <Declaration><![CDATA[METHOD M_Check : BOOL
+VAR_INPUT
+	i_nId	: UINT;		// 시험 번호
+	i_bOk	: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_bOk THEN
+	q_nPass := q_nPass + 1;
+ELSE
+	q_nFail := q_nFail + 1;
+	IF q_nFail <= 32 THEN
+		q_anFail[q_nFail] := i_nId;
+	END_IF
+END_IF
+M_Check := i_bOk;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_OutputCfg" Id="{a268ff59-7f20-4204-9ff7-635a11570ac7}">
+    <Declaration><![CDATA[TYPE ST_OutputCfg :		// 출력 규칙 설정 (칸 번호 = GVL_SITE.g_aipOutput 칸)
+STRUCT
+	bEnable		: BOOL;
+	nAux		: UINT;			// 낼 보조 장비 칸 (GVL_SITE.g_aipAux). 0 = 판단만 하고 안 냄
+	nPoint		: UINT;			// 그 장비의 디지털 출력 점 번호
+	fThreshold	: REAL;			// 규칙에 넘기는 값 (예: 팬 켜는 온도)
+	tOnDelay	: TIME;			// 조건이 이 시간 유지되면 켬
+	tOffDelay	: TIME;			// 조건이 없어지고 이 시간 뒤에 끔
+	bLatch		: BOOL;			// 켜지면 리셋할 때까지 유지 (리셋은 조건이 없을 때만 풀림)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

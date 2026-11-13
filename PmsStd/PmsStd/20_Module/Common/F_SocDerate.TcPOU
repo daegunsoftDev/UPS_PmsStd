@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_SocDerate" Id="{8405a6e5-9f32-4e1c-bd41-9973897840f0}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_SocDerate : REAL	// SOC 감발 비율 (0~1, 상태 없음). 여러 SOC 정책 모듈이 같이 씀
+// 상한(i_bUpper = TRUE, 충전 쪽): SOC ≥ 한계면 0, 한계 - 폭 < SOC면 선형으로 줄임, 그 아래는 1
+// 하한(i_bUpper = FALSE, 방전 쪽): SOC ≤ 한계면 0, SOC < 한계 + 폭이면 선형으로 줄임, 그 위는 1
+VAR_INPUT
+	i_fSoc	: REAL;	// %
+	i_fLimit	: REAL;	// %, 한계
+	i_fBand	: REAL;	// %, 감발 폭. 0 이하면 줄이지 않고 한계에서 0
+	i_bUpper	: BOOL;	// TRUE = 상한, FALSE = 하한
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF i_bUpper THEN
+	IF i_fSoc >= i_fLimit THEN
+		F_SocDerate := 0.0;
+	ELSIF i_fBand > 0 AND i_fSoc > i_fLimit - i_fBand THEN
+		F_SocDerate := (i_fLimit - i_fSoc) / i_fBand;
+	ELSE
+		F_SocDerate := 1.0;
+	END_IF
+ELSE
+	IF i_fSoc <= i_fLimit THEN
+		F_SocDerate := 0.0;
+	ELSIF i_fBand > 0 AND i_fSoc < i_fLimit + i_fBand THEN
+		F_SocDerate := (i_fSoc - i_fLimit) / i_fBand;
+	ELSE
+		F_SocDerate := 1.0;
+	END_IF
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

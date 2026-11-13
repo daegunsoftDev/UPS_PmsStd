@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15"><DUT Name="ST_IfUpsConfigRx" Id="{3144c0b5-f072-4d6f-bd2d-a6dd7d4c4d18}"><Declaration><![CDATA[// MQTT로 받은 UPS 설정을 프로그램에 넘기는 묶음.
+// 현재 수신만 하고 장비에는 적용하지 않는다.
+{attribute 'pack_mode' := '1'}
+TYPE ST_IfUpsConfigRx :
+STRUCT
+ nRxCount : UDINT; // 수신 누계
+ astConfig : ARRAY[0..GVL_PARAM.UPS_COUNT-1] OF ST_UpsConfig_Rx; // UPS별 설정
+END_STRUCT
+END_TYPE]]></Declaration></DUT></TcPlcObject>

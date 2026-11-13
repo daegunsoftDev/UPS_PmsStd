@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_RealChanged" Id="{a14c1d03-8779-4b85-940e-b23c8095290d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_RealChanged : BOOL		// 두 REAL의 비트가 다른가 (새 지령 판단용). NaN이 들어와도 비교 예외 없음 [결함 13 수정 2026-11-04: 추가]
+VAR_INPUT
+	i_fA		: REAL;
+	i_fB		: REAL;
+END_VAR
+VAR
+	dwA			: DWORD;
+	dwB			: DWORD;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[MEMCPY(ADR(dwA), ADR(i_fA), SIZEOF(dwA));
+MEMCPY(ADR(dwB), ADR(i_fB), SIZEOF(dwB));
+F_RealChanged := dwA <> dwB;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

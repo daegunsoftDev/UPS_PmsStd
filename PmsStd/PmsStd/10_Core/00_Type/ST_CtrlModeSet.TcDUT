@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CtrlModeSet" Id="{e02013bc-72de-4d49-8fa6-75e9e8d18b06}">
+    <Declaration><![CDATA[TYPE ST_CtrlModeSet :		// 제어 모드 관리자 설정 (GVL_PERSIST.g_stModuleSet 칸 → A_PassModuleSet)
+STRUCT
+	bZeroOnSwitch	: BOOL := TRUE;		// 모드를 바꿀 때 이전 모드가 내던 P·Q를 0으로 둔 뒤 새 모드 진입. FALSE = 바로 진입 (출력 변화는 그룹 램프 bRamp가 맡음)
+	tZeroDelay		: TIME := T#1S;		// 0으로 두는 시간
+	nFallback		: UINT;				// 켜진 모드가 스스로 끝낼 때 넘어갈 칸 번호. 0 = 모드 없음
+	ePccShare		: E_PccShare := E_PccShare.ByRating;	// 유닛 단위(FB_CtrlModeMgr.i_nUnit ≠ 0)일 때 모드가 보는 접속점 값 (그룹 단위에서는 안 씀)
+	fPccRatio		: REAL := 1.0;		// ePccShare = Fixed일 때 이 유닛 몫 (0~1)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

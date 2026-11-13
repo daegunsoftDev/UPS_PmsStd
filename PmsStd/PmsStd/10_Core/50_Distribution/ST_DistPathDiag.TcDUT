@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_DistPathDiag" Id="{10c3df78-b515-4809-93d4-1b7cee612a25}">
+    <Declaration><![CDATA[TYPE ST_DistPathDiag :		// 분배 진단: 경로(Auto 또는 Manual) 하나, P 또는 Q 하나
+STRUCT
+	fTarget		: REAL;		// 이 경로 목표 (Auto는 Manual이 덜 나간 만큼 더한 값)
+	fFixed		: REAL;		// 유닛별 값 합 (유닛 한도 후, 축소 전)
+	fShareReq	: REAL;		// 그룹 몫 유닛에 나눠야 할 양 (방향 규칙 후). 그룹 지령 없으면 0
+	fShareGot	: REAL;		// 실제로 나눈 양 (유닛 한도 때문에 작을 수 있음)
+	fFixedScale	: REAL;		// 유닛별 값 축소 비율 (1 = 안 줄임)
+	fOut		: REAL;		// 이 경로 유닛 합 (배터리 버스·피상전력 전)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

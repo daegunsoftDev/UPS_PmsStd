@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CtrlModeOut" Id="{b5fc9ef6-a8d2-4fe8-bfbe-ccf8e9c63076}">
+    <Declaration><![CDATA[TYPE ST_CtrlModeOut :		// 제어 모드 한 스캔 결과 (I_ControlMode.M_Calc)
+STRUCT
+	bPSetActive	: BOOL;
+	fPSet		: REAL;			// kW, 접속점 기준 (방전 +)
+	bQSetActive	: BOOL;
+	fQSet		: REAL;			// kvar, 접속점 기준 (공급 +)
+	bExitReq	: BOOL;			// 모드가 스스로 끝냄 (운전 시간 끝, 필요한 계측 무효 등). 관리자가 M_Exit를 부르고 대체 모드로 넘어감
+	nReason		: UINT;			// 끝낸 이유 코드 (그 모드의 M_ReasonText)
+	(* [16번 수정 2026-11-09: 추가] 유닛별 값. 접속점 그룹 단위 관리자에서 PCS마다 다른 값을 내는 모드(스탠다드 스케줄: EMS가 PCS마다 지령)가 씀 *)
+	bUnitOut	: BOOL;			// TRUE = astUnit을 냄 (접속점 그룹 값 bPSetActive·fPSet·bQSetActive·fQSet은 쓰지 않음)
+	astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitReq;	// 유닛 출력 (kW·kvar). 접속점 그룹 단위 관리자는 전부, 유닛 단위 관리자는 맡은 유닛 칸만 냄
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

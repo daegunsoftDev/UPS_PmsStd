@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtCoreProt" Id="{450dcbbc-725f-444b-abc0-076800272f5f}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtCoreProt : WSTRING(31)		// 기본 보호 이름
+VAR_INPUT
+	i_e		: E_CoreProt;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_e OF
+	E_CoreProt.PcsFault:	F_TxtCoreProt := "PCS 고장";
+	E_CoreProt.PcsComm:	F_TxtCoreProt := "PCS 통신 끊김";
+	E_CoreProt.BatFault:	F_TxtCoreProt := "BMS 고장";
+	E_CoreProt.BatComm:	F_TxtCoreProt := "BMS 통신 끊김";
+	E_CoreProt.PccInvalid:	F_TxtCoreProt := "접속점 계측 무효";
+ELSE
+	F_TxtCoreProt := "?";
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtStage" Id="{815a545a-b75d-4124-90d2-184b0f01dfe9}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtStage : WSTRING(31)		// 진단 단계 문구
+VAR_INPUT
+	i_e		: E_DiagStage;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_e OF
+	E_DiagStage.None:	F_TxtStage := "없음";
+	E_DiagStage.NoRequest:	F_TxtStage := "요청 없음";
+	E_DiagStage.NotRunning:	F_TxtStage := "운전 아님";
+	E_DiagStage.Ramp:	F_TxtStage := "램프";
+	E_DiagStage.PccLimit:	F_TxtStage := "접속점 제한";
+	E_DiagStage.DeviceLimit:	F_TxtStage := "설비 제한";
+	E_DiagStage.UnitLimit:	F_TxtStage := "유닛 한도·분배";
+	E_DiagStage.NoUnit:	F_TxtStage := "이 모드 유닛 없음";
+ELSE
+	F_TxtStage := "?";
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

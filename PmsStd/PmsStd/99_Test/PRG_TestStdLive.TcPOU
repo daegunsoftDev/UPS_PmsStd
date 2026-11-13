@@ -1,0 +1,169 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="PRG_TestStdLive" Id="{11aabddd-fbd0-4714-a1d9-14c40542cf36}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_TestStdLive		// 스탠다드 스케줄 모드 실제 경로 시험 (시험 모드, MAIN이 부름): EMS 명령 레코드 → FB_EmsCommand(MqttTask) → GVL_IF → MAIN A_PassEmsCmd → 모드 → 관리자 → 코어 고르기
+// bStart := TRUE로 시작. PCS2(유닛 2)를 Auto로 두고 접속점 그룹 관리자(g_fbCtrlMode1)에 모드 5 (유닛 2 칸을 봄).
+// [16번 수정 2026-11-09: 관리자 2(g_fbCtrlMode2)·모드 g_fbCmStdSched2 → 접속점 그룹 관리자 g_fbCtrlMode1·g_fbCmStdSched1의 유닛 2 칸] EMS 명령은 MQTT 수신 칸(GVL_MQTT.g_astPcsCommand[1] = PCS2)에 직접 넣음 (브로커 없이)
+// A: 켠 직후 EMS P 없음 → 0 / B: 방전 100 → 100 / C: 충전 50 → -50 / D: 정지 → 0 (새 P 지령 대기)
+// 조건이 2 s 이어지면 통과. 장비 쓰기(DEVICE_WRITE)와 무관하게 코어 고르기 결과(MAIN.fbSelect)까지 봄. 끝나면 모드 0, 운전 모드를 되돌림
+VAR
+	bStart		: BOOL;
+	bDone		: BOOL;
+	bPass		: BOOL;
+	nStep		: UINT;
+	wsStep		: WSTRING(80);
+	wsFail		: WSTRING(80);
+	(* 지금 값 *)
+	nActive		: UINT;			// 접속점 그룹 관리자 켜진 모드 (5 = 스탠다드 스케줄)
+	nModeState	: UINT;			// 모드 q_nState (0 = P 냄, 2 = EMS 끊김, 3 = 새 지령 대기)
+	fModeP		: REAL;			// 모드가 받아 둔 P
+	bEmsAlive	: BOOL;			// EMS 지령원 유효
+	fMgrP		: REAL;			// 접속점 그룹 관리자 출력 (유닛 2 칸)
+	bMgrP		: BOOL;
+	stPick		: ST_Pick;		// 코어 고르기 결과 (Auto 유닛 2)
+	(* 판정 *)
+	bA			: BOOL;
+	bB			: BOOL;
+	bC			: BOOL;
+	bD			: BOOL;
+	fB			: REAL;
+	fC			: REAL;
+	(* 내부 *)
+	nU2			: UINT := 2;
+	eOpModeBak	: E_OpMode;
+	bBackedUp	: BOOL;
+	bCond		: BOOL;
+	nLastStep	: UINT;
+	tonStep		: TON;
+	tonOk		: TON;
+	stOut		: ST_SourceOutput;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// 지금 값
+nActive		:= GVL_SITE.g_fbCtrlMode1.q_nActive;
+stOut		:= GVL_SITE.g_fbCtrlMode1.Output;
+IF nU2 >= 1 AND nU2 <= GVL_PARAM.UNIT_COUNT THEN
+	nModeState	:= GVL_SITE.g_fbCmStdSched1.q_anState[nU2];
+	fModeP		:= GVL_SITE.g_fbCmStdSched1.q_afPCmd[nU2];
+	bEmsAlive	:= GVL_SITE.g_fbCmStdSched1.i_astCmd[nU2].bAlive;
+	bMgrP	:= stOut.astUnit[nU2].bPSetActive;
+	fMgrP	:= stOut.astUnit[nU2].fPSet;
+	stPick	:= MAIN.fbSelect.q_astAutoUnitP[nU2];
+END_IF
+
+tonStep(IN := nStep >= 20 AND nStep < 900, PT := T#30S);
+bCond := FALSE;
+
+CASE nStep OF
+	0:
+		IF bStart THEN
+			bStart := FALSE;	bDone := FALSE;	bPass := FALSE;	wsFail := "";
+			bA := FALSE;	bB := FALSE;	bC := FALSE;	bD := FALSE;
+			nStep := 10;
+		ELSIF NOT bDone THEN
+			wsStep := "대기: bStart := TRUE로 시작";
+		END_IF
+
+	10:	// PCS2 Auto
+		wsStep := "PCS2 Auto 전환";
+		IF nU2 > GVL_PARAM.UNIT_COUNT OR GVL_PARAM.PCS_COUNT < 2 THEN
+			wsFail := "PCS·유닛이 2개 이상이어야 함";
+			nStep := 900;
+		ELSE
+			eOpModeBak	:= GVL_PERSIST.g_aeOpMode[nU2];
+			bBackedUp	:= TRUE;
+			GVL_PERSIST.g_aeOpMode[nU2] := E_OpMode.Auto;
+			nStep := 20;
+		END_IF
+
+	20:
+		wsStep := "Auto 전환 대기";
+		IF MAIN.fbModeSwitch.q_aeOpMode[nU2] = E_OpMode.Auto THEN
+			GVL_SITE.g_fbCtrlMode1.i_nModeReq := 5;
+			GVL_SITE.g_fbCtrlMode1.i_bRetry := TRUE;
+			nStep := 30;
+		END_IF
+
+	30:
+		wsStep := "스탠다드 스케줄 모드 켜는 중";
+		IF nActive = 5 THEN
+			nStep := 100;
+		ELSIF GVL_SITE.g_fbCtrlMode1.q_eRefuse <> E_CtrlModeRefuse.None THEN
+			wsFail := WCONCAT("모드 거부: ", GVL_SITE.g_fbCtrlMode1.M_ModeReasonText(i_nSlot := 5, i_nReason := GVL_SITE.g_fbCtrlMode1.q_nRefuseReason));
+			nStep := 900;
+		END_IF
+
+	100: // A: 켠 직후, EMS P 없음 → 0
+		wsStep := "A: EMS P 없음 → 0";
+		bCond := nActive = 5 AND (nModeState = 3 OR nModeState = 2) AND bMgrP AND fMgrP = 0.0;
+		IF tonOk.Q THEN
+			bA := TRUE;
+			M_Send(i_nType := 5, i_fValue := 100.0);		// 방전 100
+			nStep := 110;
+		END_IF
+	110: // B: 방전 100
+		wsStep := "B: EMS 방전 100 → 100";
+		bCond := nModeState = 0 AND ABS(fModeP - 100.0) < 0.01 AND bMgrP AND ABS(fMgrP - 100.0) < 0.01
+			AND stPick.bActive AND ABS(stPick.fValue - 100.0) < 0.01 AND stPick.nModule = GVL_SITE.g_fbCtrlMode1.ModuleId;
+		IF tonOk.Q THEN
+			bB := TRUE;	fB := stPick.fValue;
+			M_Send(i_nType := 4, i_fValue := 50.0);		// 충전 50
+			nStep := 120;
+		END_IF
+	120: // C: 충전 50
+		wsStep := "C: EMS 충전 50 → -50";
+		bCond := nModeState = 0 AND ABS(fMgrP + 50.0) < 0.01 AND stPick.bActive AND ABS(stPick.fValue + 50.0) < 0.01;
+		IF tonOk.Q THEN
+			bC := TRUE;	fC := stPick.fValue;
+			M_Send(i_nType := 2, i_fValue := 0.0);		// 정지
+			nStep := 130;
+		END_IF
+	130: // D: 정지 → 0 (새 P 지령 대기)
+		wsStep := "D: EMS 정지 → 0";
+		bCond := nModeState = 3 AND bMgrP AND fMgrP = 0.0 AND stPick.bActive AND stPick.fValue = 0.0;
+		IF tonOk.Q THEN
+			bD := TRUE;
+			nStep := 900;
+		END_IF
+
+	900: // 정리
+		GVL_SITE.g_fbCtrlMode1.i_nModeReq := 0;
+		IF bBackedUp THEN
+			GVL_PERSIST.g_aeOpMode[nU2] := eOpModeBak;
+			bBackedUp := FALSE;
+		END_IF
+		bPass := bA AND bB AND bC AND bD AND wsFail = "";
+		bDone := TRUE;
+		IF bPass THEN
+			wsStep := "끝: 통과";
+		ELSE
+			wsStep := "끝: 실패 (wsFail·구간 결과 확인)";
+		END_IF
+		nStep := 0;
+END_CASE
+
+tonOk(IN := bCond AND nStep = nLastStep, PT := T#2S);
+IF tonStep.Q AND nStep >= 20 AND nStep < 900 THEN
+	wsFail	:= WCONCAT("시간 초과: ", wsStep);
+	nStep	:= 900;
+END_IF
+IF nStep <> nLastStep THEN
+	tonStep(IN := FALSE);
+	tonOk(IN := FALSE);
+	nLastStep := nStep;
+END_IF]]></ST>
+    </Implementation>
+    <Method Name="M_Send" Id="{0a138f99-8845-46a0-b847-a40816ea5354}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Send		// EMS 명령 레코드 하나를 MQTT 수신 칸에 넣음 (PCS2 = 칸 1). 값을 먼저, 종류를 마지막에 (MqttTask가 종류를 보고 처리)
+VAR_INPUT
+	i_nType		: UDINT;	// PCS CommandType: 1 Run, 2 Stop, 3 Standby, 4 충전, 5 방전
+	i_fValue	: REAL;		// kW
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GVL_MQTT.g_astPcsCommand[1].DeviceIndex	:= 2;	// PCS2 (번호 1부터) [1부터 2026-11-10]
+GVL_MQTT.g_astPcsCommand[1].Value		:= i_fValue;
+GVL_MQTT.g_astPcsCommand[1].CommandType	:= i_nType;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

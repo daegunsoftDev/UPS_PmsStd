@@ -1,0 +1,56 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MeterSim" Id="{e026208f-eda9-4101-80e1-8bbf9659c27e}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_MeterSim EXTENDS FB_DeviceBase IMPLEMENTS I_Meter		// 가상 계측기 (시험용)
+VAR_INPUT
+	i_fP			: REAL;					// kW (방전 +). PRG_SimLink가 넣음
+	i_fQ			: REAL;					// kvar
+	i_fVPhase		: REAL := 13221.0;		// V, 상전압
+	i_fHz			: REAL := 60.0;
+	i_bForceInvalid	: BOOL;			// 시험: 접속점 P/Q 계측 무효 (값·통신·전압·주파수는 유지)
+END_VAR
+VAR
+	_stMeter		: ST_MeterState;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Property Name="MeterState" Id="{18405c68-877d-45d8-bef0-2e40ee017bd6}">
+      <Declaration><![CDATA[PROPERTY MeterState : ST_MeterState]]></Declaration>
+      <Get Name="Get" Id="{f21bd9fc-7331-40ea-b670-26dab345e5c6}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[MeterState := _stMeter;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="M_Cycle" Id="{1f621111-2621-4371-8205-0258e65cd4c8}">
+      <Declaration><![CDATA[METHOD M_Cycle
+VAR
+	k		: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF M_IsReadTime() THEN		// 읽기 주기마다 응답한 것으로 봄
+	M_MarkAlive();
+END_IF
+M_UpdateComm();
+
+_stMeter.bComm			:= _bComm;
+_stMeter.stP.fValue		:= i_fP;
+_stMeter.stP.bValid		:= NOT i_bForceInvalid;
+_stMeter.stQ.fValue		:= i_fQ;
+_stMeter.stQ.bValid		:= NOT i_bForceInvalid;
+_stMeter.stV.fValue		:= i_fVPhase;
+_stMeter.stV.bValid		:= TRUE;
+FOR k := 1 TO 3 DO
+	_stMeter.astV[k].fValue	:= i_fVPhase;
+	_stMeter.astV[k].bValid	:= TRUE;
+END_FOR
+_stMeter.stF.fValue		:= i_fHz;
+_stMeter.stF.bValid		:= TRUE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

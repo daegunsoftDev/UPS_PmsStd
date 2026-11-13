@@ -1,0 +1,42 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_GateAuto" Id="{893e4a35-ea07-4665-8d95-c8461ba317ae}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_GateAuto EXTENDS FB_ModuleBase IMPLEMENTS I_Gate	// 코어 기본 Auto Gate: 그대로 통과]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Filter" Id="{f7bc41f2-64ff-4fb4-9464-1114480dd287}">
+      <Declaration><![CDATA[METHOD M_Filter
+VAR_INPUT
+	i_stView	: ST_GateView;
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astUnitP		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;		// 이 경로 FB_Select 결과 (다른 경로 유닛은 비활성)
+	iq_astUnitQ		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	iq_astGrpP		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_astGrpQ		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;		// 유닛 실제 운전 모드
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;	// 유닛 상태 (실제 출력 방향·운전 상태)
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+END_VAR
+VAR_IN_OUT
+	iq_stOut		: ST_GateOut;		// 거른 결과 (Gate가 채움. 지난 스캔 값이 남아 있음)
+END_VAR
+VAR
+	u	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[iq_stOut.astUnitP	:= iq_astUnitP;
+iq_stOut.astUnitQ	:= iq_astUnitQ;
+iq_stOut.astGrpP	:= iq_astGrpP;
+iq_stOut.astGrpQ	:= iq_astGrpQ;
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	iq_stOut.abNew[u]			:= iq_astUnitP[u].bNew OR iq_astUnitQ[u].bNew;
+	iq_stOut.aeRefuse[u]		:= E_CmdRefuse.None;
+	iq_stOut.anRefuseModule[u]	:= 0;
+	iq_stOut.abWaitNewCmd[u]	:= FALSE;
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

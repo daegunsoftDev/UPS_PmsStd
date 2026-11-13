@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_ModuleReg" Id="{fea8a2b6-2130-446a-9e1f-aed15905f918}">
+    <Declaration><![CDATA[TYPE ST_ModuleReg :
+STRUCT
+	bEnable		: BOOL := TRUE;
+	nGroup		: UINT;					// 대상 제어 그룹. 0 = 모든 그룹 (제한·보정·기동 조건은 그룹이 1개일 때만. 2개 이상이면 그룹마다 인스턴스)
+	bManual		: BOOL := TRUE;			// 출력 제한 모듈만: 접속점 기준 모듈을 Manual 경로에도 적용 (Auto는 항상 적용). 기본 TRUE: 역송 방지·계약 전력처럼 넘으면 안 되는 상한은 Manual도 지킴. 현장 시험 때만 FALSE로 풀고 끝나면 TRUE (영속값이라 저절로 안 돌아옴)
+	// [5-16 결정 2026-11-04: 기본값 TRUE로. 원래 bManual : BOOL; (기본 FALSE). 이미 운영 중인 현장은 저장된 값(FALSE)이 그대로 남으므로 업데이트 때 TRUE로 한 번 씀]
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

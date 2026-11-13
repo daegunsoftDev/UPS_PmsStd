@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_SourceOutput" Id="{cfeaa819-4aa8-4342-954b-c56ed617f72f}">
+    <Declaration><![CDATA[TYPE ST_SourceOutput :
+STRUCT
+	bValid			: BOOL;			// 사용 중 + 유효 + 만료 안 됨. FALSE면 아래 전부 무시
+	(* P 지령 *)
+	bPSetActive		: BOOL;
+	fPSet			: REAL;			// kW, 접속점 기준
+	(* P 제한 *)
+	bPLimActive		: BOOL;
+	fPMax			: REAL;			// kW
+	fPMin			: REAL;			// kW
+	(* Q 지령 *)
+	bQSetActive		: BOOL;
+	fQSet			: REAL;			// kvar, 접속점 기준
+	(* Q 제한 *)
+	bQLimActive		: BOOL;
+	fQMax			: REAL;			// kvar, 공급 상한 (접속점 기준)
+	fQMin			: REAL;			// kvar, 흡수 하한
+	bNewSet			: BOOL;			// 새 지령값이 들어옴 (1스캔). Manual 유닛은 이 스캔에 바로 씀
+	(* 상태 요청 *)
+	stPcsReq		: ST_PcsReq;		// PCS 상태 요청 (Run·Standby·Stop·EStop·Reset)
+	stBatReq		: ST_BatReq;		// 배터리 요청 (Close·Open)
+	(* 유닛별 값 (선택) *)
+	astUnit			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitReq;	// 값이 있는 유닛은 그룹 몫 대신 이 값
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

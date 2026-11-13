@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_CmRoundTens" Id="{de71a2d8-6bc6-440e-91bb-310c3de2e8e0}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_CmRoundTens : REAL		// 10 단위 반올림 (Messis roundUpTens)
+VAR_INPUT
+	i_f			: REAL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// [결함 13 수정 2026-11-04: NaN·범위 밖이면 REAL_TO_DINT가 FPU 예외 → F_RealToDint (NaN은 0). 원래 DINT_TO_REAL(REAL_TO_DINT(i_f / 10.0)) * 10.0]
+F_CmRoundTens := DINT_TO_REAL(F_RealToDint(i_f / 10.0)) * 10.0;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

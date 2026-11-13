@@ -1,0 +1,36 @@
+# Let Git detect text files unless a more specific rule follows.
+* text=auto
+
+# Repository documentation and Git configuration use LF everywhere.
+.gitattributes text eol=lf
+.gitignore     text eol=lf
+*.md           text eol=lf
+
+# Visual Studio and TwinCAT project files are maintained by Windows tools.
+*.sln     text eol=crlf
+*.tsproj  text eol=crlf
+*.plcproj text eol=crlf
+*.tclrs   text eol=crlf
+
+# TwinCAT PLC source and generated XML metadata.
+*.TcPOU text eol=crlf
+*.TcDUT text eol=crlf
+*.TcGVL text eol=crlf
+*.TcIO  text eol=crlf
+*.TcTTO text eol=crlf
+*.tmc   text eol=crlf
+
+# Compiled libraries and archives must never be line-ending normalized,
+# text-diffed, or merged.
+*.compiled-library binary
+*.zip              binary
+*.7z               binary
+*.rar              binary
+
+# Common non-text assets.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary

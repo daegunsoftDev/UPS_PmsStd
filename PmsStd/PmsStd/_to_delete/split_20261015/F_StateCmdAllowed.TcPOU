@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_StateCmdAllowed" Id="{d2e35a00-6f20-4389-923d-7d542b74fa42}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_StateCmdAllowed : BOOL		// 지령원의 이 상태 요청을 이 운전 모드에서 받나 (명령마다 등록값). 리셋은 항상 받음
+VAR_INPUT
+	i_stSet		: ST_StateModeSet;
+	i_eCmd		: E_StateCmd;
+	i_eOpMode	: E_OpMode;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_eCmd OF
+	E_StateCmd.Run:			F_StateCmdAllowed := F_SourceAllowed(i_stSet.stPcs.eRun, i_eOpMode);
+	E_StateCmd.Standby:		F_StateCmdAllowed := F_SourceAllowed(i_stSet.stPcs.eStandby, i_eOpMode);
+	E_StateCmd.Stop:		F_StateCmdAllowed := F_SourceAllowed(i_stSet.stPcs.eStop, i_eOpMode);
+	E_StateCmd.EStop:		F_StateCmdAllowed := F_SourceAllowed(i_stSet.stPcs.eEStop, i_eOpMode);
+	E_StateCmd.BatClose:	F_StateCmdAllowed := F_SourceAllowed(i_stSet.stBat.eClose, i_eOpMode);
+	E_StateCmd.BatOpen:		F_StateCmdAllowed := F_SourceAllowed(i_stSet.stBat.eOpen, i_eOpMode);
+	E_StateCmd.Reset:		F_StateCmdAllowed := TRUE;
+ELSE
+	F_StateCmdAllowed := FALSE;		// None
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

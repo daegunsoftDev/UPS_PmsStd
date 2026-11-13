@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.9">
+  <DUT Name="ST_TempPublish_V1" Id="{8bcdfa0b-d479-4d56-b2b8-89f0aef4b42e}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_TempPublish_V1 :
+STRUCT
+	DeviceIndex	:	UDINT;
+	status		:	UDINT;
+	location	:	UDINT;		//1: PCS 실 2: BAT 실 3: UPS 실 4: FC 컨테이너 실 5: 외부
+	temperature	:	REAL;
+	humidity	:	REAL;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,95 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_AuxIo" Id="{fe807705-e7d2-48e7-a45e-fc5210a058be}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_AuxIo EXTENDS FB_DeviceBase IMPLEMENTS I_AuxDevice		// 벡호프 단자 I/O (EL1xxx 입력, EL2xxx 출력, EL3xxx 아날로그 입력, EL4xxx 아날로그 출력)
+(* 점은 TwinCAT 화면에서 _abDi·_abDo·_anAi·_anAo 칸에 하나씩 연결. 점 번호 = 배열 칸 번호
+   이 FB를 PlcTask가 아닌 태스크에서 쓰면 그 태스크 PRG 안에 선언 (GVL에 두면 TcContextName 필요) *)
+VAR_INPUT
+	i_afAiGain		: ARRAY[1..GVL_PARAM.AUX_AI_MAX] OF REAL;		// 아날로그 입력 = 원시값 × 배율 + 오프셋. 배율 0 = 1 (예: PT100 EL3202는 0.1)
+	i_afAiOffset	: ARRAY[1..GVL_PARAM.AUX_AI_MAX] OF REAL;
+	i_afAoGain		: ARRAY[1..GVL_PARAM.AUX_AO_MAX] OF REAL;		// 아날로그 출력 원시값 = 값 / 배율. 배율 0 = 1
+END_VAR
+VAR
+	_abDi	AT %I*	: ARRAY[1..GVL_PARAM.AUX_DI_MAX] OF BOOL;
+	_abDo	AT %Q*	: ARRAY[1..GVL_PARAM.AUX_DO_MAX] OF BOOL;
+	_anAi	AT %I*	: ARRAY[1..GVL_PARAM.AUX_AI_MAX] OF INT;
+	_anAo	AT %Q*	: ARRAY[1..GVL_PARAM.AUX_AO_MAX] OF INT;
+	_bWcError AT %I* : BOOL;		// (선택) EtherCAT WcState 연결. 안 연결하면 늘 정상
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Cycle" Id="{98fb8182-adea-4dcc-837c-58bd1d7ac50d}">
+      <Declaration><![CDATA[METHOD M_Cycle]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT _bWcError THEN
+	M_MarkAlive();
+END_IF
+M_UpdateComm();]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Comm" Id="{6bb940d0-df15-48ec-9087-93d768ee3ba1}">
+      <Declaration><![CDATA[PROPERTY Comm : BOOL]]></Declaration>
+      <Get Name="Get" Id="{ee7209a9-ad17-414c-8a25-14356d21447b}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Comm := _bComm;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="M_GetBit" Id="{9aa042ff-5637-48df-ba9a-100700d8a691}">
+      <Declaration><![CDATA[METHOD M_GetBit : BOOL
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nPoint >= 1 AND i_nPoint <= GVL_PARAM.AUX_DI_MAX THEN
+	M_GetBit := _abDi[i_nPoint];
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetValue" Id="{9b297a6b-ea1f-4a15-9dac-51dd863d32ec}">
+      <Declaration><![CDATA[METHOD M_GetValue : ST_Val
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nPoint >= 1 AND i_nPoint <= GVL_PARAM.AUX_AI_MAX THEN
+	M_GetValue.fValue := INT_TO_REAL(_anAi[i_nPoint]) * SEL(i_afAiGain[i_nPoint] = 0, i_afAiGain[i_nPoint], 1.0) + i_afAiOffset[i_nPoint];
+	M_GetValue.bValid := _bComm;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetBit" Id="{97459a35-0d38-43a1-a4d1-4883bcf98ee2}">
+      <Declaration><![CDATA[METHOD M_SetBit
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_bValue	: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nPoint >= 1 AND i_nPoint <= GVL_PARAM.AUX_DO_MAX THEN
+	_abDo[i_nPoint] := i_bValue;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetValue" Id="{06ba2222-e4e8-4387-944e-9d3577c96d7b}">
+      <Declaration><![CDATA[METHOD M_SetValue
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_fValue	: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nPoint >= 1 AND i_nPoint <= GVL_PARAM.AUX_AO_MAX THEN
+	// [결함 13 수정 2026-11-04: 값·게인이 숫자가 아니면 0 (LIMIT·REAL_TO_INT에서 FPU 예외). 원래 아래 줄만]
+	IF F_RealOk(i_fValue) AND F_RealOk(i_afAoGain[i_nPoint]) THEN
+		_anAo[i_nPoint] := REAL_TO_INT(LIMIT(-32768.0, i_fValue / SEL(i_afAoGain[i_nPoint] = 0, i_afAoGain[i_nPoint], 1.0), 32767.0));
+	ELSE
+		_anAo[i_nPoint] := 0;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

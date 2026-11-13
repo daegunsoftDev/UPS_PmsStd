@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_LoggerHeader" Id="{57206177-d78e-435e-868a-d8247612411f}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_LoggerHeader :		// 로거 토픽(pms_log) 헤더 (36 byte). 장치 토픽 헤더(ST_MqttHeader)와 달리 DeviceCount 없음: 메시지 1건 = 이벤트 1건
+STRUCT
+	HeaderVersion	:	UDINT;		// GVL_MQTT.HEADER_VERSION
+	DeviceVersion	:	UDINT;		// GVL_MQTT.LOGGER_VERSION
+	SiteId			:	UDINT;
+	TimeStamp		:	STRING(23);	// 이벤트가 생긴 시각 (보낸 시각 아님, 현지 시각) "2024-09-04 11:11:11.123" (23자 + null = 24byte)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

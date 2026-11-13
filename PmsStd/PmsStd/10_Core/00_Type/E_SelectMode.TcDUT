@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_SelectMode" Id="{f3ef3a57-5133-4830-9e85-51eb3e2d78cb}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_SelectMode :
+(
+	Grade		:= 0,	// 등급 우선 (등급 숫자가 작은 지령원)
+	MinAbs		:= 1	// 절대값이 가장 작은 값
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

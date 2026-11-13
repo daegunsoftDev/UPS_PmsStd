@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<DUT Name="ST_UpsChargeFeedback" Id="{517dfc6a-f4d9-4bb0-97a8-a8559a1a6581}"><Declaration><![CDATA[// ST_UpsChargeRequest에 대한 처리 결과.
+// nSeq가 요청 번호와 같고 bConfirmed가 TRUE여야 완료로 본다.
+TYPE ST_UpsChargeFeedback :
+STRUCT
+ bValid : BOOL; // 확인 응답
+ nSeq : UDINT; // 확인한 요청 번호
+ bConfirmed : BOOL; // 동작 확인 완료
+END_STRUCT
+END_TYPE]]></Declaration></DUT>
+</TcPlcObject>

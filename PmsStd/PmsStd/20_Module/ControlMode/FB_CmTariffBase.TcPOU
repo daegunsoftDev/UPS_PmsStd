@@ -1,0 +1,322 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_CmTariffBase" Id="{5101f895-df9c-4c87-952c-1ed8e253949e}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK ABSTRACT FB_CmTariffBase EXTENDS FB_CtrlModeBase		// 요금제 기반 제어 모드 공통 바탕 (스케줄·피크컷·통합). 같은 계산은 여기 메서드 하나만 씀
+// 휴일·계절·방전 허용 시간·역송 방지·시간표 조회·잔량 방전·자동 충전. 상태·이유 코드는 GVL_CM_RSN
+// 파생 FB: M_Calc에서 M_Begin으로 시작 → 계산 → M_Finish로 끝냄
+VAR_INPUT
+	i_stCommon	: ST_CmCommonSet;	// 공통 설정 (A_PassModuleSet이 GVL_PERSIST.g_stModuleSet.stCmCommon을 매 스캔 넘김)
+END_VAR
+VAR_OUTPUT
+	q_nState	: UINT;		// 0 = 정상, 그 외 = GVL_CM_RSN (M_ReasonText)
+	q_fOutP		: REAL;		// 이번 스캔에 낸 P (kW, 방전 +)
+	q_nSeason	: UINT;		// 지금 계절 (0 여름, 1 봄·가을, 2 겨울)
+	q_nSlot		: UINT;		// 맞는 시간표 칸 (0 = 없음, 시간표를 쓰는 모드만)
+	q_fSlotP	: REAL;		// 그 칸 값 (kW)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_CheckEnter" Id="{5b6707a9-237a-4939-a0a3-5abdd4b32357}">
+      <Declaration><![CDATA[METHOD M_CheckEnter : UINT
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckEnter := 0;
+IF NOT M_TimeOk(i_stTime := i_stView.stTime) THEN
+	M_CheckEnter := GVL_CM_RSN.NO_TIME;
+ELSIF i_stView.stGroup.nUnitAvail = 0 THEN
+	M_CheckEnter := GVL_CM_RSN.NO_UNIT;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Begin" Id="{6e189f08-189b-4c8c-b7b1-7c0d16a47032}">
+      <Declaration><![CDATA[METHOD PROTECTED M_Begin : BOOL		// 스캔 시작: 출력 칸을 비우고 계절을 셈. 시각이 맞고 휴일이 아니면 TRUE (FALSE면 q_nState에 이유, 0을 냄)
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[q_nState	:= 0;
+q_fOutP		:= 0.0;
+q_nSlot		:= 0;
+q_fSlotP	:= 0.0;
+M_Begin		:= FALSE;
+IF NOT M_TimeOk(i_stTime := i_stView.stTime) THEN
+	q_nState := GVL_CM_RSN.NO_TIME;
+ELSE
+	q_nSeason := i_stCommon.anSeasonOfMonth[i_stView.stTime.nMonth];
+	IF q_nSeason > 2 THEN
+		q_nSeason := 0;		// M_CheckSet이 막지만 배열 범위 보호
+	END_IF
+	IF i_stCommon.abHoliday[i_stView.stTime.nMonth, i_stView.stTime.nDay] THEN
+		q_nState := GVL_CM_RSN.HOLIDAY;
+	ELSE
+		M_Begin := TRUE;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Finish" Id="{a1ac828b-c133-452b-9d39-f381d26777a3}">
+      <Declaration><![CDATA[METHOD PROTECTED M_Finish : ST_CtrlModeOut		// 스캔 끝: P를 지령으로 냄 (0이어도 냄: 등급이 낮은 지령원으로 넘어가지 않게). Q는 내지 않음
+VAR_INPUT
+	i_fP		: REAL;		// kW, 방전 +
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[q_fOutP					:= i_fP;
+M_Finish.bPSetActive	:= TRUE;
+M_Finish.fPSet			:= i_fP;
+M_Finish.bQSetActive	:= FALSE;
+M_Finish.fQSet			:= 0.0;
+M_Finish.bExitReq		:= FALSE;
+M_Finish.nReason		:= 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_TimeOk" Id="{4ef3ed93-8087-4a59-9b04-6415ad82ac55}">
+      <Declaration><![CDATA[METHOD PROTECTED M_TimeOk : BOOL		// 시각이 유효하고 배열 번호로 쓸 수 있는 범위
+VAR_INPUT
+	i_stTime	: ST_LocalTime;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_TimeOk := i_stTime.bValid AND i_stTime.nMonth >= 1 AND i_stTime.nMonth <= 12
+	AND i_stTime.nDay >= 1 AND i_stTime.nDay <= 31 AND i_stTime.nDayOfWeek <= 6;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_DisAllowed" Id="{3d993d04-83fe-4019-b9d1-bb8073418924}">
+      <Declaration><![CDATA[METHOD PROTECTED M_DisAllowed : BOOL		// 지금 방전해도 되는 시간인가 (공통 설정 stDis)
+VAR_INPUT
+	i_stTime	: ST_LocalTime;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_DisAllowed := TRUE;
+IF i_stCommon.stDis.bUse THEN
+	M_DisAllowed := F_InHhmmWindow(i_nNow := F_TimeHhmm(i_stTime := i_stTime), i_nStart := i_stCommon.stDis.nStart, i_nEnd := i_stCommon.stDis.nEnd)
+		AND (i_stTime.nDayOfWeek <> 0 OR i_stCommon.stDis.bSunday);
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_NoReverse" Id="{d6b0aa2a-2a91-4efc-92dc-add794f36250}">
+      <Declaration><![CDATA[METHOD PROTECTED M_NoReverse : REAL		// 역송 방지: 방전 요청을 (부하 − 여유) 안으로 줄임 (공통 설정 stNoRev). 충전·0은 그대로
+VAR_INPUT
+	i_fReq		: REAL;		// kW, 방전 +
+	i_stView	: ST_CtrlModeView;
+END_VAR
+VAR_OUTPUT
+	q_nRsn		: UINT;		// 0 = 그대로, GVL_CM_RSN.REV_LIMIT = 줄임, GVL_CM_RSN.NO_PCC = 계측 무효로 0
+END_VAR
+VAR
+	fLoad		: REAL;		// 부하 = ESS가 없을 때의 수전
+	fAvail		: REAL;		// 역송 없이 방전할 수 있는 양
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_NoReverse	:= i_fReq;
+q_nRsn		:= 0;
+IF i_fReq > 0.0 AND i_stCommon.stNoRev.bUse THEN
+	IF i_stView.stGroup.stPcc.stMeas.stP.bValid THEN
+		// 접속점 P는 공급(역송) +, 수전 -. 부하 = ESS 출력 − 접속점 공급 (충전 중·역송 중에도 맞음)
+		fLoad	:= MAX(i_stView.stGroup.fPOut - i_stView.stGroup.stPcc.stMeas.stP.fValue, 0.0);
+		fAvail	:= MAX(fLoad - i_stCommon.stNoRev.fMargin, 0.0);
+		IF i_fReq > fAvail THEN
+			M_NoReverse	:= fAvail * i_stCommon.stNoRev.fScale;
+			q_nRsn		:= GVL_CM_RSN.REV_LIMIT;
+		END_IF
+	ELSE
+		M_NoReverse	:= 0.0;
+		q_nRsn		:= GVL_CM_RSN.NO_PCC;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SchedLookup" Id="{49fa5feb-05d6-4195-90ec-cb5b734af351}">
+      <Declaration><![CDATA[METHOD PROTECTED M_SchedLookup : BOOL		// 시간표에서 지금 맞는 칸 (번호가 큰 칸 우선). 찾으면 TRUE, q_nSlot·q_fSlotP에 씀. M_Begin 뒤에 부름 (계절)
+VAR_INPUT
+	i_stTime	: ST_LocalTime;
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_stTable	: ST_CmScheduleSet;
+END_VAR
+VAR
+	nNow		: UINT;
+	k			: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[nNow		:= F_TimeHhmm(i_stTime := i_stTime);
+q_nSlot		:= 0;
+q_fSlotP	:= 0.0;
+FOR k := 1 TO GVL_PARAM.SCHED_SLOT_COUNT DO
+	IF F_InHhmmWindow(i_nNow := nNow, i_nStart := iq_stTable.astSlot[q_nSeason, i_stTime.nDayOfWeek, k].nStart, i_nEnd := iq_stTable.astSlot[q_nSeason, i_stTime.nDayOfWeek, k].nEnd) THEN
+		q_nSlot		:= k;
+		q_fSlotP	:= iq_stTable.astSlot[q_nSeason, i_stTime.nDayOfWeek, k].fP;
+	END_IF
+END_FOR
+M_SchedLookup := q_nSlot <> 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SchedOut" Id="{205dd907-8a8f-400e-ade4-c3ad72fb56ff}">
+      <Declaration><![CDATA[METHOD PROTECTED M_SchedOut : REAL		// 시간표 값 → 낼 값: 칸 없음 0, 충전 그대로, 방전은 방전 허용 시간·역송 방지 (스케줄·통합 모드 공통)
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;
+END_VAR
+VAR_OUTPUT
+	q_nRsn		: UINT;		// 0 = 칸 값 그대로, 그 외 GVL_CM_RSN
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[q_nRsn		:= 0;
+M_SchedOut	:= 0.0;
+IF q_nSlot = 0 THEN
+	q_nRsn := GVL_CM_RSN.NO_SLOT;
+ELSIF q_fSlotP > 0.0 THEN
+	IF M_DisAllowed(i_stTime := i_stView.stTime) THEN
+		M_SchedOut := M_NoReverse(i_fReq := q_fSlotP, i_stView := i_stView, q_nRsn => q_nRsn);
+	ELSE
+		q_nRsn := GVL_CM_RSN.DIS_TIME;
+	END_IF
+ELSE
+	M_SchedOut := q_fSlotP;		// 충전 (또는 0)
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_RemainDis" Id="{3f6dbd30-3722-4b69-9fe6-964f0c62faae}">
+      <Declaration><![CDATA[METHOD PROTECTED M_RemainDis : REAL		// 잔량 방전량 (kW): (지금 에너지 − 하한 SOC 에너지)를 끝 시각까지 고르게. 가용 출력 상한. 역송 방지 전
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;
+	i_stWin		: ST_CmWindowSet;	// nEnd, fSoc = 남길 하한
+END_VAR
+VAR_OUTPUT
+	q_bNoCap	: BOOL;		// 용량·SOC 무효
+END_VAR
+VAR
+	nMin		: UINT;
+	fE			: REAL;		// kWh
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_RemainDis	:= 0.0;
+q_bNoCap	:= i_stView.stGroup.fCapacity <= 0.0 OR NOT i_stView.stGroup.stSocAvg.bValid;
+IF NOT q_bNoCap THEN
+	nMin	:= F_MinutesTo(i_nNow := F_TimeHhmm(i_stTime := i_stView.stTime), i_nEnd := i_stWin.nEnd);
+	fE		:= i_stView.stGroup.fCapacity * (i_stView.stGroup.stSocAvg.fValue - i_stWin.fSoc) / 100.0;
+	IF nMin > 0 AND fE > 0.0 THEN
+		M_RemainDis := MIN(fE * 60.0 / UINT_TO_REAL(nMin), i_stView.stGroup.fPRatedAvail);
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_AutoChg" Id="{40b143bb-83f2-431b-a305-0ea485c58c2c}">
+      <Declaration><![CDATA[METHOD PROTECTED M_AutoChg : REAL		// 자동 충전량 (kW, 양수): (목표 SOC 에너지 − 지금 에너지)를 끝 시각까지 + 1 kW, 최소 10 kW, 가용 출력 상한
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;
+	i_stWin		: ST_CmWindowSet;	// nEnd, fSoc = 채울 목표
+END_VAR
+VAR_OUTPUT
+	q_bNoCap	: BOOL;		// 용량·SOC 무효
+END_VAR
+VAR
+	nMin		: UINT;
+	fE			: REAL;		// kWh
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_AutoChg	:= 0.0;
+q_bNoCap	:= i_stView.stGroup.fCapacity <= 0.0 OR NOT i_stView.stGroup.stSocAvg.bValid;
+IF NOT q_bNoCap THEN
+	nMin	:= F_MinutesTo(i_nNow := F_TimeHhmm(i_stTime := i_stView.stTime), i_nEnd := i_stWin.nEnd);
+	fE		:= i_stView.stGroup.fCapacity * (i_stWin.fSoc - i_stView.stGroup.stSocAvg.fValue) / 100.0;
+	IF nMin > 0 AND fE > 0.0 THEN
+		M_AutoChg := MIN(MAX(fE * 60.0 / UINT_TO_REAL(nMin) + 1.0, 10.0), i_stView.stGroup.fPRatedAvail);
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckTable" Id="{48cd29a5-bb63-4812-9f01-1c8c838af341}">
+      <Declaration><![CDATA[METHOD PROTECTED M_CheckTable : WSTRING(63)		// 시간표 칸 시각 점검 (시작 ≤ 끝, HHMM)
+VAR_IN_OUT CONSTANT
+	iq_stTable	: ST_CmScheduleSet;
+END_VAR
+VAR
+	nS	: UINT;		// 계절
+	nD	: UINT;		// 요일
+	nK	: UINT;		// 칸
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckTable := "";
+FOR nS := 0 TO 2 DO
+	FOR nD := 0 TO 6 DO
+		FOR nK := 1 TO GVL_PARAM.SCHED_SLOT_COUNT DO
+			IF NOT F_RealOk(iq_stTable.astSlot[nS, nD, nK].fP) THEN	// [결함 13 수정 2026-11-04: 칸 출력 kW가 숫자가 아님]
+				M_CheckTable := WCONCAT(WCONCAT(WCONCAT(WCONCAT(WCONCAT("시간표 칸 출력 숫자 아님: 계절 ", TO_WSTRING(nS)), " 요일 "), TO_WSTRING(nD)), " 칸 "), TO_WSTRING(nK));
+				RETURN;
+			END_IF
+			IF NOT F_HhmmOk(i_nHhmm := iq_stTable.astSlot[nS, nD, nK].nStart) OR NOT F_HhmmOk(i_nHhmm := iq_stTable.astSlot[nS, nD, nK].nEnd)
+				OR iq_stTable.astSlot[nS, nD, nK].nStart > iq_stTable.astSlot[nS, nD, nK].nEnd THEN
+				M_CheckTable := WCONCAT(WCONCAT(WCONCAT(WCONCAT(WCONCAT("시간표 칸 시각 잘못됨: 계절 ", TO_WSTRING(nS)), " 요일 "), TO_WSTRING(nD)), " 칸 "), TO_WSTRING(nK));
+				RETURN;
+			END_IF
+		END_FOR
+	END_FOR
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckWindow" Id="{210101b5-b2ea-485b-ba95-9c0ad676f53a}">
+      <Declaration><![CDATA[METHOD PROTECTED M_CheckWindow : BOOL		// 시간 구간 설정이 맞는가 (쓰지 않으면 TRUE)
+VAR_INPUT
+	i_stWin		: ST_CmWindowSet;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// [결함 13 수정 2026-11-04: SOC가 숫자가 아니면 (쓰지 않는 구간이어도) 틀림. 비교 전에 비트로. 원래 NOT i_stWin.bUse OR (… AND i_stWin.fSoc >= 0.0 AND i_stWin.fSoc <= 100.0)]
+IF NOT F_RealOk(i_stWin.fSoc) THEN
+	M_CheckWindow := FALSE;
+	RETURN;
+END_IF
+M_CheckWindow := NOT i_stWin.bUse OR (F_HhmmOk(i_nHhmm := i_stWin.nStart) AND F_HhmmOk(i_nHhmm := i_stWin.nEnd)
+	AND i_stWin.nStart <> i_stWin.nEnd AND i_stWin.fSoc >= 0.0 AND i_stWin.fSoc <= 100.0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ReasonText" Id="{4340eebd-e038-4313-96bf-7df6aea18080}">
+      <Declaration><![CDATA[METHOD M_ReasonText : WSTRING(63)
+VAR_INPUT
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE i_nReason OF
+	GVL_CM_RSN.NO_TIME:		M_ReasonText := "시각 무효";
+	GVL_CM_RSN.NO_UNIT:		M_ReasonText := "가용 유닛 없음";
+	GVL_CM_RSN.HOLIDAY:		M_ReasonText := "휴일";
+	GVL_CM_RSN.NO_SLOT:		M_ReasonText := "맞는 시간표 칸 없음";
+	GVL_CM_RSN.DIS_TIME:	M_ReasonText := "방전 허용 시간 아님";
+	GVL_CM_RSN.REV_LIMIT:	M_ReasonText := "역송 방지로 방전 줄임";
+	GVL_CM_RSN.NO_PCC:		M_ReasonText := "접속점 계측 무효 (방전 0)";
+	GVL_CM_RSN.NO_CAP:		M_ReasonText := "배터리 용량·SOC 무효";
+	GVL_CM_RSN.PEAK:		M_ReasonText := "피크 제어 방전";
+	GVL_CM_RSN.BELOW_PEAK:	M_ReasonText := "피크 제어 필요 없음";
+	GVL_CM_RSN.AUTO_CHG:	M_ReasonText := "자동 충전 시간";
+	GVL_CM_RSN.REMAIN_DIS:	M_ReasonText := "잔량 방전 시간";
+	GVL_CM_RSN.SCHED_PEAK:	M_ReasonText := "스케줄·피크 제어 중 큰 방전";
+	GVL_CM_RSN.NEW_INTERVAL:	M_ReasonText := "새 15분 구간 시작";
+ELSE
+	M_ReasonText := WCONCAT("이유 ", TO_WSTRING(i_nReason));
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckSet" Id="{ae016494-37a2-4c4f-b9d2-ff2c383d0424}">
+      <Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)		// 공통 설정 점검. 파생 FB는 SUPER^.M_CheckSet() 뒤에 자기 설정을 점검
+VAR
+	k	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckSet := "";
+FOR k := 1 TO 12 DO
+	IF i_stCommon.anSeasonOfMonth[k] > 2 THEN
+		M_CheckSet := "제어 모드 공통: 월 → 계절 값은 0~2";
+		RETURN;
+	END_IF
+END_FOR
+IF NOT F_HhmmOk(i_nHhmm := i_stCommon.stDis.nStart) OR NOT F_HhmmOk(i_nHhmm := i_stCommon.stDis.nEnd) THEN
+	M_CheckSet := "제어 모드 공통: 방전 허용 시간 HHMM";
+ELSIF NOT (F_RealOk(i_stCommon.stNoRev.fMargin) AND F_RealOk(i_stCommon.stNoRev.fScale)) THEN	// [결함 13 수정 2026-11-04]
+	M_CheckSet := "제어 모드 공통: 역송 방지 값 숫자 아님";
+ELSIF i_stCommon.stNoRev.fMargin < 0.0 OR i_stCommon.stNoRev.fScale < 0.0 OR i_stCommon.stNoRev.fScale > 1.0 THEN
+	M_CheckSet := "제어 모드 공통: 역송 방지 여유 0 이상, 비율 0~1";
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

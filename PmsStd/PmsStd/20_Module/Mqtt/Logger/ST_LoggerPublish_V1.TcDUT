@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_LoggerPublish_V1" Id="{2e601373-732b-4b03-a56d-e8c6c7dfe4dc}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_LoggerPublish_V1 :		// 로거 토픽 패킷 (238 byte): 헤더 + 로그 문구. dgspms/{solution}/{사이트}/{LOGGER_TOPIC} (지금 pms_log)
+STRUCT
+	Header		:	ST_LoggerHeader;	// 36 byte
+	Contents	:	WSTRING(100);		// 로그 문구 (UTF-16LE, 100자 + null = 202 byte). 알람 해소는 앞에 '[해소] '. 길이는 GVL_MQTT.LOGGER_TEXT_MAX와 같게
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

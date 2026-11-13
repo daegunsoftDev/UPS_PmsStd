@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_CmdReached" Id="{7c2b0368-d259-400d-b33f-e8a2bb64ee2a}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_CmdReached : BOOL		// 장비 상태가 명령대로 바뀌었나
+VAR_INPUT
+	i_eCmd		: E_PcsCmd;
+	i_eRun		: E_RunState;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_eCmd OF
+	E_PcsCmd.Run:		F_CmdReached := i_eRun = E_RunState.Run OR i_eRun = E_RunState.Standby;	// 활성 (대기 = 활성 + 출력 0)
+	E_PcsCmd.Standby:	F_CmdReached := i_eRun = E_RunState.Standby;
+	E_PcsCmd.Stop,
+	E_PcsCmd.EStop:	F_CmdReached := F_IsStopped(i_eRun);
+ELSE
+	F_CmdReached := TRUE;
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

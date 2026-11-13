@@ -1,0 +1,72 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ManualGate" Id="{ec89b3d5-8ad9-4d24-82fc-1619673e38c6}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ManualGate		// Manual 경로 지령 거르기 자리: 등록한 Gate 모듈(i_ipGate), 비우면 코어 기본 FB_GateManualStd. 출력 모양은 고정 (뒤 단계는 이것만 봄)
+// 뒤 단계(성형·분배·보호·쓰기 허가)는 Gate와 관계없이 그대로 적용됨
+VAR_INPUT
+	i_ipGate		: I_Gate;			// GVL_SITE.g_ipManualGate. 0 = 코어 기본
+	i_stManualCmdSet	: ST_ManualCmdSet;	// Manual 지령 거르기 설정 (코어 기본 Gate가 씀)
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astManualUnitP	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;		// FB_Select 결과
+	iq_astManualUnitQ	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	iq_astManualGrpP	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_astManualGrpQ	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+END_VAR
+VAR_OUTPUT
+	(* 거른 결과: 성형·분배는 이것을 씀 *)
+	q_astManualUnitP	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	q_astManualUnitQ	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	q_astManualGrpP	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	q_astManualGrpQ	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	q_abManualNew	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;			// 새 수동 지령을 받아들임 (디스패처가 이 스캔에 바로 씀)
+	(* 진단 *)
+	q_aeManualRefuse		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_CmdRefuse;		// 마지막으로 무시한 이유 (새 지령을 받아들이면 None)
+	q_anManualRefuseModule: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;			// 무시한 지령을 낸 모듈 ID
+	q_abManualWaitNewCmd	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;			// Manual 유닛: Run 확인 뒤 새 지령이 올 때까지 출력 0
+END_VAR
+VAR
+	_fbStd		: FB_GateManualStd;		// 코어 기본 Gate
+	_stOut		: ST_GateOut;
+END_VAR
+VAR_TEMP
+	u			: UINT;
+	stView		: ST_GateView;
+	stNone		: ST_Pick;
+	bManualPath	: BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[bManualPath		:= TRUE;
+stView.ePath	:= E_OpMode.Manual;
+stView.stManualCmdSet	:= i_stManualCmdSet;
+IF i_ipGate <> 0 THEN
+	i_ipGate.M_Filter(i_stView := stView, iq_astUnitP := iq_astManualUnitP, iq_astUnitQ := iq_astManualUnitQ, iq_astGrpP := iq_astManualGrpP, iq_astGrpQ := iq_astManualGrpQ,
+		iq_aeOpMode := iq_aeOpMode, iq_astUnit := iq_astUnit, iq_astUnitCfg := iq_astUnitCfg, iq_stOut := _stOut);
+ELSE
+	_fbStd.M_Filter(i_stView := stView, iq_astUnitP := iq_astManualUnitP, iq_astUnitQ := iq_astManualUnitQ, iq_astGrpP := iq_astManualGrpP, iq_astGrpQ := iq_astManualGrpQ,
+		iq_aeOpMode := iq_aeOpMode, iq_astUnit := iq_astUnit, iq_astUnitCfg := iq_astUnitCfg, iq_stOut := _stOut);
+END_IF
+// 결과 내기 (다른 경로 유닛 값은 비움: Gate가 잘못 채워도 이 경로 밖으로 새지 않게)
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF (iq_aeOpMode[u] = E_OpMode.Manual) <> bManualPath THEN
+		_stOut.astUnitP[u]			:= stNone;
+		_stOut.astUnitQ[u]			:= stNone;
+		_stOut.abNew[u]				:= FALSE;
+		_stOut.abWaitNewCmd[u]		:= FALSE;
+		_stOut.aeRefuse[u]			:= E_CmdRefuse.None;
+	END_IF
+END_FOR
+q_astManualUnitP	:= _stOut.astUnitP;
+q_astManualUnitQ	:= _stOut.astUnitQ;
+q_astManualGrpP	:= _stOut.astGrpP;
+q_astManualGrpQ	:= _stOut.astGrpQ;
+q_abManualNew			:= _stOut.abNew;
+q_aeManualRefuse		:= _stOut.aeRefuse;
+q_anManualRefuseModule	:= _stOut.anRefuseModule;
+q_abManualWaitNewCmd	:= _stOut.abWaitNewCmd;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

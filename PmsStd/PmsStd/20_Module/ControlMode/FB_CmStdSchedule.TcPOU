@@ -1,0 +1,147 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_CmStdSchedule" Id="{ba27d01b-b4b9-4bf2-a52b-e2029293cd62}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_CmStdSchedule EXTENDS FB_CtrlModeBase		// 제어 모드: 스탠다드 스케줄. 시간표를 PMS에 두지 않고 EMS가 시각마다 보내는 지령을 그대로 따름
+// 예) 09~10시 방전 100 kW: EMS가 9시에 방전 100 kW, 10시에 정지를 보냄 → 이 모드는 받은 P를 다음 지령까지 유지하고, 정지 쪽 명령이 오면 버림
+// Manual 지령과 같은 구조: 새 지령(번호가 바뀜)만 받음, 받은 값은 다음 지령까지 유지, 정지 쪽 명령 뒤에는 새 P 지령이 올 때까지 0
+//   - 모드가 켜지기 전에 온 지령은 쓰지 않음 (켜진 뒤 새 지령부터). 켜져 있는 동안 P는 늘 냄 (지령이 없으면 0 → 등급이 낮은 다른 지령원 값이 새지 않게)
+//   - EMS가 끊기면 받아 둔 P를 버리고 0. 이상값(NaN·무한대)은 버리고 앞 값을 유지 (정격 대비 상한은 코어 명령 필터)
+//   - 상태 명령(Run·Stop 등) 자체는 EMS 지령원(FB_SrcEms)이 장비에 냄. 이 모드는 P만 냄. 역송 방지·방전 허용 시간은 걸지 않음 (EMS 책임, 코어 접속점 제한은 그대로)
+// [16번 수정 2026-11-09: 유닛마다 따로 받고 유닛별 값(bUnitOut)으로 냄. 제어 모드 관리자가 접속점 그룹 단위여도 EMS가 PCS마다 보낸 값을 그대로 따름.
+//   원래는 PCS마다 관리자·모드 인스턴스(g_fbCmStdSched1·2)가 있고 지령 하나(i_stCmd)를 그 관리자 단위 값으로 냄]
+// 입력 i_astCmd는 MAIN(A_PassEmsCmd)이 매 스캔 채움 (PCS 지령을 그 PCS의 유닛에 정격 비율로 나눔)
+VAR_INPUT
+	i_astCmd	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_CmExtCmd;	// 유닛마다 바깥 지령. bUse FALSE인 칸은 내지 않음
+END_VAR
+VAR_OUTPUT
+	q_nState	: UINT;				// 요약: 0 = 쓰는 유닛 모두 받은 P를 냄, 그 외 = 0을 내는 유닛의 첫 이유 (M_ReasonText)
+	q_anState	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;	// 유닛마다 0 = 받은 P를 냄, 그 외 = 0을 내는 이유
+	q_abHold	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 받아 둔 P 지령 있음
+	q_afPCmd	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;	// kW, 받아 둔 P 지령 (q_abHold일 때)
+	q_nCmdCount	: UDINT;			// 켜진 뒤 받은 P 지령 수 (유닛 합)
+	q_nBadCount	: UDINT;			// 이상값이라 버린 P 지령 수
+END_VAR
+VAR
+	_anPSeq		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UDINT;	// 처리한 P 지령 번호
+	_anStateSeq	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UDINT;	// 처리한 상태 명령 번호
+END_VAR
+VAR CONSTANT
+	RSN_NO_UNIT		: UINT := 1;	// 진입 거부: 가용 유닛 없음
+	RSN_NO_EXT		: UINT := 2;	// EMS 끊김 → 0
+	RSN_WAIT_CMD	: UINT := 3;	// 새 P 지령 대기 (켜진 뒤 아직 없음, 또는 정지 쪽 명령 뒤) → 0
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_CheckEnter" Id="{885a03e8-3067-4b8d-837c-05c9ae4acf11}">
+      <Declaration><![CDATA[METHOD M_CheckEnter : UINT
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;	// 그룹 값(stGroup)·현지 시각(stTime). 관리자가 매 스캔 채움
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckEnter := 0;
+IF i_stView.stGroup.nUnitAvail = 0 THEN
+	M_CheckEnter := RSN_NO_UNIT;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Enter" Id="{ba491807-3297-4167-a54b-dde908efff5b}">
+      <Declaration><![CDATA[METHOD M_Enter
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;	// 그룹 값(stGroup)·현지 시각(stTime). 관리자가 매 스캔 채움
+END_VAR
+VAR
+	u			: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SUPER^.M_Enter(i_stView := i_stView);
+// 켜지기 전에 온 지령은 쓰지 않음: 지금 번호를 처리한 것으로 두고 새 지령을 기다림
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	_anPSeq[u]		:= i_astCmd[u].nPSeq;
+	_anStateSeq[u]	:= i_astCmd[u].nStateSeq;
+	q_abHold[u]		:= FALSE;
+	q_afPCmd[u]		:= 0.0;
+END_FOR
+q_nCmdCount	:= 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Calc" Id="{b3148a11-8448-47b9-a809-71bbde4964ec}">
+      <Declaration><![CDATA[METHOD M_Calc : ST_CtrlModeOut
+VAR_INPUT
+	i_stView	: ST_CtrlModeView;	// 그룹 값(stGroup)·현지 시각(stTime). 관리자가 매 스캔 채움
+END_VAR
+VAR
+	u			: UINT;
+	bNewCmd		: BOOL;		// 이번 스캔에 새 지령이 옴 (살아 있다는 표시)
+	bAlive		: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[q_nState := 0;
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	bNewCmd := i_astCmd[u].nStateSeq <> _anStateSeq[u] OR i_astCmd[u].nPSeq <> _anPSeq[u];
+	// 1) 상태 명령: 정지 쪽이면 받아 둔 P를 버림 (같은 메시지에 P가 같이 오면 아래에서 P가 다시 들어감)
+	IF i_astCmd[u].nStateSeq <> _anStateSeq[u] THEN
+		_anStateSeq[u] := i_astCmd[u].nStateSeq;
+		IF i_astCmd[u].eState = E_PcsCmd.Stop OR i_astCmd[u].eState = E_PcsCmd.Standby OR i_astCmd[u].eState = E_PcsCmd.EStop THEN
+			q_abHold[u] := FALSE;
+		END_IF
+	END_IF
+	// 2) 새 P 지령: 다음 지령까지 유지. 이상값은 버리고 앞 값 유지
+	IF i_astCmd[u].nPSeq <> _anPSeq[u] THEN
+		_anPSeq[u] := i_astCmd[u].nPSeq;
+		IF F_CmdOk(i_fValue := i_astCmd[u].fP, i_fLimit := 0.0) THEN
+			q_abHold[u]	:= TRUE;
+			q_afPCmd[u]	:= i_astCmd[u].fP;
+			q_nCmdCount	:= q_nCmdCount + 1;
+		ELSE
+			q_nBadCount	:= q_nBadCount + 1;
+		END_IF
+	END_IF
+	// 3) EMS가 끊기면 버림 (돌아와도 옛 지령이 되살아나지 않음).
+	//    bAlive는 지난 스캔 값이라, 조용하던 EMS의 첫 지령 스캔에는 아직 FALSE → 새 지령이 온 스캔은 살아 있는 것으로 봄
+	bAlive := i_astCmd[u].bAlive OR bNewCmd;
+	IF NOT bAlive THEN
+		q_abHold[u] := FALSE;
+	END_IF
+	// 4) 유닛 상태·출력: 쓰는 유닛은 켜져 있는 동안 P를 늘 냄. Q는 다른 지령원에 맡김
+	IF q_abHold[u] THEN
+		q_anState[u] := 0;
+	ELSIF NOT bAlive THEN
+		q_anState[u] := RSN_NO_EXT;
+	ELSE
+		q_anState[u] := RSN_WAIT_CMD;
+	END_IF
+	M_Calc.astUnit[u].bPSetActive	:= i_astCmd[u].bUse;
+	M_Calc.astUnit[u].fPSet			:= SEL(q_abHold[u], 0.0, q_afPCmd[u]);
+	M_Calc.astUnit[u].bQSetActive	:= FALSE;
+	M_Calc.astUnit[u].fQSet			:= 0.0;
+	IF i_astCmd[u].bUse AND q_nState = 0 THEN
+		q_nState := q_anState[u];
+	END_IF
+END_FOR
+M_Calc.bUnitOut		:= TRUE;		// 접속점 그룹 값(bPSetActive·fPSet)은 쓰지 않음
+M_Calc.bPSetActive	:= FALSE;
+M_Calc.fPSet		:= 0.0;
+M_Calc.bQSetActive	:= FALSE;
+M_Calc.fQSet		:= 0.0;
+M_Calc.bExitReq		:= FALSE;
+M_Calc.nReason		:= q_nState;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ReasonText" Id="{88ec2d7e-f537-4e09-b458-3be7d246bb8a}">
+      <Declaration><![CDATA[METHOD M_ReasonText : WSTRING(63)
+VAR_INPUT
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE i_nReason OF
+	RSN_NO_UNIT:	M_ReasonText := "스탠다드 스케줄: 가용 유닛 없음";
+	RSN_NO_EXT:		M_ReasonText := "스탠다드 스케줄: EMS 끊김 (0)";
+	RSN_WAIT_CMD:	M_ReasonText := "스탠다드 스케줄: 새 P 지령 대기 (0)";
+ELSE
+	M_ReasonText := WCONCAT("이유 ", TO_WSTRING(i_nReason));
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

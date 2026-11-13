@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_ShapeDiag" Id="{8a7e748b-db41-4637-a58e-314c4d8fa95d}">
+    <Declaration><![CDATA[TYPE ST_ShapeDiag :		// 성형 진단: 경로(Auto 또는 Manual) 하나, 그룹 하나. 두 경로가 같은 모양
+STRUCT
+	(* P *)
+	bPGroupCmd	: BOOL;			// 이 경로 그룹 P 지령 있음. 없으면 이 경로 유닛 지령 합이 목표 (지령 없는 유닛은 0)
+	bPUnitCmd	: BOOL;			// 이 경로 유닛 P 지령이 하나라도 있음
+	nPSource	: UINT;			// 고른 그룹 지령원 모듈 ID (0 = 그룹 지령 없음)
+	fPReq		: REAL;			// kW, 그룹 지령 또는 유닛 지령 합 (램프 전)
+	fPRamped	: REAL;			// kW, 램프 후 (유닛 지령 합이면 유닛별 램프 후 합)
+	stPcc		: ST_Clamp;		// 접속점 제한 (지령원 P 제한 + 접속점 기준 모듈)
+	fPComp		: REAL;			// kW, 더한 보정 합
+	stDev		: ST_Clamp;		// 설비 제한 (보정 후: 가용 정격 + 배터리 한도 + 설비 기준 모듈)
+	fPOut		: REAL;			// kW, 이 경로 몫 (Auto는 그룹 전체 목표에서 Manual 몫을 뺀 값)
+	(* Q *)
+	bQGroupCmd	: BOOL;
+	bQUnitCmd	: BOOL;
+	stQ			: ST_Clamp;
+	(* 따라가기용 중간값 *)
+	fRampUp		: REAL;			// kW/s, 이번 스캔에 쓴 오르기 램프율 (0 = 램프 없음, 재개 램프 포함)
+	fRampDn		: REAL;			// kW/s, 내리기 램프율
+	stPccRng	: ST_Range;		// P 접속점 제한 범위
+	stDevRng	: ST_Range;		// P 설비 제한 범위
+	stQRng		: ST_Range;		// Q 제한 범위
+	stTrace		: ST_PTrace;	// P 추적표 (요청 → … → 설비 제한). 유닛 한도·분배와 쓴 값은 FB_OutputDiag가 덧붙임
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_AuxDevice" Id="{d35c0a68-904e-4e03-a435-3c9cd9eb7a90}">
+    <Declaration><![CDATA[INTERFACE I_AuxDevice EXTENDS I_Module]]></Declaration>
+    <Method Name="M_Cycle" Id="{5c0bc038-c05f-462f-88ee-dfac148a36a0}">
+      <Declaration><![CDATA[METHOD M_Cycle]]></Declaration>
+    </Method>
+    <Property Name="Comm" Id="{1969d374-c9e6-450d-91eb-97e07bb98d58}">
+      <Declaration><![CDATA[PROPERTY Comm : BOOL]]></Declaration>
+      <Get Name="Get" Id="{0c6ad7ed-d3b9-4380-976f-fcbeddb9a2f3}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="M_GetValue" Id="{dea7c64d-f7de-451e-b21b-f145dc3e9378}">
+      <Declaration><![CDATA[METHOD M_GetValue : ST_Val
+VAR_INPUT
+	i_nPoint	: UINT;			// 장비 안의 아날로그 입력 점 번호
+END_VAR]]></Declaration>
+    </Method>
+    <Method Name="M_GetBit" Id="{ef74b55c-87af-4e7a-941c-52a7436a9917}">
+      <Declaration><![CDATA[METHOD M_GetBit : BOOL
+VAR_INPUT
+	i_nPoint	: UINT;			// 장비 안의 디지털 입력 점 번호
+END_VAR]]></Declaration>
+    </Method>
+    <Method Name="M_SetBit" Id="{93eb7ce9-5284-4992-9b33-02ea9190f85c}">
+      <Declaration><![CDATA[METHOD M_SetBit		// 디지털 출력 점에 씀 (FB_AuxOutput만 부름)
+VAR_INPUT
+	i_nPoint	: UINT;			// 장비 안의 디지털 출력 점 번호
+	i_bValue	: BOOL;
+END_VAR]]></Declaration>
+    </Method>
+    <Method Name="M_SetValue" Id="{9982f915-0924-47eb-83f7-d5404fe68e6b}">
+      <Declaration><![CDATA[METHOD M_SetValue		// 아날로그 출력 점에 씀
+VAR_INPUT
+	i_nPoint	: UINT;			// 장비 안의 아날로그 출력 점 번호
+	i_fValue	: REAL;
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

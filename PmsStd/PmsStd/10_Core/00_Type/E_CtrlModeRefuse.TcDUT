@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_CtrlModeRefuse" Id="{013a50db-9526-4f56-a774-7d899d156fb2}">
+    <Declaration><![CDATA[{attribute 'strict'}
+TYPE E_CtrlModeRefuse :		// 제어 모드 요청 결과
+(
+	None		:= 0,	// 접수 (또는 이미 켜져 있음)
+	BadSlot		:= 1,	// 칸 번호가 범위 밖이거나 빈 칸
+	NotReady	:= 2	// 모드의 진입 조건이 안 맞음 (이유 코드 q_nRefuseReason → 그 모드의 M_ReasonText)
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

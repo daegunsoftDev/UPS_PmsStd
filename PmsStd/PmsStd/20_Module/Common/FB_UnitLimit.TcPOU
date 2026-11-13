@@ -1,0 +1,80 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_UnitLimit" Id="{e241bd52-2f21-4a1d-9728-ccddc24e0cc0}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_UnitLimit EXTENDS FB_ModuleBase IMPLEMENTS I_UnitLimitRule	// 사용자 한도: 유닛마다 운전원이 정한 P·Q 상·하한 (kW·kvar). 정격·Derate와 겹쳐 좁은 쪽 (코어 FB_EquipmentLimits)
+// 등록: g_aipUnitRule 한 칸, g_astUnitRuleReg nTarget 0 (전체 유닛, 유닛마다 설정을 따로 봄), bAuto·bManual로 적용 모드
+// 출력 제한 이유: 유닛 한도 UnitRule + 이 모듈 ID, 이유 "사용자 한도"
+VAR_INPUT
+	i_stSet		: ST_UnitLimitSet;	// 유닛마다 한도 (MAIN A_PassModuleSet이 g_stModuleSet 칸을 넘김. 안 넘기면 모두 끔)
+END_VAR
+VAR CONSTANT
+	RSN_USER	: UINT := 1;		// 사용자 한도
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Evaluate" Id="{ef9aa57e-eb65-413d-8619-5690e6f06fa4}">
+      <Declaration><![CDATA[METHOD M_Evaluate : ST_LimitOut
+VAR_INPUT
+	i_stView	: ST_UnitLimitView;
+END_VAR
+VAR
+	u	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[u := i_stView.nUnit;
+IF u < 1 OR u > GVL_PARAM.UNIT_COUNT THEN
+	RETURN;
+END_IF
+IF i_stSet.astUnit[u].bPEnable THEN
+	M_Evaluate.stP.bActive	:= TRUE;
+	M_Evaluate.stP.fMax		:= i_stSet.astUnit[u].fPMax;
+	M_Evaluate.stP.fMin		:= i_stSet.astUnit[u].fPMin;
+	M_Evaluate.stP.nReason	:= RSN_USER;
+END_IF
+IF i_stSet.astUnit[u].bQEnable THEN
+	M_Evaluate.stQ.bActive	:= TRUE;
+	M_Evaluate.stQ.fMax		:= i_stSet.astUnit[u].fQMax;
+	M_Evaluate.stQ.fMin		:= i_stSet.astUnit[u].fQMin;
+	M_Evaluate.stQ.nReason	:= RSN_USER;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ReasonText" Id="{182f8d32-129d-4b7a-b552-4cba4f5cbaf6}">
+      <Declaration><![CDATA[METHOD M_ReasonText : WSTRING(63)
+VAR_INPUT
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nReason = RSN_USER THEN
+	M_ReasonText := "사용자 한도";
+ELSE
+	M_ReasonText := WCONCAT("이유 ", TO_WSTRING(i_nReason));
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckSet" Id="{0b1906d8-d222-47de-bbe7-aa1b48f441b9}">
+      <Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)		// 설정 점검: 켠 한도는 상한 ≥ 0 ≥ 하한
+VAR
+	u	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckSet := "";
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF NOT (F_RealOk(i_stSet.astUnit[u].fPMax) AND F_RealOk(i_stSet.astUnit[u].fPMin) AND F_RealOk(i_stSet.astUnit[u].fQMax) AND F_RealOk(i_stSet.astUnit[u].fQMin)) THEN	// [결함 13 수정 2026-11-04]
+		M_CheckSet := F_TxtNum("한도 숫자 아님: 유닛 ", u);
+		RETURN;
+	END_IF
+	IF i_stSet.astUnit[u].bPEnable AND (i_stSet.astUnit[u].fPMax < 0.0 OR i_stSet.astUnit[u].fPMin > 0.0) THEN
+		M_CheckSet := F_TxtNum("P 한도 상한 < 0 또는 하한 > 0: 유닛 ", u);
+		RETURN;
+	END_IF
+	IF i_stSet.astUnit[u].bQEnable AND (i_stSet.astUnit[u].fQMax < 0.0 OR i_stSet.astUnit[u].fQMin > 0.0) THEN
+		M_CheckSet := F_TxtNum("Q 한도 상한 < 0 또는 하한 > 0: 유닛 ", u);
+		RETURN;
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

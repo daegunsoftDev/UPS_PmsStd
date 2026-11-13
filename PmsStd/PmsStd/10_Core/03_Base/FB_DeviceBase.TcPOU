@@ -1,0 +1,81 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_DeviceBase" Id="{c56df2ac-6cd9-4ee7-88a8-f35f91c06820}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK ABSTRACT FB_DeviceBase EXTENDS FB_ModuleBase
+VAR_INPUT
+	i_tCommTimeout		: TIME := T#10S;	// 이 시간 동안 정상 응답이 없으면 통신 이상
+	i_tReadPeriod		: TIME := T#200MS;	// 읽기 주기. 장비마다 GVL_SITE 인스턴스 선언에서 바꿈 (i_tCommTimeout보다 짧게)
+END_VAR
+VAR
+	_bComm				: BOOL;		// 통신 정상
+	_bAlive				: BOOL;		// 이번 스캔에 정상 응답(또는 하트비트 변화)이 있었음
+	_bEverAlive			: BOOL;		// 부팅 후 한 번이라도 응답이 있었음
+	_tonCommLoss		: TON;
+	_fbRead				: FB_ReadTimer;
+	_nWriteFails		: UINT;		// 잇달아 실패한 쓰기 수
+	_bWriteFail			: BOOL;		// 쓰기 실패 (드라이버가 상태 bWriteFail에 넣음)
+END_VAR
+VAR CONSTANT
+	WRITE_FAIL_COUNT	: UINT := 3;	// 쓰기가 이만큼 잇달아 실패하면 쓰기 실패로 봄 (한 번 성공하면 풀림)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_MarkAlive" Id="{b6b55818-1134-4e1d-a59c-2ab9ca9cba2d}">
+      <Declaration><![CDATA[METHOD PROTECTED M_MarkAlive]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_bAlive		:= TRUE;
+_bEverAlive	:= TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_IsReadTime" Id="{cd53882e-b0a7-45c0-863f-6b1bde7cd5ef}">
+      <Declaration><![CDATA[METHOD PROTECTED M_IsReadTime : BOOL		// 읽을 때가 되면 TRUE (i_tReadPeriod마다). 스캔당 한 번만 부를 것
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_fbRead(i_tPeriod := i_tReadPeriod);
+M_IsReadTime := _fbRead.q_bDue;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_UpdateComm" Id="{85527ae9-87da-414e-9678-54fd42e47cc5}">
+      <Declaration><![CDATA[METHOD PROTECTED M_UpdateComm]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// 마지막 정상 응답 이후 i_tCommTimeout이 지나면 통신 이상
+_tonCommLoss(IN := NOT _bAlive, PT := i_tCommTimeout);
+_bComm	:= _bEverAlive AND NOT _tonCommLoss.Q;	// 한 번도 응답이 없으면 정상으로 보지 않는다
+_bAlive	:= FALSE;								// 다음 스캔을 위해 초기화]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_MarkWriteResult" Id="{e53fc488-e33d-4a20-b216-ca099da2eee7}">
+      <Declaration><![CDATA[METHOD PROTECTED M_MarkWriteResult		// 쓰기 결과를 알림 (드라이버가 쓰기 응답을 받을 때마다). 잇달아 WRITE_FAIL_COUNT번 실패하면 _bWriteFail, 한 번 성공하면 풀림
+VAR_INPUT
+	i_bOk	: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_bOk THEN
+	_nWriteFails	:= 0;
+	_bWriteFail		:= FALSE;
+ELSE
+	IF _nWriteFails < WRITE_FAIL_COUNT THEN
+		_nWriteFails := _nWriteFails + 1;
+	END_IF
+	_bWriteFail := _nWriteFails >= WRITE_FAIL_COUNT;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <LineIds Name="FB_DeviceBase">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_DeviceBase.M_MarkAlive">
+      <LineId Id="3" Count="0" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_DeviceBase.M_IsReadTime">
+      <LineId Id="3" Count="0" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_DeviceBase.M_UpdateComm">
+      <LineId Id="3" Count="2" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

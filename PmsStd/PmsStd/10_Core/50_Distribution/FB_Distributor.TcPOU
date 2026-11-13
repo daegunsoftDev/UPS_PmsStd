@@ -1,0 +1,783 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_Distributor" Id="{dee586d7-ec06-4383-89ed-0fc3ced99992}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Distributor		// 유닛에 나눔: 경로마다(Manual → Auto) 유닛 지령 → 그룹 몫 → 유닛 지령 축소, 그다음 배터리 그룹(방향·순 한도) → 피상전력
+// Auto·Manual이 같은 순서 (M_DistPath). 그룹 지령이 없으면 그룹 몫은 0 (지령 없는 유닛은 0). 유닛 지령은 성형 결과(제한)에 걸릴 때만 줄임
+// Manual 정책에서 정격·BMS 한도를 끈 Manual 유닛은 그 한도를 안 씀 (bRating을 끄면 유닛 제한 모듈만 씀)
+// 유닛·버스 한도는 FB_EquipmentLimits 결과. 버스 한도는 나누는 동안 남은 한도로 보고(넘친 몫은 다른 유닛에 재분배), 끝에 한 번 더 확인
+// 그룹 몫을 나누는 무게는 분배 정책(그룹마다 I_DistPolicy, 비우면 코어 기본 FB_DistStd = eDistBasis). 음수·이상값 무게는 0
+VAR_IN_OUT
+	iq_aipDistPolicy	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF I_DistPolicy;	// 그룹별 분배 정책 (GVL_SITE.g_aipDistPolicy)
+END_VAR
+VAR_IN_OUT CONSTANT
+	(* Auto 경로 (fbAutoShape·fbAutoGate) *)
+	iq_afAutoGrpP		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;
+	iq_afAutoGrpQ		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;
+	iq_afAutoUnitP		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	iq_afAutoUnitQ		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	iq_astAutoUnitP		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;		// 유닛별 값이 있는지
+	iq_astAutoUnitQ		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	iq_abAutoGrpPCmd	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// Auto 그룹 P 지령 있음 (fbAutoShape.q_abGrpPCmd)
+	iq_abAutoGrpQCmd	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;
+	(* Manual 경로 (fbManualShape·fbManualGate) *)
+	iq_afManualGrpP		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;
+	iq_afManualGrpQ		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;
+	iq_afManualUnitP	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	iq_afManualUnitQ	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	iq_astManualUnitP	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	iq_astManualUnitQ	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	iq_abManualGrpPCmd	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// Manual 그룹 P 지령 있음 (fbManualShape.q_abGrpPCmd)
+	iq_abManualGrpQCmd	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;
+	iq_astManualPolicy	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_ManualPolicy;
+	(* 공통 *)
+	iq_abOutputReady	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 유닛 출력 가능 = 분배 대상 (FB_OutputReady)
+	iq_aeNotReadyBy	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_UnitLimitBy;	// 못 내는 이유
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;
+	iq_astUnitEnv	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitEnvelope;	// 유닛 한도 (FB_EquipmentLimits)
+	iq_astBatEnv	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatEnvelope;	// 버스 한도 (FB_EquipmentLimits)
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astBatGroup	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatGroupState;
+	iq_astGroupSet	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupSet;
+END_VAR
+VAR_OUTPUT
+	q_astUnitSet	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_PQ;		// 유닛 최종 지령
+	q_astUnitDiag	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitDiag;
+	q_astDistDiag	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_DistDiag;
+	q_astBatDiag	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatDistDiag;
+	q_abUnitLimited	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 유닛 지령이 요청보다 줄었거나 0으로 묶임 (P 또는 Q). 제어용: Manual 재전송 판단 (FB_Dispatcher)
+	q_abManualLimitOff: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// Manual 정책에서 정격·BMS 한도 중 하나라도 꺼짐 (HMI 표시용)
+END_VAR
+VAR
+	(* 유닛 사본·작업값 (메서드에서 씀) *)
+	_anGroup		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;
+	_anBat			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;
+	_abInDist		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 출력 가능 (FB_OutputReady)
+	_abManual		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;
+	_abPFix			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 자기 경로에 유닛별 P 값 있음
+	_abQFix			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;
+	_afPUnitReq		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;		// 자기 경로 유닛별 값 (성형 후)
+	_afQUnitReq		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	_abNoRating		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// Manual 정책: 정격·Derate·피상전력 안 씀
+	_abNoBatLimit	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// Manual 정책: BMS 충방전 한도 안 씀
+	_astUnitEnv	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitEnvelope;	// 유닛 한도 사본 (메서드에서 씀)
+	_astBatEnv	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatEnvelope;	// 버스 한도 사본
+	_afBusDisLeft	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;	// 버스 방전 쪽 남은 한도 (양수, 나누는 동안 줄어듦. 여러 그룹이 같은 버스를 써도 한 번만 씀)
+	_afBusChgLeft	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;	// 버스 충전 쪽 남은 한도 (양수)
+	_anPModule	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;	// P를 줄인 모듈 (유닛 제한·버스 제한 모듈. 0 = 코어)
+	_afPMax			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	_afPMin			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	_afQMax			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	_afQMin			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	_afPRated		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	_afQRated		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	_afSoc			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;		// 연결 배터리 그룹 SOC (%). 모르면 -1
+	_afPWork		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	_afQWork		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	_aePBy			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_UnitLimitBy;
+	_aeQBy			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_UnitLimitBy;
+	_afPWeight		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;		// P 몫을 나눌 때 쓴 무게 (진단)
+	_abBatNoChg		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 연결 배터리 버스 충전 한도 0 → 충전 몫 안 줌
+	_abBatNoDis		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 방전 한도 0 → 방전 몫 안 줌
+	_eBasis			: E_DistBasis;		// 지금 그룹의 분배 기준
+	_fbDistStd		: FB_DistStd;		// 코어 기본 분배 정책
+	_aipDistPolicy	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF I_DistPolicy;	// 사본 (메서드에서 씀)
+END_VAR
+VAR_TEMP
+	u				: UINT;
+	g				: UINT;
+	b				: UINT;
+	
+	fScale			: REAL;
+	fBusNetP		: REAL;
+	fManualNetP		: REAL;			// 버스의 Manual 유닛 P 합 (버스 방향은 Manual 우선)
+	fBusDir			: REAL;			// 정한 버스 방향 (+ 방전, − 충전, 0 = 정할 수 없음)
+	bHasPos			: BOOL;
+	bHasNeg			: BOOL;
+	fBusLimit		: REAL;
+	fSLimit			: REAL;
+	fFill			: REAL;			// Auto가 채울 Manual 부족분 (Auto 그룹 지령이 있을 때만)
+	stDist			: ST_DistDiag;
+	stBat			: ST_BatDistDiag;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[_aipDistPolicy := iq_aipDistPolicy;
+(* 0) 유닛 준비: 운전 대상, 자기 경로 값, 유닛 한도 (FB_EquipmentLimits) *)
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	_anGroup[u]		:= iq_astUnitCfg[u].nGroup;
+	_anBat[u]		:= iq_astUnitCfg[u].nBatGroup;
+	g				:= _anGroup[u];
+	// 분배 대상 = 출력 가능 유닛 (FB_OutputReady. 못 내는 유닛에 몫을 주지 않음)
+	_abInDist[u]	:= iq_abOutputReady[u];
+	_abManual[u]	:= iq_aeOpMode[u] = E_OpMode.Manual;
+	IF _abManual[u] THEN
+		_abPFix[u]		:= iq_astManualUnitP[u].bActive;
+		_abQFix[u]		:= iq_astManualUnitQ[u].bActive;
+		_afPUnitReq[u]	:= iq_afManualUnitP[u];
+		_afQUnitReq[u]	:= iq_afManualUnitQ[u];
+	ELSE
+		_abPFix[u]		:= iq_astAutoUnitP[u].bActive;
+		_abQFix[u]		:= iq_astAutoUnitQ[u].bActive;
+		_afPUnitReq[u]	:= iq_afAutoUnitP[u];
+		_afQUnitReq[u]	:= iq_afAutoUnitQ[u];
+	END_IF
+	_abNoRating[u]		:= FALSE;
+	_abNoBatLimit[u]	:= FALSE;
+	IF _abManual[u] AND g >= 1 AND g <= GVL_PARAM.GROUP_COUNT THEN
+		_abNoRating[u]		:= NOT iq_astManualPolicy[g].bRating;
+		_abNoBatLimit[u]	:= NOT iq_astManualPolicy[g].bBatLimit;
+	END_IF
+	_astUnitEnv[u]	:= iq_astUnitEnv[u];
+	_afPRated[u]	:= iq_astUnitCfg[u].fPRated;
+	_afQRated[u]	:= iq_astUnitCfg[u].fQRated;
+	// 유닛 한도 = 정격 × Derate ∩ 유닛 제한 모듈. Manual 정책 bRating을 끈 유닛은 유닛 제한 모듈만
+	IF NOT _abInDist[u] THEN
+		_afPMax[u]	:= 0;
+		_afPMin[u]	:= 0;
+		_afQMax[u]	:= 0;
+		_afQMin[u]	:= 0;
+	ELSIF _abNoRating[u] THEN
+		_afPMax[u]	:= MIN(_astUnitEnv[u].stPRule.fMax, GVL_CORE.NO_LIMIT);
+		_afPMin[u]	:= MAX(_astUnitEnv[u].stPRule.fMin, -GVL_CORE.NO_LIMIT);
+		_afQMax[u]	:= MIN(_astUnitEnv[u].stQRule.fMax, GVL_CORE.NO_LIMIT);
+		_afQMin[u]	:= MAX(_astUnitEnv[u].stQRule.fMin, -GVL_CORE.NO_LIMIT);
+	ELSE
+		_afPMax[u]	:= _astUnitEnv[u].stP.fMax;
+		_afPMin[u]	:= _astUnitEnv[u].stP.fMin;
+		_afQMax[u]	:= _astUnitEnv[u].stQ.fMax;
+		_afQMin[u]	:= _astUnitEnv[u].stQ.fMin;
+	END_IF
+
+	_afSoc[u] := -1;
+	_abBatNoChg[u] := FALSE;
+	_abBatNoDis[u] := FALSE;
+	b := _anBat[u];
+	IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT THEN
+		IF iq_astBatGroup[b].stSoc.bValid THEN
+			_afSoc[u] := iq_astBatGroup[b].stSoc.fValue;
+		END_IF
+		// 배터리 버스가 그 방향을 못 받으면 유닛 한도를 미리 0 → 나눌 때 다른 유닛으로 넘어감
+		IF NOT _abNoBatLimit[u] THEN
+			_abBatNoChg[u] := iq_astBatEnv[b].stP.fMin >= 0;
+			_abBatNoDis[u] := iq_astBatEnv[b].stP.fMax <= 0;
+		END_IF
+		IF _abBatNoChg[u] THEN
+			_afPMin[u] := 0;
+		END_IF
+		IF _abBatNoDis[u] THEN
+			_afPMax[u] := 0;
+		END_IF
+	END_IF
+
+	_afPWork[u] := 0;
+	_afQWork[u] := 0;
+	_afPWeight[u] := 0;
+	_anPModule[u] := 0;
+	_aePBy[u] := iq_aeNotReadyBy[u];	// 출력 못 내는 이유 (FB_OutputReady)
+	_aeQBy[u] := _aePBy[u];
+END_FOR
+
+(* 버스 남은 한도: 나누는 동안 유닛에 준 만큼 줄어듦 (방전·충전 쪽 따로. 여러 그룹이 같은 버스를 써도 한 번만 씀) *)
+FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+	_astBatEnv[b]	:= iq_astBatEnv[b];
+	_afBusDisLeft[b]	:= MAX(iq_astBatEnv[b].stP.fMax, 0.0);
+	_afBusChgLeft[b]	:= MAX(-iq_astBatEnv[b].stP.fMin, 0.0);
+END_FOR
+(* 1) 제어 그룹마다 나누기: Manual 경로 먼저, Auto 경로는 Manual이 덜 나간 만큼 더해서 *)
+FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	_eBasis := iq_astGroupSet[g].eDistBasis;
+	q_abManualLimitOff[g] := NOT (iq_astManualPolicy[g].bRating AND iq_astManualPolicy[g].bBatLimit);
+
+	stDist.stManualP	:= M_DistPath(g, TRUE, FALSE, iq_afManualGrpP[g], iq_abManualGrpPCmd[g]);
+	// Manual이 덜 나간 만큼 Auto가 채우는 것은 Auto 그룹 지령(접속점 기준)이 있을 때만. 유닛 지령만 있으면 Auto 유닛 지령을 그대로 둠
+	fFill := 0;
+	IF iq_abAutoGrpPCmd[g] THEN
+		fFill := iq_afManualGrpP[g] - stDist.stManualP.fOut;
+	END_IF
+	stDist.stAutoP		:= M_DistPath(g, FALSE, FALSE, iq_afAutoGrpP[g] + fFill, iq_abAutoGrpPCmd[g]);
+	stDist.stManualQ	:= M_DistPath(g, TRUE, TRUE, iq_afManualGrpQ[g], iq_abManualGrpQCmd[g]);
+	fFill := 0;
+	IF iq_abAutoGrpQCmd[g] THEN
+		fFill := iq_afManualGrpQ[g] - stDist.stManualQ.fOut;
+	END_IF
+	stDist.stAutoQ		:= M_DistPath(g, FALSE, TRUE, iq_afAutoGrpQ[g] + fFill, iq_abAutoGrpQCmd[g]);
+	q_astDistDiag[g]	:= stDist;
+END_FOR
+
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	q_astUnitDiag[u].fPReq := _afPWork[u];
+	q_astUnitDiag[u].fQReq := _afQWork[u];
+END_FOR
+
+(* 2) 배터리 그룹(DC 버스)마다 마지막 확인: 순 방향과 반대인 유닛은 0, 그다음 순 한도 (BMS 한도를 끈 Manual 유닛은 순 한도에서 뺌)
+   한도는 나누는 동안 이미 맞췄으므로 보통은 줄이지 않음 (유닛별 값이 서로 반대 방향일 때 등) *)
+FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+	fBusNetP	:= 0;
+	fManualNetP	:= 0;
+	bHasPos		:= FALSE;
+	bHasNeg		:= FALSE;
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		IF _anBat[u] = b THEN
+			fBusNetP := fBusNetP + _afPWork[u];
+			IF _abManual[u] THEN fManualNetP := fManualNetP + _afPWork[u]; END_IF
+			bHasPos := bHasPos OR _afPWork[u] > 0;
+			bHasNeg := bHasNeg OR _afPWork[u] < 0;
+		END_IF
+	END_FOR
+	stBat.fNetIn	:= fBusNetP;
+	stBat.nDirZero	:= 0;
+	stBat.fScale	:= 1.0;
+	// 버스 방향: Manual 유닛 쪽 순 방향이 먼저 (Manual 우선), 없으면 전체 순 방향. 둘 다 0이면 정할 수 없으므로 반대 방향끼리 모두 0 (버스 안 순환 방지)
+	fBusDir := fManualNetP;
+	IF ABS(fBusDir) <= 0.01 THEN fBusDir := fBusNetP; END_IF
+	IF ABS(fBusDir) <= 0.01 THEN fBusDir := 0; END_IF
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		IF _anBat[u] = b AND ((fBusDir > 0 AND _afPWork[u] < 0) OR (fBusDir < 0 AND _afPWork[u] > 0)
+			OR (fBusDir = 0 AND bHasPos AND bHasNeg AND _afPWork[u] <> 0)) THEN
+			_afPWork[u]		:= 0;
+			_aePBy[u]		:= E_UnitLimitBy.BatDir;
+			stBat.nDirZero	:= stBat.nDirZero + 1;
+		END_IF
+	END_FOR
+
+	fBusNetP := 0;
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		IF _anBat[u] = b AND NOT _abNoBatLimit[u] THEN fBusNetP := fBusNetP + _afPWork[u]; END_IF
+	END_FOR
+	IF fBusNetP > 0 THEN
+		fBusLimit := iq_astBatEnv[b].stP.fMax;
+	ELSE
+		fBusLimit := iq_astBatEnv[b].stP.fMin;
+	END_IF
+	stBat.fNetDir	:= fBusNetP;
+	stBat.fLimit	:= fBusLimit;
+	IF (fBusNetP > 0 AND fBusNetP > fBusLimit) OR (fBusNetP < 0 AND fBusNetP < fBusLimit) THEN
+		fScale := fBusLimit / fBusNetP;
+		stBat.fScale := fScale;
+		FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+			IF _anBat[u] = b AND NOT _abNoBatLimit[u] AND _afPWork[u] <> 0 THEN
+				_afPWork[u]	:= _afPWork[u] * fScale;
+				_aePBy[u]	:= E_UnitLimitBy.BatLimit;
+				IF fBusNetP > 0 THEN
+					_anPModule[u] := iq_astBatEnv[b].stP.nMaxModule;
+				ELSE
+					_anPModule[u] := iq_astBatEnv[b].stP.nMinModule;
+				END_IF
+			END_IF
+		END_FOR
+	END_IF
+	q_astBatDiag[b] := stBat;
+END_FOR
+
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	q_astUnitDiag[u].fPBat := _afPWork[u];
+END_FOR
+
+(* 3) 피상전력: 우선이 아닌 쪽을 줄임 (다른 유닛에 다시 나누지 않음). 정격을 끈 Manual 유닛은 건너뜀 *)
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	g := _anGroup[u];
+	fSLimit := _astUnitEnv[u].fSMax;
+	IF _abInDist[u] AND NOT _abNoRating[u] AND fSLimit > 0 AND g >= 1 AND g <= GVL_PARAM.GROUP_COUNT
+		AND (_afPWork[u] * _afPWork[u] + _afQWork[u] * _afQWork[u]) > fSLimit * fSLimit THEN
+		IF iq_astGroupSet[g].bQPriority THEN
+			_afQWork[u]	:= LIMIT(-fSLimit, _afQWork[u], fSLimit);
+			_afPWork[u]	:= SEL(_afPWork[u] < 0, 1.0, -1.0) * SQRT(MAX(0.0, fSLimit * fSLimit - _afQWork[u] * _afQWork[u]));
+			_aePBy[u]	:= E_UnitLimitBy.SLimit;
+		ELSE
+			_afPWork[u]	:= LIMIT(-fSLimit, _afPWork[u], fSLimit);
+			_afQWork[u]	:= SEL(_afQWork[u] < 0, 1.0, -1.0) * SQRT(MAX(0.0, fSLimit * fSLimit - _afPWork[u] * _afPWork[u]));
+			_aeQBy[u]	:= E_UnitLimitBy.SLimit;
+		END_IF
+	END_IF
+END_FOR
+
+(* 4) 출력 *)
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	q_astUnitSet[u].fP			:= _afPWork[u];
+	q_astUnitSet[u].fQ			:= _afQWork[u];
+	IF _abPFix[u] THEN
+		q_astUnitDiag[u].eRole	:= E_UnitRole.Fixed;
+	ELSIF _abManual[u] THEN
+		q_astUnitDiag[u].eRole	:= E_UnitRole.ManualShare;
+	ELSE
+		q_astUnitDiag[u].eRole	:= E_UnitRole.AutoShare;
+	END_IF
+	q_astUnitDiag[u].fPOut		:= _afPWork[u];
+	q_astUnitDiag[u].ePBy	:= _aePBy[u];
+	q_astUnitDiag[u].nPModule	:= _anPModule[u];
+	q_astUnitDiag[u].fQOut		:= _afQWork[u];
+	q_astUnitDiag[u].eQBy		:= _aeQBy[u];
+	q_astUnitDiag[u].fPMax		:= _afPMax[u];
+	q_astUnitDiag[u].fPWeight	:= _afPWeight[u];
+	q_abUnitLimited[u]			:= M_IsLimited(_aePBy[u]) OR M_IsLimited(_aeQBy[u]);
+END_FOR]]></ST>
+    </Implementation>
+    <Method Name="M_DistPath" Id="{9064990c-256b-4d0c-8804-4dd317ff4b96}">
+      <Declaration><![CDATA[METHOD PRIVATE M_DistPath : ST_DistPathDiag		// 경로 하나(Auto 또는 Manual)의 P 또는 Q를 나눔. 두 경로가 같은 순서
+// ① 유닛별 값 (유닛 한도) → ② 그룹 지령이 있으면 남은 양을 그룹 몫 유닛에 (그룹 목표와 반대 방향으로는 안 감) → ③ 그래도 넘치면 유닛별 값을 비율로 줄임 (늘리지는 않음)
+VAR_INPUT
+	i_nGroup	: UINT;
+	i_bManual	: BOOL;
+	i_bForQ		: BOOL;
+	i_fTarget	: REAL;			// 이 경로 목표 (성형 결과)
+	i_bGrpCmd	: BOOL;			// 이 경로 그룹 지령 있음
+END_VAR
+VAR
+	u			: UINT;
+	bFix		: BOOL;
+	fFixed		: REAL;
+	fShareReq	: REAL;
+	fShareGot	: REAL;
+	fScale		: REAL;
+	fOut		: REAL;
+	stDiag		: ST_DistPathDiag;
+	(* [결함 5 수정 2026-11-03: 추가] 유닛별 P 값을 버스마다 같은 비율로 줄이는 데 씀 *)
+	b			: UINT;
+	fVal		: REAL;
+	afFixP		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;	// 유닛 한도 안으로 넣은 유닛별 P
+	afFixDis	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;	// 버스별 유닛별 P 합 (방전 쪽, 양수)
+	afFixChg	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;	// 버스별 유닛별 P 합 (충전 쪽, 양수)
+	afScDis		: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;	// 버스별 비율 (방전 쪽, 1 = 안 줄임)
+	afScChg		: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// ① 유닛별 값
+fFixed := 0;
+// [결함 5 수정 2026-11-03: P 유닛별 값은 버스마다 합을 먼저 보고, 남은 버스 한도를 넘으면 그 버스 유닛 값을 같은 비율로 줄임 (이유 BatLimit).
+//   원래는 유닛 순서로 M_SetP(u, M_ClampToBus(u, M_ClampToUnitLimit(u, FALSE, _afPUnitReq[u]))) → 앞 유닛이 남은 한도를 다 씀]
+FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+	afFixDis[b]	:= 0;
+	afFixChg[b]	:= 0;
+	afScDis[b]	:= 1.0;
+	afScChg[b]	:= 1.0;
+END_FOR
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	bFix := SEL(i_bForQ, _abPFix[u], _abQFix[u]);
+	IF _anGroup[u] = i_nGroup AND _abInDist[u] AND _abManual[u] = i_bManual AND bFix THEN
+		IF i_bForQ THEN
+			_afQWork[u]	:= M_ClampToUnitLimit(u, TRUE, _afQUnitReq[u]);
+			fFixed		:= fFixed + _afQWork[u];
+		ELSE
+			afFixP[u]	:= M_ClampToUnitLimit(u, FALSE, _afPUnitReq[u]);
+			b			:= _anBat[u];
+			IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT AND NOT _abNoBatLimit[u] THEN
+				afFixDis[b]	:= afFixDis[b] + MAX(afFixP[u], 0.0);
+				afFixChg[b]	:= afFixChg[b] + MAX(-afFixP[u], 0.0);
+			END_IF
+		END_IF
+	END_IF
+END_FOR
+IF NOT i_bForQ THEN
+	FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+		IF afFixDis[b] > MAX(_afBusDisLeft[b], 0.0) + 0.01 THEN afScDis[b] := MAX(_afBusDisLeft[b], 0.0) / afFixDis[b]; END_IF
+		IF afFixChg[b] > MAX(_afBusChgLeft[b], 0.0) + 0.01 THEN afScChg[b] := MAX(_afBusChgLeft[b], 0.0) / afFixChg[b]; END_IF
+	END_FOR
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		IF _anGroup[u] = i_nGroup AND _abInDist[u] AND _abManual[u] = i_bManual AND _abPFix[u] THEN
+			fVal	:= afFixP[u];
+			b		:= _anBat[u];
+			IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT AND NOT _abNoBatLimit[u] THEN
+				IF fVal > 0 AND afScDis[b] < 1.0 THEN
+					fVal := fVal * afScDis[b];
+					M_MarkBusLimit(u, TRUE);
+				ELSIF fVal < 0 AND afScChg[b] < 1.0 THEN
+					fVal := fVal * afScChg[b];
+					M_MarkBusLimit(u, FALSE);
+				END_IF
+			END_IF
+			M_SetP(u, M_ClampToBus(u, fVal));
+			fFixed	:= fFixed + _afPWork[u];
+		END_IF
+	END_FOR
+END_IF
+
+// ② 그룹 몫
+fShareReq := i_fTarget - fFixed;
+IF NOT i_bGrpCmd THEN
+	fShareReq := 0.0;						// 그룹 지령 없음: 지령 없는 유닛에는 안 줌
+ELSIF i_fTarget >= 0 THEN
+	fShareReq := MAX(fShareReq, 0.0);
+ELSE
+	fShareReq := MIN(fShareReq, 0.0);
+END_IF
+fShareGot := M_SplitToShareUnits(i_nGroup, i_bManual, i_bForQ, fShareReq);
+
+// ③ 유닛별 값 축소
+fScale := 1.0;
+IF fFixed <> 0 THEN
+	fScale := LIMIT(0.0, (i_fTarget - fShareGot) / fFixed, 1.0);
+END_IF
+IF fScale < 1.0 THEN
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		bFix := SEL(i_bForQ, _abPFix[u], _abQFix[u]);
+		IF _anGroup[u] = i_nGroup AND _abInDist[u] AND _abManual[u] = i_bManual AND bFix THEN
+			IF i_bForQ THEN
+				_afQWork[u]	:= _afQWork[u] * fScale;
+				_aeQBy[u]	:= E_UnitLimitBy.Scaled;
+			ELSE
+				M_SetP(u, _afPWork[u] * fScale);
+				_aePBy[u]	:= E_UnitLimitBy.Scaled;
+			END_IF
+		END_IF
+	END_FOR
+END_IF
+
+fOut := 0;
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF _anGroup[u] = i_nGroup AND _abManual[u] = i_bManual THEN
+		fOut := fOut + SEL(i_bForQ, _afPWork[u], _afQWork[u]);
+	END_IF
+END_FOR
+
+stDiag.fTarget		:= i_fTarget;
+stDiag.fFixed		:= fFixed;
+stDiag.fShareReq	:= fShareReq;
+stDiag.fShareGot	:= fShareGot;
+stDiag.fFixedScale	:= fScale;
+stDiag.fOut			:= fOut;
+M_DistPath := stDiag;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_IsLimited" Id="{3e5398cd-12ca-4686-ad18-0c87545170b7}">
+      <Declaration><![CDATA[METHOD PRIVATE M_IsLimited : BOOL		// 이 이유가 "요청보다 줄었거나 0으로 묶임"인가 (이유를 추가하면 여기서 정함. 열거 순서에 기대지 않음)
+VAR_INPUT
+	i_eBy		: E_UnitLimitBy;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE i_eBy OF
+	E_UnitLimitBy.Rating, E_UnitLimitBy.Derate, E_UnitLimitBy.Scaled, E_UnitLimitBy.BatDir, E_UnitLimitBy.BatLimit,
+	E_UnitLimitBy.SLimit, E_UnitLimitBy.ModeSwitch, E_UnitLimitBy.WaitManualCmd, E_UnitLimitBy.UnitRule:
+		M_IsLimited := TRUE;
+ELSE
+	M_IsLimited := FALSE;		// None, NotAvail, NotRun (출력 없음은 Run 들어감·나옴으로 따로 씀)
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ClampToUnitLimit" Id="{a9a14262-e093-4426-8cb0-52c1b72cd287}">
+      <Declaration><![CDATA[METHOD PRIVATE M_ClampToUnitLimit : REAL	// 유닛 한도(설비 한도) 안으로
+VAR_INPUT
+	i_nUnit		: UINT;
+	i_bForQ		: BOOL;
+	i_fValue		: REAL;
+END_VAR
+VAR
+	fUnitMax		: REAL;
+	fUnitMin		: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_bForQ THEN
+	fUnitMax := _afQMax[i_nUnit];
+	fUnitMin := _afQMin[i_nUnit];
+ELSE
+	fUnitMax := _afPMax[i_nUnit];
+	fUnitMin := _afPMin[i_nUnit];
+END_IF
+
+M_ClampToUnitLimit := LIMIT(fUnitMin, i_fValue, fUnitMax);
+IF M_ClampToUnitLimit <> i_fValue THEN
+	M_MarkUnitLimitReason(i_nUnit, i_bForQ, i_fValue);
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_MarkUnitLimitReason" Id="{b75e5cfd-5409-455b-8ef2-f7fd83f35a7c}">
+      <Declaration><![CDATA[METHOD PRIVATE M_MarkUnitLimitReason	// 유닛 한도에 걸린 이유 기록 (어느 쪽 한도를 무엇이 정했나)
+VAR_INPUT
+	i_nUnit	: UINT;
+	i_bForQ	: BOOL;
+	i_fDir	: REAL;	// 요청 방향 (+ 방전·공급, - 충전·흡수)
+END_VAR
+VAR
+	eLimitBy	: E_UnitLimitBy;
+	stRng	: ST_Range;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT i_bForQ AND ((i_fDir < 0 AND _abBatNoChg[i_nUnit]) OR (i_fDir > 0 AND _abBatNoDis[i_nUnit])) THEN
+	M_MarkBusLimit(i_nUnit, i_fDir > 0);
+	RETURN;
+END_IF
+IF i_bForQ THEN
+	IF _abNoRating[i_nUnit] THEN
+		stRng := _astUnitEnv[i_nUnit].stQRule;
+	ELSE
+		stRng := _astUnitEnv[i_nUnit].stQ;
+	END_IF
+	IF i_fDir > 0 THEN eLimitBy := _astUnitEnv[i_nUnit].eQMaxBy; ELSE eLimitBy := _astUnitEnv[i_nUnit].eQMinBy; END_IF
+ELSE
+	IF _abNoRating[i_nUnit] THEN
+		stRng := _astUnitEnv[i_nUnit].stPRule;
+	ELSE
+		stRng := _astUnitEnv[i_nUnit].stP;
+	END_IF
+	IF i_fDir > 0 THEN eLimitBy := _astUnitEnv[i_nUnit].ePMaxBy; ELSE eLimitBy := _astUnitEnv[i_nUnit].ePMinBy; END_IF
+END_IF
+IF _abNoRating[i_nUnit] THEN
+	eLimitBy := E_UnitLimitBy.UnitRule;		// 정격을 안 쓰는 유닛은 유닛 제한 모듈에만 걸림
+END_IF
+IF i_bForQ THEN
+	_aeQBy[i_nUnit] := eLimitBy;
+ELSE
+	_aePBy[i_nUnit] := eLimitBy;
+	IF i_fDir > 0 THEN
+		_anPModule[i_nUnit] := stRng.nMaxModule;
+	ELSE
+		_anPModule[i_nUnit] := stRng.nMinModule;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ShareWeight" Id="{b1a5cdd3-d4db-40f0-ba07-1810e0200e2b}">
+      <Declaration><![CDATA[METHOD PRIVATE M_ShareWeight : REAL		// 분배 무게: 그룹 분배 정책 (없으면 코어 기본). 음수·이상값은 0
+VAR_INPUT
+	i_nUnit		: UINT;
+	i_bForQ		: BOOL;
+	i_bPositive	: BOOL;			// 나눌 양이 방전·공급 쪽
+END_VAR
+VAR
+	stView	: ST_DistView;
+	g		: UINT;
+	fW		: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[g := _anGroup[i_nUnit];
+stView.nGroup		:= g;
+stView.nUnit		:= i_nUnit;
+stView.bManual		:= _abManual[i_nUnit];
+stView.bForQ		:= i_bForQ;
+stView.bPositive	:= i_bPositive;
+stView.eBasis		:= _eBasis;
+stView.fPRated		:= _afPRated[i_nUnit];
+stView.fQRated		:= _afQRated[i_nUnit];
+stView.fSoc			:= _afSoc[i_nUnit];
+IF g >= 1 AND g <= GVL_PARAM.GROUP_COUNT AND_THEN _aipDistPolicy[g] <> 0 THEN
+	fW := _aipDistPolicy[g].M_Weight(i_stView := stView);
+ELSE
+	fW := _fbDistStd.M_Weight(i_stView := stView);
+END_IF
+// NaN·무한대를 먼저 거름 (OR는 단락 평가가 아니라서 fW < 0을 NaN으로 비교하지 않게 나눔)
+IF NOT F_CmdOk(fW, 0.0) THEN
+	fW := 0.0;
+ELSIF fW < 0.0 THEN
+	fW := 0.0;
+END_IF
+M_ShareWeight := fW;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SplitToShareUnits" Id="{d13125c9-4609-473e-b61f-af2610d0624c}">
+      <Declaration><![CDATA[METHOD PRIVATE M_SplitToShareUnits : REAL	// 그룹 몫 유닛에 무게대로 나눔. 한도에 걸린 유닛 몫은 나머지에 다시. 실제로 나눈 양을 돌려줌
+// P는 연결 버스 남은 한도도 봄: 한 라운드에 한 버스로 가는 몫이 남은 한도보다 크면 그 버스 유닛 몫을 같은 비율로 줄이고(공평하게), 그 유닛들은 다 찬 것으로 뺌 → 넘친 몫은 다른 버스 유닛에
+VAR_INPUT
+	i_nGroup	: UINT;
+	i_bManual	: BOOL;			// TRUE = Manual 그룹 몫 유닛, FALSE = Auto 그룹 몫 유닛
+	i_bForQ		: BOOL;
+	i_fAmount	: REAL;
+END_VAR
+VAR
+	u			: UINT;
+	nRound		: UINT;
+	bPositive		: BOOL;
+	fRemaining		: REAL;
+	fWeightSum		: REAL;
+	fAssigned		: REAL;
+	fNewValue		: REAL;
+	fUnitCap		: REAL;
+	abCanTake	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;
+	bBusCap	: BOOL;	// 이번 상한이 버스 남은 한도 때문
+	b	: UINT;
+	fBusScale	: REAL;	// 이 유닛 몫에 곱하는 버스 비율 (1 = 안 줄임)
+	afBusWant	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;	// 이번 라운드 버스별 요청 증가량 (양수)
+	afBusScale	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;	// 버스별 비율
+	bCut		: BOOL;	// 한도 때문에 이번 몫보다 덜 받음. [결함 5 수정 2026-11-03: 추가]
+	bBusScaled	: BOOL;	// 이번 라운드 버스 비율로 줄었음. [결함 5 수정 2026-11-03: 추가]
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bPositive := i_fAmount >= 0;
+
+// 대상 유닛: 이 그룹, 운전 대상, 같은 운전 모드, 그 값(P 또는 Q)에 유닛별 값이 없는 유닛
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	abCanTake[u] := _anGroup[u] = i_nGroup AND _abInDist[u] AND (_abManual[u] = i_bManual)
+				AND ((i_bForQ AND NOT _abQFix[u]) OR (NOT i_bForQ AND NOT _abPFix[u]));
+END_FOR
+
+fRemaining := i_fAmount;
+FOR nRound := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF ABS(fRemaining) < 0.001 THEN
+		EXIT;
+	END_IF
+	fWeightSum := 0;
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		IF abCanTake[u] THEN fWeightSum := fWeightSum + M_ShareWeight(u, i_bForQ, bPositive); END_IF
+	END_FOR
+	IF fWeightSum <= 0 THEN
+		EXIT;	// 더 받을 유닛이 없음
+	END_IF
+	// P: 버스별 요청 증가량이 남은 한도보다 크면 그 버스 몫을 비율로 줄임
+	FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+		afBusWant[b]	:= 0;
+		afBusScale[b]	:= 1.0;
+	END_FOR
+	IF NOT i_bForQ THEN
+		FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+			b := _anBat[u];
+			IF abCanTake[u] AND b >= 1 AND b <= GVL_PARAM.BAT_COUNT AND NOT _abNoBatLimit[u] THEN
+				afBusWant[b] := afBusWant[b] + ABS(fRemaining) * M_ShareWeight(u, FALSE, bPositive) / fWeightSum;
+			END_IF
+		END_FOR
+		FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+			IF bPositive AND afBusWant[b] > _afBusDisLeft[b] THEN
+				afBusScale[b] := MAX(_afBusDisLeft[b], 0.0) / afBusWant[b];
+			ELSIF NOT bPositive AND afBusWant[b] > _afBusChgLeft[b] THEN
+				afBusScale[b] := MAX(_afBusChgLeft[b], 0.0) / afBusWant[b];
+			END_IF
+		END_FOR
+	END_IF
+
+	fAssigned := 0;
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		IF abCanTake[u] THEN
+			IF i_bForQ THEN
+				fNewValue := _afQWork[u] + fRemaining * M_ShareWeight(u, i_bForQ, bPositive) / fWeightSum;
+				fUnitCap := SEL(bPositive, _afQMin[u], _afQMax[u]);
+				bBusCap := FALSE;
+				fBusScale := 1.0;
+			ELSE
+				_afPWeight[u] := M_ShareWeight(u, i_bForQ, bPositive);
+				fBusScale := 1.0;
+				b := _anBat[u];
+				IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT AND NOT _abNoBatLimit[u] THEN
+					fBusScale := afBusScale[b];
+				END_IF
+				fNewValue := _afPWork[u] + fRemaining * _afPWeight[u] / fWeightSum * fBusScale;
+				// 유닛 한도와 연결 버스 남은 한도 중 좁은 쪽
+				fUnitCap := SEL(bPositive, MAX(_afPMin[u], M_BusMin(u)), MIN(_afPMax[u], M_BusMax(u)));
+				bBusCap := fUnitCap <> SEL(bPositive, _afPMin[u], _afPMax[u]);
+			END_IF
+			IF (bPositive AND fNewValue >= fUnitCap) OR (NOT bPositive AND fNewValue <= fUnitCap) THEN
+				// [결함 5 수정 2026-11-03: 이유는 실제로 덜 받았을 때만 (몫이 한도를 넘었거나 버스 비율로 줄었을 때). 몫이 한도에 딱 닿기만 하면 안 남김.
+				//   원래 IF ABS(fRemaining) > 0.001 THEN (버스 한도 ELSE 유닛 한도) → 같은 몫인데 마지막 유닛만 BatLimit로 나옴]
+				bCut			:= ABS(fNewValue - fUnitCap) > 0.01;
+				bBusScaled		:= NOT i_bForQ AND fBusScale < 0.9999;
+				fNewValue		:= fUnitCap;
+				abCanTake[u]	:= FALSE;
+				IF bCut AND NOT bBusCap THEN
+					M_MarkUnitLimitReason(u, i_bForQ, SEL(bPositive, -1.0, 1.0));
+				ELSIF bCut OR bBusScaled THEN
+					M_MarkBusLimit(u, bPositive);
+				END_IF
+			END_IF
+			IF i_bForQ THEN
+				fAssigned	:= fAssigned + fNewValue - _afQWork[u];
+				_afQWork[u]	:= fNewValue;
+			ELSE
+				fAssigned	:= fAssigned + fNewValue - _afPWork[u];
+				M_SetP(u, fNewValue);
+			END_IF
+		END_IF
+	END_FOR
+	fRemaining := fRemaining - fAssigned;
+	// 남은 한도를 다 쓴 버스의 유닛만 뺌. 버스 비율로 줄였어도 한도가 남으면(같은 버스 다른 유닛이 자기 한도에 먼저 걸림) 다음 라운드에 더 받음
+	IF NOT i_bForQ THEN
+		FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+			b := _anBat[u];
+			IF abCanTake[u] AND b >= 1 AND b <= GVL_PARAM.BAT_COUNT AND NOT _abNoBatLimit[u]
+				AND ((bPositive AND _afBusDisLeft[b] <= 0.001) OR (NOT bPositive AND _afBusChgLeft[b] <= 0.001)) THEN
+				abCanTake[u] := FALSE;
+				IF ABS(fRemaining) > 0.001 THEN
+					M_MarkBusLimit(u, bPositive);
+				END_IF
+			END_IF
+		END_FOR
+	END_IF
+END_FOR
+
+M_SplitToShareUnits := i_fAmount - fRemaining;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetP" Id="{d35b1017-acf1-4457-b9f2-bea35b758dfc}">
+      <Declaration><![CDATA[METHOD PRIVATE M_SetP	// 유닛 P를 바꾸고 연결 버스 남은 한도를 맞춤 (방전·충전 쪽 따로)
+VAR_INPUT
+	i_nUnit	: UINT;
+	i_fNew	: REAL;
+END_VAR
+VAR
+	b	: UINT;
+	fOld	: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fOld := _afPWork[i_nUnit];
+b := _anBat[i_nUnit];
+IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT AND NOT _abNoBatLimit[i_nUnit] THEN
+	_afBusDisLeft[b] := _afBusDisLeft[b] + MAX(fOld, 0.0) - MAX(i_fNew, 0.0);
+	_afBusChgLeft[b] := _afBusChgLeft[b] + MAX(-fOld, 0.0) - MAX(-i_fNew, 0.0);
+END_IF
+_afPWork[i_nUnit] := i_fNew;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_BusMax" Id="{08bedc6b-6eb5-4f9d-8d59-4c5e12e8bf64}">
+      <Declaration><![CDATA[METHOD PRIVATE M_BusMax : REAL	// 이 유닛이 가질 수 있는 P 상한 (연결 버스 남은 방전 한도 기준). 버스 한도를 안 보는 유닛은 아주 큰 값
+VAR_INPUT
+	i_nUnit	: UINT;
+END_VAR
+VAR
+	b	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[b := _anBat[i_nUnit];
+IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT AND NOT _abNoBatLimit[i_nUnit] THEN
+	M_BusMax := MAX(_afPWork[i_nUnit], 0.0) + MAX(_afBusDisLeft[b], 0.0);
+ELSE
+	M_BusMax := GVL_CORE.NO_LIMIT;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_BusMin" Id="{1694e216-5304-4a5f-9e18-76c5ee123fcd}">
+      <Declaration><![CDATA[METHOD PRIVATE M_BusMin : REAL	// 이 유닛이 가질 수 있는 P 하한 (연결 버스 남은 충전 한도 기준)
+VAR_INPUT
+	i_nUnit	: UINT;
+END_VAR
+VAR
+	b	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[b := _anBat[i_nUnit];
+IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT AND NOT _abNoBatLimit[i_nUnit] THEN
+	M_BusMin := MIN(_afPWork[i_nUnit], 0.0) - MAX(_afBusChgLeft[b], 0.0);
+ELSE
+	M_BusMin := -GVL_CORE.NO_LIMIT;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ClampToBus" Id="{a644eefd-bd98-4877-a4bf-21e05310094a}">
+      <Declaration><![CDATA[METHOD PRIVATE M_ClampToBus : REAL	// 유닛별 P를 연결 버스 남은 한도 안으로 (값은 M_SetP로 씀)
+VAR_INPUT
+	i_nUnit	: UINT;
+	i_fValue	: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_ClampToBus := LIMIT(M_BusMin(i_nUnit), i_fValue, M_BusMax(i_nUnit));
+IF M_ClampToBus <> i_fValue THEN
+	M_MarkBusLimit(i_nUnit, i_fValue > 0);
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_MarkBusLimit" Id="{a8275c9b-81ea-44bd-b3b8-e5f467145d0b}">
+      <Declaration><![CDATA[METHOD PRIVATE M_MarkBusLimit	// 버스 한도에 걸림: 이유 BatLimit, 그 쪽 한도를 정한 모듈 (0 = BMS 한도)
+VAR_INPUT
+	i_nUnit	: UINT;
+	i_bDis	: BOOL;	// 방전 쪽
+END_VAR
+VAR
+	b	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_aePBy[i_nUnit] := E_UnitLimitBy.BatLimit;
+b := _anBat[i_nUnit];
+IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT THEN
+	IF i_bDis THEN
+		_anPModule[i_nUnit] := _astBatEnv[b].stP.nMaxModule;
+	ELSE
+		_anPModule[i_nUnit] := _astBatEnv[b].stP.nMinModule;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

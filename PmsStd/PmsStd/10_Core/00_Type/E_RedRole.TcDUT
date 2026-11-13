@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_RedRole" Id="{0a2be9db-0cce-4d2f-90b7-0bcf3eb6b2eb}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_RedRole :		// 이중화에서 이 PLC의 역할 (고정 신분. 지금 장비에 쓰는지는 GVL_IF.g_bRedActive)
+(
+	Reading		:= 0,	// 이 PLC Net ID를 읽는 중 (시작 직후)
+	Primary		:= 1,	// 주로 쓰는 PLC. 이중화를 안 쓰면 항상 Primary
+	Secondary	:= 2,	// 예비 PLC
+	NoMatch		:= 3	// 이 PLC Net ID가 GVL_SITE.RED_SET의 Primary·Secondary 어느 쪽과도 다름 → 설정 오류
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

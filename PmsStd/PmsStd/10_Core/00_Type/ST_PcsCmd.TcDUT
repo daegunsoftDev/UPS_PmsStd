@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_PcsCmd" Id="{9c519f7e-bbed-416c-a792-5cc9259f35eb}">
+    <Declaration><![CDATA[TYPE ST_PcsCmd :		// PCS(유닛)에 보낼 명령
+STRUCT
+	eCmd		: E_PcsCmd;
+	nSeq		: UDINT;		// 명령 번호. 바뀌면 새 명령 → 디스패처가 1회 전송
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

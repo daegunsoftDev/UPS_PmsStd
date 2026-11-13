@@ -1,0 +1,292 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<POU Name="FB_UpsChargeSequence" Id="{e1fc4e28-0bbe-403a-a13e-ac995eba68fa}" SpecialFunc="None"><Declaration><![CDATA[FUNCTION_BLOCK FB_UpsChargeSequence // 충방전 순서에 따른 요청 생성
+VAR_INPUT
+ i_bEnable : BOOL;
+ i_bCancel : BOOL;
+ i_bReset : BOOL;
+ i_bResetReference : BOOL; // 기준 결과 초기화
+ i_eMode : E_UpsChargeMode;
+ i_stSet : ST_UpsChargeSet;
+ i_stUps : ST_UpsState;
+ i_stBms : ST_EsolutionState;
+ i_stTime : ST_LocalTime;
+ i_stFeedback : ST_UpsChargeFeedback;
+END_VAR
+VAR_OUTPUT
+ q_eStep : E_UpsChargeStep;
+ q_eMode : E_UpsChargeMode;
+ q_stRequest : ST_UpsChargeRequest;
+ q_stActiveSet : ST_UpsChargeSet; // 이번 운전에 고정한 설정
+ q_bDone : BOOL; // 정상 완료
+ q_bCanceled : BOOL; // 취소 완료
+ q_bConflict : BOOL; // 다른 주 운전 시작 충돌
+ q_bRecoveryRequired : BOOL; // 현장 상태 확인 필요
+ q_nError : UINT; // 1: 설정, 2: 통신/보호, 3: 요청, 4: 모드, 5: 시간 초과
+ q_bReferenceValid : BOOL; // 최초 주기적 방전 결과
+ q_fReferenceStartVoltageV : REAL;
+ q_fReferenceEndVoltageV : REAL;
+ q_stReferenceTime : ST_LocalTime;
+ q_fStartVoltageV : REAL;
+ q_fEndVoltageV : REAL;
+ q_stLastTime : ST_LocalTime;
+ q_nLastScheduleDate : UDINT;
+END_VAR
+VAR
+ _fbRequest : FB_UpsChargeRequest;
+ _eAction : E_UpsChargeAction;
+ _bNormal : BOOL;
+ _bDataOk : BOOL;
+ _bStarted : BOOL;
+ _bCanceled : BOOL;
+ _bClearRequest : BOOL;
+ _bUpsDischargeRequested : BOOL;
+ _bDue : BOOL;
+ _bEndReached : BOOL;
+ _bRestartReached : BOOL;
+ _nDate : UDINT;
+ _nWeek : UINT;
+ _nModeSample : UDINT;
+ _tonExtra : TON;
+ _tonRest : TON;
+ _tonInitial : TON;
+ _tonDischarge : TON;
+ _tonRun : TON;
+ _tonMode : TON;
+ _tonAbnormal : TON; // 운전 중 BBC Normal 해제가 이어진 시간
+ _bProtTrip : BOOL; // 사고/고장 3~6단계 신호 (동작시퀀스 7쪽)
+ _bHardOk : BOOL; // 데이터 유효, 3~6단계·BMS Minor 없음
+ _bActive : BOOL; // 운전 단계 (Idle·WaitNormal·Complete·Fault 아님)
+ _bWaitStep : BOOL; // 오래 기다리는 단계 (스케줄 대기·휴지)
+ _bSafeCancel : BOOL; // 고장 뒤 UPS 방전 취소 요청 중
+ _nNewFault : UINT; // 이번 스캔에 생긴 고장 번호
+END_VAR]]></Declaration>
+<Implementation><ST><![CDATA[q_bDone := FALSE;
+q_bCanceled := FALSE;
+IF i_bResetReference AND (q_eStep = E_UpsChargeStep.Idle OR q_eStep = E_UpsChargeStep.WaitSchedule) THEN
+ q_bReferenceValid:=FALSE;
+END_IF
+_eAction := E_UpsChargeAction.NoRequest;
+_bClearRequest := FALSE;
+_nNewFault := 0;
+_bDataOk := i_stUps.bValid AND i_stBms.bValid;
+// 동작시퀀스 7쪽 3~6단계: UPS·BMS가 배터리 컨버터 정지·MCCB Trip·컨택터 차단을 하는 상황. 어느 단계에서든 즉시 고장, 자동 재개 없음
+// 비상정지(6), BMS Major(3), STATUS2 b12·b13 RCD 1·2단계 = DC전로 지락(3·4), b14 화재(5), BBC 정지 알람(4), BMS 고장·잠금(5)
+_bProtTrip := (i_stUps.bValid AND (i_stUps.bEmergencyStop OR i_stUps.bBmsMajor
+  OR (i_stUps.wStatus2 AND 16#7000) <> 0 OR (i_stUps.wBbcAlarm AND 16#0FA8) <> 0))
+ OR (i_stBms.bValid AND (i_stBms.bFault OR i_stBms.bSystemLock));
+// 2단계 BMS Minor(충전만 차단)와 통신 장애(15쪽: 정상운전 + 점검 요청)도 운전 단계는 멈추지만, 대기 단계에서는 기다림만
+_bHardOk := _bDataOk AND NOT _bProtTrip AND NOT i_stUps.bBmsMinor;
+// Rect Normal 0 = 정전·정류부 중고장(3단계) → 운전 단계 즉시 고장. BBC Normal은 BBC 기동 직후 3초 과도 구간에 0 → tModeTimeout 넘게 이어질 때만 고장
+_bNormal := _bHardOk AND i_stUps.bRectNormal AND i_stUps.bBbcNormal;
+_bActive := q_eStep <> E_UpsChargeStep.Idle AND q_eStep <> E_UpsChargeStep.WaitNormal
+ AND q_eStep <> E_UpsChargeStep.Complete AND q_eStep <> E_UpsChargeStep.Fault;
+// 스케줄 대기(최대 한 달)·휴지(30일)는 3~6단계만 고장. 그 밖의 이상은 고장으로 보지 않고 다음 단계로 넘어가지 않음
+_bWaitStep := q_eStep = E_UpsChargeStep.WaitSchedule OR q_eStep = E_UpsChargeStep.Rest;
+_tonAbnormal(IN:=_bActive AND NOT _bWaitStep AND _bHardOk AND i_stUps.bRectNormal AND NOT i_stUps.bBbcNormal,
+ PT:=q_stActiveSet.tModeTimeout);
+q_bConflict := q_eMode <> E_UpsChargeMode.Off AND i_eMode <> q_eMode AND i_eMode <> E_UpsChargeMode.Off;
+IF i_bReset AND NOT i_bEnable AND (q_eStep = E_UpsChargeStep.Fault OR q_eStep = E_UpsChargeStep.Complete) THEN
+ // 리셋은 현장 확인 후 수행. 장비를 정지시키는 명령이 아님.
+ q_eStep := E_UpsChargeStep.Idle;
+ q_eMode := E_UpsChargeMode.Off;
+ q_nError := 0;
+ q_bRecoveryRequired := FALSE;
+ _bStarted := FALSE;
+ _bSafeCancel := FALSE;
+END_IF
+
+IF _bActive THEN
+ IF _bProtTrip OR (NOT _bWaitStep AND (NOT _bHardOk OR NOT i_stUps.bRectNormal OR _tonAbnormal.Q)) THEN
+  _nNewFault := 2;
+ ELSIF _fbRequest.q_bError THEN
+  _nNewFault := 3;
+ ELSIF NOT i_bEnable OR i_bCancel OR i_eMode = E_UpsChargeMode.Off THEN
+  IF NOT _bCanceled THEN
+   _bCanceled := TRUE;
+   _bClearRequest := TRUE;
+   IF NOT _bStarted THEN
+    q_eStep := E_UpsChargeStep.Complete;
+   ELSIF q_eMode = E_UpsChargeMode.Trickle THEN
+    q_eStep := E_UpsChargeStep.BbcResume;
+   ELSIF _bUpsDischargeRequested THEN
+    q_eStep := E_UpsChargeStep.CancelUps;
+   ELSE
+    q_eStep := E_UpsChargeStep.CancelBms;
+   END_IF
+  END_IF
+ END_IF
+END_IF
+
+_bEndReached := i_stUps.fBatteryVoltageV >= q_stActiveSet.fEndVoltageV;
+_bRestartReached := i_stUps.fBatteryVoltageV <= q_stActiveSet.fStartVoltageV;
+IF q_stActiveSet.nTrickleCriterion = 2 THEN
+ _bEndReached := i_stBms.fSocPct >= q_stActiveSet.fEndSocPct;
+ _bRestartReached := i_stBms.fSocPct <= q_stActiveSet.fStartSocPct;
+END_IF
+_tonExtra(IN:=q_eStep = E_UpsChargeStep.ExtraCharge, PT:=q_stActiveSet.tExtraCharge);
+_tonRest(IN:=q_eStep = E_UpsChargeStep.Rest, PT:=q_stActiveSet.tRestart);
+_tonInitial(IN:=q_eStep = E_UpsChargeStep.ExtraCharge AND q_eMode = E_UpsChargeMode.Periodic, PT:=q_stActiveSet.tInitialCharge);
+_tonDischarge(IN:=q_eStep = E_UpsChargeStep.Running AND q_eMode = E_UpsChargeMode.Periodic, PT:=q_stActiveSet.tPeriodicDischarge);
+_tonRun(IN:=q_eStep = E_UpsChargeStep.Running, PT:=q_stActiveSet.tRunTimeout);
+_tonMode(IN:=q_eStep = E_UpsChargeStep.WaitRunning OR q_eStep = E_UpsChargeStep.WaitReady
+ OR q_eStep = E_UpsChargeStep.WaitFloat, PT:=q_stActiveSet.tModeTimeout);
+IF _nNewFault = 0 AND _tonMode.Q THEN _nNewFault:=4; END_IF
+IF _nNewFault = 0 AND _tonRun.Q THEN _nNewFault:=5; END_IF
+IF _nNewFault <> 0 THEN
+ // UPS 방전을 요청하고 끝내지 못한 채 고장이면 방전 취소를 한 번 요청 (주기적 방전은 취소 전까지 계속됨)
+ _bSafeCancel := _bUpsDischargeRequested AND (q_eStep = E_UpsChargeStep.StartDischarge
+  OR q_eStep = E_UpsChargeStep.WaitRunning OR q_eStep = E_UpsChargeStep.Running OR q_eStep = E_UpsChargeStep.CancelUps);
+ q_nError := _nNewFault;
+ q_bRecoveryRequired := _bStarted OR _nNewFault = 5;
+ _bClearRequest := TRUE; // 이전 요청의 확인·오류를 취소 요청에 다시 쓰지 않음
+ q_eStep := E_UpsChargeStep.Fault;
+END_IF
+
+_bDue := FALSE;
+IF i_stTime.bValid AND i_stTime.nMonth >= 1 AND i_stTime.nMonth <= 12
+ AND i_stTime.nDay >= 1 AND i_stTime.nDay <= 31 THEN
+ _nDate := UINT_TO_UDINT(i_stTime.nYear)*10000 + UINT_TO_UDINT(i_stTime.nMonth)*100 + UINT_TO_UDINT(i_stTime.nDay);
+ _nWeek := (i_stTime.nDay-1)/7+1;
+ _bDue := (q_stActiveSet.wMonthMask AND SHL(WORD#1,i_stTime.nMonth-1)) <> 0
+  AND _nWeek = q_stActiveSet.nWeek AND i_stTime.nDayOfWeek = q_stActiveSet.nWeekDay
+  AND i_stTime.nHour = q_stActiveSet.nHour AND _nDate > q_nLastScheduleDate;
+END_IF
+
+IF NOT _bClearRequest THEN
+CASE q_eStep OF
+ E_UpsChargeStep.Idle:
+  IF i_bEnable AND NOT i_bCancel AND NOT i_bReset AND i_eMode <> E_UpsChargeMode.Off THEN
+   q_eMode:=i_eMode; q_stActiveSet:=i_stSet; q_nError:=0;
+   _bCanceled:=FALSE; _bStarted:=FALSE; _bUpsDischargeRequested:=FALSE;
+   q_eStep:=E_UpsChargeStep.WaitNormal;
+  END_IF
+ E_UpsChargeStep.WaitNormal:
+  IF NOT i_bEnable OR i_bCancel OR i_eMode = E_UpsChargeMode.Off THEN
+   _bCanceled:=TRUE; q_eStep:=E_UpsChargeStep.Complete;
+  ELSIF _bNormal THEN
+   IF i_stUps.nBatMode <> 0 THEN
+    q_bConflict:=TRUE;
+   ELSIF q_stActiveSet.tRequestTimeout = T#0MS OR q_stActiveSet.tModeTimeout = T#0MS THEN
+    q_nError:=1; q_eStep:=E_UpsChargeStep.Fault;
+   ELSE
+    CASE q_eMode OF
+     E_UpsChargeMode.Trickle:
+      IF (q_stActiveSet.nTrickleCriterion = 1 AND q_stActiveSet.fStartVoltageV > 0.0
+       AND q_stActiveSet.fEndVoltageV > q_stActiveSet.fStartVoltageV)
+       OR (q_stActiveSet.nTrickleCriterion = 2 AND q_stActiveSet.fStartSocPct >= 0.0
+       AND q_stActiveSet.fEndSocPct > q_stActiveSet.fStartSocPct AND q_stActiveSet.fEndSocPct <= 100.0) THEN
+       IF q_stActiveSet.tExtraCharge > T#0MS AND q_stActiveSet.tRestart > T#0MS THEN
+        q_eStep:=E_UpsChargeStep.BbcStart;
+       ELSE q_nError:=1; q_eStep:=E_UpsChargeStep.Fault; END_IF
+      ELSE q_nError:=1; q_eStep:=E_UpsChargeStep.Fault; END_IF
+     E_UpsChargeMode.Periodic:
+      IF q_stActiveSet.fFloatVoltageV > 0.0 AND q_stActiveSet.fPeriodicCurrentA > 0.0
+       AND q_stActiveSet.tInitialCharge > T#0MS AND q_stActiveSet.tPeriodicDischarge > T#0MS AND q_stActiveSet.tRunTimeout > q_stActiveSet.tPeriodicDischarge
+       AND q_stActiveSet.wMonthMask <> 0 AND q_stActiveSet.wMonthMask <= 16#0FFF
+       AND q_stActiveSet.nWeek >= 1 AND q_stActiveSet.nWeek <= 4
+       AND q_stActiveSet.nWeekDay <= 6 AND q_stActiveSet.nHour <= 23 THEN
+       q_eStep:=E_UpsChargeStep.WaitSchedule;
+      ELSE q_nError:=1; q_eStep:=E_UpsChargeStep.Fault; END_IF
+     E_UpsChargeMode.Pulse:
+      IF q_stActiveSet.fPulseChargeA > 0.0 AND q_stActiveSet.fPulseDischargeA > 0.0
+       AND q_stActiveSet.tPulseCharge > T#0MS AND q_stActiveSet.tPulseDischarge > T#0MS
+       AND q_stActiveSet.nPulseCycles > 0 AND q_stActiveSet.tRunTimeout > T#0MS
+       AND (UDINT_TO_LREAL(TIME_TO_UDINT(q_stActiveSet.tPulseCharge))
+       + UDINT_TO_LREAL(TIME_TO_UDINT(q_stActiveSet.tPulseDischarge)))
+       *UINT_TO_LREAL(q_stActiveSet.nPulseCycles) < UDINT_TO_LREAL(TIME_TO_UDINT(q_stActiveSet.tRunTimeout)) THEN
+       q_eStep:=E_UpsChargeStep.PrepareBms;
+      ELSE q_nError:=1; q_eStep:=E_UpsChargeStep.Fault; END_IF
+     ELSE q_nError:=1; q_eStep:=E_UpsChargeStep.Fault;
+    END_CASE
+   END_IF
+  END_IF
+ E_UpsChargeStep.WaitSchedule:
+  IF _bDue AND i_stUps.nBatMode = 0 AND _bNormal THEN
+   q_nLastScheduleDate:=_nDate;
+   IF i_stUps.fBatteryVoltageV <= q_stActiveSet.fFloatVoltageV THEN q_eStep:=E_UpsChargeStep.ExtraCharge;
+   ELSE q_eStep:=E_UpsChargeStep.PrepareBms; END_IF
+  END_IF
+ E_UpsChargeStep.BbcStart:
+  IF _fbRequest.q_bDone THEN q_eStep:=E_UpsChargeStep.WaitEnd;
+  ELSE _eAction:=E_UpsChargeAction.BbcOn; _bStarted:=TRUE; END_IF
+ E_UpsChargeStep.WaitEnd:
+  IF _bEndReached THEN q_eStep:=E_UpsChargeStep.ExtraCharge; END_IF
+ E_UpsChargeStep.ExtraCharge:
+  IF q_eMode = E_UpsChargeMode.Trickle AND _tonExtra.Q THEN q_eStep:=E_UpsChargeStep.BbcReady;
+  ELSIF q_eMode = E_UpsChargeMode.Periodic AND _tonInitial.Q THEN q_eStep:=E_UpsChargeStep.PrepareBms; END_IF
+ E_UpsChargeStep.BbcReady:
+  IF _fbRequest.q_bDone THEN _nModeSample:=i_stUps.nSampleSeq; q_eStep:=E_UpsChargeStep.WaitReady;
+  ELSE _eAction:=E_UpsChargeAction.BbcReady; END_IF
+ E_UpsChargeStep.WaitReady:
+  IF i_stUps.nSampleSeq <> _nModeSample AND i_stUps.nBatMode = 2 THEN q_eStep:=E_UpsChargeStep.Rest; END_IF
+ E_UpsChargeStep.Rest:
+  IF (_bRestartReached OR _tonRest.Q) AND _bHardOk AND i_stUps.bRectNormal THEN q_eStep:=E_UpsChargeStep.BbcStart; END_IF // 대기모드에서는 BBC Normal을 보지 않음
+ E_UpsChargeStep.PrepareBms:
+  IF i_stUps.nBatMode <> 0 THEN q_bConflict:=TRUE;
+  ELSIF _fbRequest.q_bDone THEN q_eStep:=E_UpsChargeStep.StartDischarge;
+  ELSE
+   _bStarted:=TRUE;
+   IF q_eMode = E_UpsChargeMode.Periodic THEN _eAction:=E_UpsChargeAction.BmsPreparePeriodic;
+   ELSE _eAction:=E_UpsChargeAction.BmsPreparePulse; END_IF
+  END_IF
+ E_UpsChargeStep.StartDischarge:
+  IF NOT _bUpsDischargeRequested AND i_stUps.nBatMode <> 0 THEN q_bConflict:=TRUE;
+  ELSIF _fbRequest.q_bDone THEN _nModeSample:=i_stUps.nSampleSeq; q_eStep:=E_UpsChargeStep.WaitRunning;
+  ELSE
+   _bUpsDischargeRequested:=TRUE;
+   IF q_eMode = E_UpsChargeMode.Periodic THEN _eAction:=E_UpsChargeAction.PeriodicStart;
+   ELSE _eAction:=E_UpsChargeAction.PulseStart; END_IF
+  END_IF
+ E_UpsChargeStep.WaitRunning:
+  IF i_stUps.nSampleSeq <> _nModeSample AND ((q_eMode = E_UpsChargeMode.Periodic AND i_stUps.nBatMode = 3)
+   OR (q_eMode = E_UpsChargeMode.Pulse AND i_stUps.nBatMode = 4)) THEN
+   q_fStartVoltageV:=i_stUps.fBatteryVoltageV;
+   _nModeSample:=i_stUps.nSampleSeq; q_eStep:=E_UpsChargeStep.Running;
+  END_IF
+ E_UpsChargeStep.Running:
+  IF (q_eMode = E_UpsChargeMode.Periodic AND i_stUps.nBatMode = 3) OR (q_eMode = E_UpsChargeMode.Pulse AND i_stUps.nBatMode = 4) THEN
+   q_fEndVoltageV:=i_stUps.fBatteryVoltageV; // 방전 중 마지막 전압 = 종료 전압 (부동충전 복귀 뒤에는 전압이 다시 오름)
+  END_IF
+  IF i_stUps.nSampleSeq <> _nModeSample AND i_stUps.nBatMode = 0 THEN q_eStep:=E_UpsChargeStep.CancelBms;
+  ELSIF q_eMode = E_UpsChargeMode.Periodic AND _tonDischarge.Q THEN q_eStep:=E_UpsChargeStep.CancelUps; END_IF
+ E_UpsChargeStep.CancelUps:
+  IF _fbRequest.q_bDone THEN q_eStep:=E_UpsChargeStep.CancelBms;
+  ELSE _eAction:=E_UpsChargeAction.DischargeCancel; END_IF
+ E_UpsChargeStep.CancelBms:
+  IF _fbRequest.q_bDone THEN q_eStep:=E_UpsChargeStep.FloatRequest;
+  ELSE _eAction:=E_UpsChargeAction.BmsDischargeCancel; END_IF
+ E_UpsChargeStep.BbcResume:
+  IF _fbRequest.q_bDone THEN q_eStep:=E_UpsChargeStep.FloatRequest;
+  ELSE _eAction:=E_UpsChargeAction.BbcOn; END_IF
+ E_UpsChargeStep.FloatRequest:
+  IF _fbRequest.q_bDone THEN _nModeSample:=i_stUps.nSampleSeq; q_eStep:=E_UpsChargeStep.WaitFloat;
+  ELSE _eAction:=E_UpsChargeAction.FloatCharge; END_IF
+ E_UpsChargeStep.WaitFloat:
+  IF i_stUps.nSampleSeq <> _nModeSample AND i_stUps.nBatMode = 0 THEN
+   IF q_eMode = E_UpsChargeMode.Trickle THEN q_fEndVoltageV:=i_stUps.fBatteryVoltageV; END_IF
+   q_stLastTime:=i_stTime; _bStarted:=FALSE; _bUpsDischargeRequested:=FALSE;
+   IF _bCanceled THEN q_eStep:=E_UpsChargeStep.Complete;
+   ELSIF q_eMode = E_UpsChargeMode.Periodic THEN
+    IF NOT q_bReferenceValid THEN
+     q_fReferenceStartVoltageV:=q_fStartVoltageV;
+     q_fReferenceEndVoltageV:=q_fEndVoltageV;
+     q_stReferenceTime:=i_stTime; q_bReferenceValid:=TRUE;
+    END_IF
+    q_bDone:=TRUE; q_eStep:=E_UpsChargeStep.WaitSchedule;
+   ELSE q_bDone:=TRUE; q_eStep:=E_UpsChargeStep.Complete; END_IF
+  END_IF
+ E_UpsChargeStep.Complete:
+  q_bCanceled:=_bCanceled;
+  IF NOT i_bEnable THEN q_eStep:=E_UpsChargeStep.Idle; q_eMode:=E_UpsChargeMode.Off; END_IF
+ E_UpsChargeStep.Fault:
+  // 장비 보호·비상정지는 별도 담당. 자동 재시작하지 않음. 방전 중이었으면 UPS 데이터가 유효할 때 취소를 한 번 요청
+  IF _bSafeCancel THEN
+   IF _fbRequest.q_bDone OR _fbRequest.q_bError THEN _bSafeCancel:=FALSE;
+   ELSIF i_stUps.bValid THEN _eAction:=E_UpsChargeAction.DischargeCancel; END_IF
+  END_IF
+END_CASE
+END_IF
+_fbRequest(i_eAction:=_eAction, i_fValue:=0.0, i_tTimeout:=q_stActiveSet.tRequestTimeout, i_stFeedback:=i_stFeedback);
+q_stRequest:=_fbRequest.q_stRequest;]]></ST></Implementation></POU>
+</TcPlcObject>

@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_Better" Id="{5e2b2fc3-2039-4f96-b991-37ef529bdba9}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_Better : BOOL		// 새 후보가 지금 고른 것보다 나은가
+VAR_INPUT
+	i_eSel		: E_SelectMode;
+	i_bHave		: BOOL;			// 이미 고른 것이 있음
+	i_nGrade	: UINT;			// 새 후보 등급
+	i_fValue	: REAL;
+	i_nGradeOld	: UINT;
+	i_fValueOld	: REAL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF NOT i_bHave THEN
+	F_Better := TRUE;
+ELSIF i_eSel = E_SelectMode.MinAbs AND ABS(i_fValue) <> ABS(i_fValueOld) THEN
+	F_Better := ABS(i_fValue) < ABS(i_fValueOld);
+ELSE
+	F_Better := i_nGrade < i_nGradeOld;		// 같으면 먼저 등록된 칸 유지
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,89 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_UnitView" Id="{f3927184-96a7-415e-8fae-082ebce4fba4}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_UnitView	// 유닛(PCS)마다 모듈에 넘길 요약 (읽기 전용). 유닛마다 제어 모드를 둘 때 씀 (FB_CtrlModeMgr.i_nUnit, MAIN이 주소를 넘김)
+// 그룹 값은 FB_GroupView 결과를 받음. 여러 유닛이 한 배터리 그룹(버스)을 같이 쓰면 버스 충방전 한도·용량을 버스 가용 유닛 정격 비율로 나눔 (몫 합 = 버스 값)
+// 가용이 아닌 유닛: 가용 유닛 수 0, 한도·용량·SOC 없음 (FB_GroupView가 가용 유닛만 세는 것과 같음)
+VAR_IN_OUT CONSTANT
+	iq_astView		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupView;		// FB_GroupView 결과 (이번 스캔)
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	iq_astAvail		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitAvail;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astUnitEnv	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitEnvelope;	// 유닛 한도 (FB_EquipmentLimits)
+	iq_astBatGroup	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatGroupState;
+	iq_astBatEnv	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatEnvelope;		// 버스 한도 (FB_EquipmentLimits)
+END_VAR
+VAR_OUTPUT
+	q_astView		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitView;
+END_VAR
+VAR_TEMP
+	u				: UINT;
+	g				: UINT;
+	b				: UINT;
+	fShare			: REAL;
+	afBusRated		: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;	// 버스마다 가용 유닛 정격 합
+	stUv			: ST_UnitView;
+	stNone			: ST_UnitView;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// 1) 버스마다 가용 유닛 정격 합 (버스 한도·용량을 나눌 무게)
+FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+	afBusRated[b] := 0;
+END_FOR
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	b := iq_astUnitCfg[u].nBatGroup;
+	IF iq_astAvail[u].bAvail AND b >= 1 AND b <= GVL_PARAM.BAT_COUNT THEN
+		afBusRated[b] := afBusRated[b] + MAX(iq_astUnitCfg[u].fPRated, 0.0);
+	END_IF
+END_FOR
+
+// 2) 유닛마다
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	stUv					:= stNone;
+	stUv.nUnit				:= u;
+	stUv.bAvail				:= iq_astAvail[u].bAvail;
+	g						:= iq_astUnitCfg[u].nGroup;
+	b						:= iq_astUnitCfg[u].nBatGroup;
+	stUv.stView.nGroup		:= g;
+	stUv.stView.fPRatedSum	:= iq_astUnitCfg[u].fPRated;
+	stUv.stView.fQRatedSum	:= iq_astUnitCfg[u].fQRated;
+	IF iq_astUnit[u].stP.bValid THEN stUv.stView.fPOut := iq_astUnit[u].stP.fValue; END_IF
+	IF iq_astUnit[u].stQ.bValid THEN stUv.stView.fQOut := iq_astUnit[u].stQ.fValue; END_IF
+	// 소속 그룹: 상태·접속점·출력 합
+	IF g >= 1 AND g <= GVL_PARAM.GROUP_COUNT THEN
+		stUv.stView.eState	:= iq_astView[g].eState;
+		stUv.stView.stPcc	:= iq_astView[g].stPcc;
+		stUv.fGroupPOut		:= iq_astView[g].fPOut;
+		stUv.fGroupQOut		:= iq_astView[g].fQOut;
+	END_IF
+	IF stUv.bAvail THEN
+		stUv.stView.nUnitAvail		:= 1;
+		stUv.stView.fPRatedAvail	:= MAX(iq_astUnitEnv[u].stP.fMax, 0.0);
+		stUv.stView.fQRatedAvail	:= MAX(iq_astUnitEnv[u].stQ.fMax, 0.0);
+		stUv.stView.fSRatedAvail	:= MAX(iq_astUnitEnv[u].fSMax, 0.0);
+		IF g >= 1 AND g <= GVL_PARAM.GROUP_COUNT THEN
+			IF iq_astView[g].fPRatedAvail > 0 THEN
+				stUv.fRatingShare := LIMIT(0.0, stUv.stView.fPRatedAvail / iq_astView[g].fPRatedAvail, 1.0);
+			END_IF
+		END_IF
+		// 연결 버스: 한도·용량은 몫, SOC는 그대로
+		IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT THEN
+			fShare := 0;
+			IF afBusRated[b] > 0 THEN
+				fShare := MAX(iq_astUnitCfg[u].fPRated, 0.0) / afBusRated[b];
+			END_IF
+			stUv.stView.fPDisMax	:= MIN(MAX(iq_astBatEnv[b].stP.fMax, 0.0) * fShare, stUv.stView.fPRatedAvail);
+			stUv.stView.fPChgMax	:= MIN(MAX(-iq_astBatEnv[b].stP.fMin, 0.0) * fShare, stUv.stView.fPRatedAvail);
+			IF iq_astBatGroup[b].bUsable THEN
+				stUv.stView.fCapacity	:= iq_astBatGroup[b].fCapacity * fShare;
+				stUv.stView.stSocAvg	:= iq_astBatGroup[b].stSoc;
+				stUv.stView.stSocMin	:= iq_astBatGroup[b].stSocMin;
+				stUv.stView.stSocMax	:= iq_astBatGroup[b].stSocMax;
+			END_IF
+		END_IF
+	END_IF
+	q_astView[u] := stUv;
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

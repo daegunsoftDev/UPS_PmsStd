@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_SelectCand" Id="{06fd3f22-9f44-483b-89c6-579e8e372470}">
+    <Declaration><![CDATA[TYPE ST_SelectCand :	// 고르기 후보 하나 (지령원 하나의 값)
+STRUCT
+	nSource		: UINT;		// 지령원 칸 번호 (g_aipSource)
+	nModule		: UINT;		// 지령원 모듈 ID
+	nGrade		: UINT;		// 등급 (1이 가장 높음, g_astSourceReg)
+	fValue		: REAL;		// kW 또는 kvar (이상값은 코어가 미리 뺌)
+	bNew		: BOOL;		// 이번 스캔에 새 지령
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

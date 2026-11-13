@@ -1,0 +1,166 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_RootechAcuraIo" Id="{283e1952-a5ad-4d9a-b412-f2e3933a612b}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_RootechAcuraIo EXTENDS FB_DeviceBase IMPLEMENTS I_AuxDevice		// 루텍 ACURA3700 원격 I/O (Modbus TCP): 접점 입력·아날로그 입력 읽기 전용
+(* ---------------------------------------------------------------
+   기반: Helios FB_ACURA3700. Helios는 이 장치의 DI로 화재(열)·연기·가스 감지기 접점을 받았다. 동작만 옮기고 PmsStd 형식으로 다시 씀. 2026-11-09
+   모듈 배치 (Helios와 같음, 물리 순서대로 모듈마다 레지스터 100개):
+     DIO 모듈 = i_nStartAddr,  AI 모듈 = i_nStartAddr + 100.  Holding Register(FC3)
+   읽기: 읽기 주기마다 DIO와 AI를 번갈아
+     @MAP HR start+4..11   U16 -  DI ch1..8 상태 (0 = 꺼짐)
+     @MAP HR start+16..17  U16 -  DO ch1..2 상태
+     @MAP HR start+122..133 F32(앞 = 상위) -  AI ch1..6 변환값
+   점 (I_AuxDevice)
+     DI 1..8 = 접점 입력 ch1..8,  DI 9..10 = DO ch1..2 상태
+     AI 1..6 = 아날로그 입력 ch1..6 변환값 (장치에 설정한 단위)
+   쓰기(DO·AO) 없음
+   맵 미확보: Helios 현장 기준. 실제 모듈 구성·주소는 현장에서 확인
+   --------------------------------------------------------------- *)
+VAR_INPUT
+	i_bEnable		: BOOL;					// FALSE면 통신하지 않음 (장비 미설치)
+	i_sIpAddr		: STRING(15);
+	i_nPort			: UINT := 502;
+	i_nUnitId		: BYTE := 1;
+	i_nStartAddr	: UINT := 12100;		// 첫 모듈(DIO) 시작 주소
+	i_tTimeout		: TIME := T#1S;
+END_VAR
+VAR
+	_fbMbRead		: FB_MBReadRegs;
+	_awDio			: ARRAY[0..41] OF WORD;
+	_awAi			: ARRAY[0..45] OF WORD;
+	_bReadDue		: BOOL;					// 읽을 때가 됨 (매 스캔 M_IsReadTime)
+	_bReading		: BOOL;
+	_bReadAi		: BOOL;					// 이번 읽기가 AI 모듈
+	_abDi			: ARRAY[1..10] OF BOOL;
+	_afAi			: ARRAY[1..6] OF REAL;
+	_bDioOk			: BOOL;					// DIO 모듈을 한 번이라도 읽음
+	_bAiOk			: BOOL;					// AI 모듈을 한 번이라도 읽음
+	_nIdx			: UINT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[
+]]></ST>
+    </Implementation>
+    <Action Name="A_MapDio" Id="{94fe125f-f21e-4d3d-895a-32454966461f}">
+      <Implementation>
+        <ST><![CDATA[FOR _nIdx := 1 TO 8 DO
+	_abDi[_nIdx] := _awDio[_nIdx + 3] <> 0;		// @MAP HR start+4..11 U16 DI ch1..8
+END_FOR
+_abDi[9]	:= _awDio[16] <> 0;					// @MAP HR start+16 U16 DO ch1 상태
+_abDi[10]	:= _awDio[17] <> 0;					// @MAP HR start+17 U16 DO ch2 상태
+]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_MapAi" Id="{03f8c541-5834-4008-8354-0631d4e33bce}">
+      <Implementation>
+        <ST><![CDATA[FOR _nIdx := 1 TO 6 DO
+	_afAi[_nIdx] := F_WordsToReal(i_wHigh := _awAi[20 + 2 * _nIdx], i_wLow := _awAi[21 + 2 * _nIdx]);	// @MAP HR start+122+2(n-1) F32 AI chn
+END_FOR
+]]></ST>
+      </Implementation>
+    </Action>
+    <Method Name="M_Cycle" Id="{db504a38-1da5-43fa-b447-da825f8135f8}">
+      <Declaration><![CDATA[METHOD M_Cycle
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_bReadDue := M_IsReadTime();
+IF NOT _bReading THEN
+	IF i_bEnable AND i_sIpAddr <> '' AND _bReadDue THEN
+		_bReadAi := NOT _bReadAi;
+		IF _bReadAi THEN
+			_fbMbRead(sIPAddr := i_sIpAddr, nTCPPort := i_nPort, nUnitID := i_nUnitId,
+				nQuantity := 46, nMBAddr := i_nStartAddr + 100, cbLength := SIZEOF(_awAi),
+				pDestAddr := ADR(_awAi), tTimeout := i_tTimeout, bExecute := TRUE);
+		ELSE
+			_fbMbRead(sIPAddr := i_sIpAddr, nTCPPort := i_nPort, nUnitID := i_nUnitId,
+				nQuantity := 42, nMBAddr := i_nStartAddr, cbLength := SIZEOF(_awDio),
+				pDestAddr := ADR(_awDio), tTimeout := i_tTimeout, bExecute := TRUE);
+		END_IF
+		_bReading := TRUE;
+	END_IF
+ELSE
+	_fbMbRead(bExecute := FALSE);
+	IF NOT _fbMbRead.bBusy THEN
+		IF NOT _fbMbRead.bError AND i_bEnable THEN
+			IF _bReadAi THEN
+				A_MapAi();
+				_bAiOk := TRUE;
+			ELSE
+				A_MapDio();
+				_bDioOk := TRUE;
+			END_IF
+			M_MarkAlive();
+		END_IF
+		_bReading := FALSE;
+	END_IF
+END_IF
+M_UpdateComm();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetBit" Id="{4f01fc8c-3b56-4104-8b8d-57f2b740c7d3}">
+      <Declaration><![CDATA[METHOD M_GetBit : BOOL		// DI 1..8 = 접점 입력, 9..10 = DO 상태. 통신 이상이면 FALSE (규칙 FB_RuleBit은 Comm으로 따로 판단)
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nPoint >= 1 AND i_nPoint <= 10 AND Comm AND _bDioOk THEN
+	M_GetBit := _abDi[i_nPoint];
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetValue" Id="{568007fd-478c-4633-800e-30f5368ea1f4}">
+      <Declaration><![CDATA[METHOD M_GetValue : ST_Val		// AI 1..6 = 아날로그 입력 변환값
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nPoint >= 1 AND i_nPoint <= 6 THEN
+	M_GetValue.fValue := _afAi[i_nPoint];
+	M_GetValue.bValid := Comm AND _bAiOk;
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetBit" Id="{3a546175-b9b2-453b-8ff5-f531d5062be7}">
+      <Declaration><![CDATA[METHOD M_SetBit		// 출력 없음 (DO는 읽기만)
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetValue" Id="{ff6a86d1-81cd-4802-9b8f-5d6469f7db06}">
+      <Declaration><![CDATA[METHOD M_SetValue		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_fValue	: REAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Comm" Id="{6278afe0-210b-499b-a56e-1491854153c6}">
+      <Declaration><![CDATA[PROPERTY Comm : BOOL]]></Declaration>
+      <Get Name="Get" Id="{da3627ab-acf7-472f-9461-6fa6e10f6028}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Comm := _bComm AND i_bEnable;
+]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_RedState" Id="{0f8b313a-d321-43ae-8fe0-abd3e3208707}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_RedState :		// 이 PLC의 이중화 상태 (FB_RedState). 역할(Primary/Secondary)은 고정 신분이고, 이 상태가 지금 장비에 쓰는지를 정함
+(
+	Init		:= 0,	// 시작 직후: 역할을 읽는 중이거나 상대 상태를 아직 모름. 장비에 쓰지 않음
+	Standby		:= 1,	// 대기: 계산만 하고 장비에 쓰지 않음
+	Active		:= 2,	// 장비에 씀 (GVL_IF.g_bRedActive = TRUE)
+	Failed		:= 3,	// 설정 오류(Net ID 불일치·두 PLC 역할 같음). 장비에 쓰지 않음
+	Handover	:= 4	// Primary 복귀 중: Secondary가 Active를 내려놓기를 기다림. 아직 장비에 쓰지 않음
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

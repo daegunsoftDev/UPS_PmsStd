@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_Clamp" Id="{6fca4aa0-5529-49d1-a3c8-64d93e065934}">
+    <Declaration><![CDATA[TYPE ST_Clamp :
+STRUCT
+	fIn			: REAL;
+	fOut		: REAL;
+	bClamped	: BOOL;		// 값이 잘림
+	nModule		: UINT;		// 자른 모듈 (0 = 코어)
+	nReason		: UINT;
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

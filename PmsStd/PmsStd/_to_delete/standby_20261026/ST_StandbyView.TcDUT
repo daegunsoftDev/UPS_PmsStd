@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_StandbyView" Id="{824cb89b-577f-49a8-b923-0f1635129b8e}">
+    <Declaration><![CDATA[TYPE ST_StandbyView :	// Standby 규칙 모듈에 넘기는 유닛 요약 (읽기 전용)
+STRUCT
+	nUnit	: UINT;
+	eOpMode	: E_OpMode;	// 실제 운전 모드
+	bInScope	: BOOL;	// 이 등록이 지금 이 유닛에 적용됨 (사용·운전 모드). FALSE면 모듈은 상태를 풀고 FALSE를 돌려줌
+	bResumeWait	: BOOL;	// 이 모듈이 건 Standby를 코어가 재개 대기로 들고 있음 (M_CheckResume 판단 대상). FB_StandbyEval이 정함
+	eRunState	: E_RunState;
+	bCmdP	: BOOL;	// 이 유닛 경로(실제 운전 모드)의 P 지령 있음
+	fCmdP	: REAL;	// kW, 그 지령 (유닛별 값, 없으면 그룹 값). 방전 +
+	fPRated	: REAL;	// kW
+	nBatGroup	: UINT;	// 연결 배터리 그룹. 0 = 없음
+	stSocMin	: ST_Val;	// %, 연결 배터리 그룹
+	stSocMax	: ST_Val;	// %
+	fPChgMax	: REAL;	// kW, 연결 버스 충전 한도 (설비 한도 결과, 양수). 배터리 없으면 아주 큰 값
+	fPDisMax	: REAL;	// kW, 연결 버스 방전 한도
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

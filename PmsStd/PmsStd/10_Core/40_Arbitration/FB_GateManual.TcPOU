@@ -1,0 +1,163 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_GateManual" Id="{571ece84-fc22-48ed-98f3-d22697364b2a}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_GateManual EXTENDS FB_ModuleBase IMPLEMENTS I_Gate	// 코어 기본 Manual Gate (Manual 유닛만): 방향 반대 새 지령 무시(앞 값 유지), 새 지령 표시, Run 뒤 새 지령 대기
+// 설정 GVL_PERSIST.g_stManualCmdSet (i_stView.stManualCmdSet). 배터리 한계는 버스 제한 모듈 (FB_SocLimit)
+VAR
+	_abHoldUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;			// 유닛별 값: 방향 반대로 무시해서 앞 값 유지 중
+	_anHoldUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;			// 무시한 지령원 (이 지령원이 끊기거나 바뀌면 유지 끝)
+	_abHoldGrp		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;
+	_anHoldGrp		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF UINT;
+	_abWasManual	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 지난 스캔 Manual
+	_bInit			: BOOL;			// 첫 스캔: 지금 상태를 기준으로 (PMS 재기동이 운전 중 장비 출력을 바꾸지 않게)
+	(* 따라가기용 중간값 *)
+	_afGrpAct		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;		// 수동 그룹 몫 유닛의 실제 P 합 (그룹 지령 방향 판단)
+	_afGrpBand		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;		// 이 이하는 멈춘 것으로 봄
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Filter" Id="{d4856a5b-5024-4a55-b1de-58dc5acd5c12}">
+      <Declaration><![CDATA[METHOD M_Filter
+VAR_INPUT
+	i_stView	: ST_GateView;
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astUnitP		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;		// 이 경로 FB_Select 결과 (다른 경로 유닛은 비활성)
+	iq_astUnitQ		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	iq_astGrpP		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_astGrpQ		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;		// 유닛 실제 운전 모드
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;	// 유닛 상태 (실제 출력 방향·운전 상태)
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+END_VAR
+VAR_IN_OUT
+	iq_stOut		: ST_GateOut;		// 거른 결과 (Gate가 채움. 지난 스캔 값이 남아 있음)
+END_VAR
+VAR
+	u				: UINT;
+	g				: UINT;
+	fActualP			: REAL;
+	fStopBand			: REAL;
+	bNewAccepted			: BOOL;
+	abGrpNew		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// 그룹 P 새 지령을 받아들임 또는 그룹 Q 새 지령
+	abGrpRefused	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* 0) 수동 그룹 몫 유닛의 실제 출력 합 (그룹 지령 방향 판단용) *)
+FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	_afGrpAct[g]		:= 0;
+	_afGrpBand[g]	:= 0;
+END_FOR
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	g := iq_astUnitCfg[u].nGroup;
+	IF g >= 1 AND g <= GVL_PARAM.GROUP_COUNT AND iq_aeOpMode[u] = E_OpMode.Manual AND NOT iq_astUnitP[u].bActive THEN
+		IF iq_astUnit[u].stP.bValid THEN
+			_afGrpAct[g] := _afGrpAct[g] + iq_astUnit[u].stP.fValue;
+		END_IF
+		_afGrpBand[g] := _afGrpBand[g] + iq_astUnitCfg[u].fPRated * i_stView.stManualCmdSet.fDirBand / 100.0;
+	END_IF
+END_FOR
+
+(* 1) 수동 그룹 값: 방향 반대 새 지령은 무시하고 앞 값 유지 *)
+FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	abGrpNew[g]		:= FALSE;
+	abGrpRefused[g]	:= FALSE;
+	IF iq_astGrpP[g].bNew THEN
+		IF i_stView.stManualCmdSet.bReverse AND M_Reversed(iq_astGrpP[g], _afGrpAct[g], _afGrpBand[g]) THEN
+			_abHoldGrp[g]	:= TRUE;
+			_anHoldGrp[g]	:= iq_astGrpP[g].nModule;
+			abGrpRefused[g]	:= TRUE;
+		ELSE
+			_abHoldGrp[g]	:= FALSE;
+			abGrpNew[g]		:= TRUE;
+		END_IF
+	ELSIF NOT iq_astGrpP[g].bActive OR iq_astGrpP[g].nModule <> _anHoldGrp[g] THEN
+		_abHoldGrp[g] := FALSE;
+	END_IF
+	IF NOT _abHoldGrp[g] THEN
+		iq_stOut.astGrpP[g] := iq_astGrpP[g];
+	END_IF
+	iq_stOut.astGrpP[g].bNew	:= abGrpNew[g];
+	iq_stOut.astGrpQ[g]			:= iq_astGrpQ[g];
+	abGrpNew[g]				:= abGrpNew[g] OR iq_astGrpQ[g].bNew;
+END_FOR
+
+(* 2) 유닛별 값, 새 지령 표시, 배터리 한계 *)
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	g		:= iq_astUnitCfg[u].nGroup;
+	fStopBand	:= iq_astUnitCfg[u].fPRated * i_stView.stManualCmdSet.fDirBand / 100.0;
+	fActualP	:= 0;
+	IF iq_astUnit[u].stP.bValid THEN
+		fActualP := iq_astUnit[u].stP.fValue;
+	END_IF
+
+	bNewAccepted := FALSE;
+	IF iq_aeOpMode[u] = E_OpMode.Manual THEN
+		IF iq_astUnitP[u].bNew THEN
+			IF i_stView.stManualCmdSet.bReverse AND M_Reversed(iq_astUnitP[u], fActualP, fStopBand) THEN
+				_abHoldUnit[u]			:= TRUE;
+				_anHoldUnit[u]			:= iq_astUnitP[u].nModule;
+				iq_stOut.aeRefuse[u]			:= E_CmdRefuse.Reversed;
+				iq_stOut.anRefuseModule[u]		:= iq_astUnitP[u].nModule;
+			ELSE
+				_abHoldUnit[u]	:= FALSE;
+				bNewAccepted			:= TRUE;
+			END_IF
+		ELSIF NOT iq_astUnitP[u].bActive OR iq_astUnitP[u].nModule <> _anHoldUnit[u] THEN
+			_abHoldUnit[u] := FALSE;
+		END_IF
+		bNewAccepted := bNewAccepted OR iq_astUnitQ[u].bNew;
+		IF g >= 1 AND g <= GVL_PARAM.GROUP_COUNT THEN
+			IF NOT iq_astUnitP[u].bActive AND abGrpRefused[g] THEN
+				iq_stOut.aeRefuse[u]			:= E_CmdRefuse.Reversed;
+				iq_stOut.anRefuseModule[u]		:= iq_astGrpP[g].nModule;
+			END_IF
+			bNewAccepted := bNewAccepted OR abGrpNew[g];
+		END_IF
+		IF bNewAccepted THEN
+			iq_stOut.aeRefuse[u] := E_CmdRefuse.None;
+		END_IF
+	ELSE
+		_abHoldUnit[u]	:= FALSE;
+		iq_stOut.aeRefuse[u]	:= E_CmdRefuse.None;
+	END_IF
+	iq_stOut.abNew[u] := bNewAccepted;
+
+	// Manual 지령은 활성(Run·대기)을 확인한 뒤 들어온 것만 씀: 활성이 아니거나 Manual로 막 들어오면 새 지령이 올 때까지 0
+	// (PMS 시작 첫 스캔은 지금 상태를 기준으로만 삼음: 운전 중 장비 출력을 바꾸지 않게)
+	IF NOT _bInit THEN
+		_abWasManual[u] := iq_aeOpMode[u] = E_OpMode.Manual;
+	END_IF
+	IF i_stView.stManualCmdSet.bClearOnStop AND iq_aeOpMode[u] = E_OpMode.Manual THEN
+		IF NOT (iq_astUnit[u].eRunState = E_RunState.Run OR iq_astUnit[u].eRunState = E_RunState.Standby) OR NOT _abWasManual[u] THEN
+			iq_stOut.abWaitNewCmd[u] := TRUE;
+		ELSIF bNewAccepted THEN
+			iq_stOut.abWaitNewCmd[u] := FALSE;
+		END_IF
+	ELSE
+		iq_stOut.abWaitNewCmd[u] := FALSE;
+	END_IF
+	_abWasManual[u] := iq_aeOpMode[u] = E_OpMode.Manual;
+
+	IF NOT _abHoldUnit[u] THEN
+		iq_stOut.astUnitP[u] := iq_astUnitP[u];
+	END_IF
+	iq_stOut.astUnitQ[u] := iq_astUnitQ[u];
+END_FOR
+_bInit := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Reversed" Id="{7c86ce19-b479-4dfd-a22b-92d0fa04e58d}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Reversed : BOOL		// 새 값이 지금 출력 방향과 반대인가 (멈춰 있거나 0이면 아님)
+VAR_INPUT
+	i_stPick	: ST_Pick;
+	i_fActualP		: REAL;			// 지금 실제 P
+	i_fStopBand		: REAL;			// 이 이하는 멈춘 것으로 봄
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Reversed := i_stPick.bActive AND ABS(i_fActualP) > i_fStopBand AND i_stPick.fValue * i_fActualP < 0;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

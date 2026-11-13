@@ -1,0 +1,239 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_RptEsolutionBat" Id="{b67a1e26-692d-4860-884c-4463513a1d72}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_RptEsolutionBat // BMS 시스템 값 → BAT 보고값
+VAR_INPUT
+ i_stState : ST_EsolutionState; // 장비 상태
+ i_stRaw : ST_EsolutionRaw; // 랙·모듈 원본
+ i_nDeviceIndex : UDINT; // 배터리 번호 (1부터). 랙·모듈 번호도 모두 1부터 [1부터 2026-11-10]
+END_VAR
+VAR_OUTPUT
+ q_stBat : ST_BatPublish_V1; // BAT 보고값
+ q_bValid : BOOL; // 유효한 장비 데이터
+ q_astRack : ARRAY[1..GVL_PARAM.RACKS_PER_BMS] OF ST_RackPublish_V1; // RACK 보고값
+ q_astModule : ARRAY[1..GVL_PARAM.RACKS_PER_BMS*GVL_PARAM.MODULES_PER_RACK] OF ST_ModulePublish_V1; // MODULE 보고값
+END_VAR
+VAR
+ _stEmpty : ST_BatPublish_V1;
+ _stRackEmpty : ST_RackPublish_V1;
+ _stModuleEmpty : ST_ModulePublish_V1;
+ _nLastSeq : UDINT; // 마지막으로 계산한 표본 번호
+ _bLastValid : BOOL;
+ _bCalculated : BOOL; // 번호를 한 번은 채웠는가 (통신 없는 BMS도 계산)
+ _nRack : UINT;
+ _nModule : UINT;
+ _nCell : UINT;
+ _nIndex : UINT;
+ _nAnalog : UINT; // Input 50~89 랙 시작 칸
+ _nStatus : UINT; // Input 90~179 랙 시작 칸
+ _wOperation : WORD; // 랙 운전 상태
+ _wCell : WORD; // 셀 전압 (mV)
+ _wCellMax : WORD;
+ _wCellMin : WORD;
+ _fTemp : REAL;
+ _fTempMax : REAL;
+ _fTempMin : REAL;
+ _pCell : POINTER TO REAL;
+ _nOnlineRacks : UDINT; // 릴레이 투입 또는 충·방전 중인 랙 수
+ _bInitializing : BOOL;
+ _bCharging : BOOL;
+ _bDischarging : BOOL;
+ _wModule : WORD; // 랙 Module Status (S+8)
+ _bRackWarn : BOOL; // 그 랙 Warning 칸 중 0이 아닌 것이 있음
+ _bRackFault : BOOL; // 그 랙 Fault 칸 중 0이 아닌 것이 있음
+ _anBatWarn : ARRAY[1..3] OF UDINT; // BAT Warning1~3 = 랙 값 OR
+ _anBatFault : ARRAY[1..8] OF UDINT; // BAT Fault1~8 = 랙 값 OR
+END_VAR
+VAR CONSTANT
+ // 맵 v1.3 Bit_List에서 정의된 비트만 남김 (Reserved 제외). 기존 FB_EsolutionBms 판정과 같은 마스크
+ SYS_ALARM_MASK : WORD := 16#01FF; // S+0 System Alarm b0~8
+ SYS_WARN_MASK : WORD := 16#03FF; // S+2 System Warning Status b0~9
+ SYS_ERROR_MASK : WORD := 16#3FFF; // S+3 System Error Status b0~13
+ MODULE_ERROR_MASK : WORD := 16#05FF; // S+4 Module Error Status 고장 비트 (b9 Cell V Imbalance Warning 제외)
+ MODULE_ERROR_WARN_MASK : WORD := 16#0200; // S+4 b9 Cell V Imbalance Warning → Warning2 같은 자리
+ ERROR_CODE2_MASK : WORD := 16#00FF; // S+6 Error Code 2 b0~7
+ FIRE_MASK : WORD := 16#8001; // S+7 Fire Alarm b0 연기 센서, b15 화재
+ MODULE_WARN_MASK : WORD := 16#0055; // S+8 Module Status b0 UV·b2 OV·b4 OT·b6 UT Warning
+ MODULE_FAULT_MASK : WORD := 16#01AA; // S+8 Module Status b1 UV·b3 OV·b5 OT·b7 UT Error, b8 AFE Error
+END_VAR]]></Declaration>
+    <Implementation><ST><![CDATA[q_stBat := _stEmpty;
+q_stBat.DeviceIndex := i_nDeviceIndex;
+q_stBat.TotalRackCount := UINT_TO_UDINT(i_stState.nRackCount);
+q_stBat.Status := 1; // b0 통신에러
+q_bValid := i_stState.bValid;
+IF q_bValid THEN
+ q_stBat.Heartbeat := WORD_TO_UDINT(i_stState.nHeartbeat); // 하트비트
+ q_stBat.Soc := i_stState.fSocPct; // 충전 상태 (%)
+ q_stBat.Soh := i_stState.fSohPct; // 건강 상태 (%)
+ q_stBat.DcVoltage := i_stState.fVoltageV; // 전체 전압 (V)
+ q_stBat.DcCurrent := i_stState.fCurrentA; // 전체 전류 (A)
+ q_stBat.ChargeCurrentLimit := i_stState.fChargeCurrentLimitA; // 충전 허용 전류 (A)
+ q_stBat.DischargeCurrentLimit := i_stState.fDischargeCurrentLimitA; // 방전 허용 전류 (A)
+ q_stBat.ChargePowerLimit := i_stState.fChargeLimitKw; // 충전 허용 전력 (kW)
+ q_stBat.DischargePowerLimit := i_stState.fDischargeLimitKw; // 방전 허용 전력 (kW)
+ q_stBat.MaxCellVoltage := i_stState.fMaxCellVoltageMv * 0.001; // 최대 셀 전압 (V)
+ q_stBat.MinCellVoltage := i_stState.fMinCellVoltageMv * 0.001; // 최소 셀 전압 (V)
+ q_stBat.MaxModuleTemperature := i_stState.fMaxCellTemperatureC; // 맵은 Cell Temperature로 표기
+ q_stBat.MinModuleTemperature := i_stState.fMinCellTemperatureC;
+ // 위치는 맵 형식 [RRMM]: 0512 = 랙 5, 모듈 12
+ q_stBat.MaxCellVoltageLocationFromRack := WORD_TO_UDINT(i_stState.nMaxCellVoltageLocation) / 100;
+ q_stBat.MaxCellVoltageLocationFromModule := WORD_TO_UDINT(i_stState.nMaxCellVoltageLocation) MOD 100;
+ q_stBat.MinCellVoltageLocationFromRack := WORD_TO_UDINT(i_stState.nMinCellVoltageLocation) / 100;
+ q_stBat.MinCellVoltageLocationFromModule := WORD_TO_UDINT(i_stState.nMinCellVoltageLocation) MOD 100;
+ q_stBat.MaxModuleTempLocationFromRack := WORD_TO_UDINT(i_stState.nMaxCellTemperatureLocation) / 100;
+ q_stBat.MaxModuleTempLocationFromModule := WORD_TO_UDINT(i_stState.nMaxCellTemperatureLocation) MOD 100;
+ q_stBat.MinModuleTempLocationFromRack := WORD_TO_UDINT(i_stState.nMinCellTemperatureLocation) / 100;
+ q_stBat.MinModuleTempLocationFromModule := WORD_TO_UDINT(i_stState.nMinCellTemperatureLocation) MOD 100;
+END_IF
+
+// 랙·모듈은 새 표본이 왔을 때만 다시 계산 (PLC 주기마다 300개를 계산하지 않음)
+IF NOT _bCalculated OR i_stState.nSampleSeq <> _nLastSeq OR q_bValid <> _bLastValid THEN
+ _bCalculated := TRUE;
+ _nLastSeq := i_stState.nSampleSeq;
+ _bLastValid := q_bValid;
+ _nOnlineRacks := 0;
+ _bInitializing := FALSE;
+ _bCharging := FALSE;
+ _bDischarging := FALSE;
+ FOR _nIndex := 1 TO 3 DO _anBatWarn[_nIndex] := 0; END_FOR
+ FOR _nIndex := 1 TO 8 DO _anBatFault[_nIndex] := 0; END_FOR
+ FOR _nRack := 1 TO GVL_PARAM.RACKS_PER_BMS DO
+  q_astRack[_nRack] := _stRackEmpty;
+  q_astRack[_nRack].DeviceIndex := (i_nDeviceIndex - 1) * UINT_TO_UDINT(GVL_PARAM.RACKS_PER_BMS) + UINT_TO_UDINT(_nRack);	// 전체 랙 순번 1부터
+  q_astRack[_nRack].BatIndex := i_nDeviceIndex;
+  q_astRack[_nRack].ModuleCount := UINT_TO_UDINT(i_stState.nModuleCount);
+  q_astRack[_nRack].Status := 1; // b0 통신에러
+  FOR _nModule := 1 TO GVL_PARAM.MODULES_PER_RACK DO
+   _nIndex := (_nRack - 1) * GVL_PARAM.MODULES_PER_RACK + _nModule;
+   q_astModule[_nIndex] := _stModuleEmpty;
+   q_astModule[_nIndex].BatIndex := i_nDeviceIndex;
+   q_astModule[_nIndex].RackIndex := UINT_TO_UDINT(_nRack);
+   q_astModule[_nIndex].DeviceIndex := UINT_TO_UDINT(_nModule);
+  END_FOR
+  IF q_bValid AND _nRack <= i_stState.nRackCount THEN
+   _nAnalog := (_nRack - 1) * 4;
+   _nStatus := (_nRack - 1) * 9;
+   _wOperation := i_stRaw.awRackStatus[_nStatus + 1];
+   // 명세 RD-BAT-01: 랙 상태 영역(S)의 알람 워드를 모두 비트 위치 그대로 담음. 기존 경고·고장 판정 비트가 전부 칸에 들어감
+   _wModule := i_stRaw.awRackStatus[_nStatus + 8];
+   q_astRack[_nRack].Warning1 := WORD_TO_UDINT(i_stRaw.awRackStatus[_nStatus + 2] AND SYS_WARN_MASK); // System Warning Status
+   q_astRack[_nRack].Warning2 := WORD_TO_UDINT((_wModule AND MODULE_WARN_MASK)
+    OR (i_stRaw.awRackStatus[_nStatus + 4] AND MODULE_ERROR_WARN_MASK)); // Module Status 경고 비트 + Module Error b9
+   q_astRack[_nRack].Warning3 := WORD_TO_UDINT(i_stRaw.awRackStatus[_nStatus] AND SYS_ALARM_MASK); // System Alarm
+   q_astRack[_nRack].Fault1 := WORD_TO_UDINT(i_stRaw.awRackStatus[_nStatus + 3] AND SYS_ERROR_MASK); // System Error Status
+   q_astRack[_nRack].Fault2 := WORD_TO_UDINT(i_stRaw.awRackStatus[_nStatus + 4] AND MODULE_ERROR_MASK); // Module Error Status
+   q_astRack[_nRack].Fault3 := WORD_TO_UDINT(i_stRaw.awRackStatus[_nStatus + 7] AND FIRE_MASK); // Fire Alarm
+   q_astRack[_nRack].Fault7 := WORD_TO_UDINT(i_stRaw.awRackStatus[_nStatus + 5]); // Error Code 1 (b0~15 모두 정의)
+   q_astRack[_nRack].Fault8 := WORD_TO_UDINT(i_stRaw.awRackStatus[_nStatus + 6] AND ERROR_CODE2_MASK); // Error Code 2
+   q_astRack[_nRack].Fault4 := WORD_TO_UDINT(_wModule AND MODULE_FAULT_MASK); // Module Status 고장 비트
+   IF i_stState.abDetailValid[_nRack] THEN // 랙 상세는 순서대로 나눠 읽으므로 받은 랙만
+    q_astRack[_nRack].Fault5 := WORD_TO_UDINT(i_stRaw.aawDetail[_nRack, 11]); // System Lock Status 1
+    q_astRack[_nRack].Fault6 := WORD_TO_UDINT(i_stRaw.aawDetail[_nRack, 12]); // System Lock Status 2
+   END_IF
+   _bRackWarn := (q_astRack[_nRack].Warning1 OR q_astRack[_nRack].Warning2 OR q_astRack[_nRack].Warning3) <> 0;
+   _bRackFault := (q_astRack[_nRack].Fault1 OR q_astRack[_nRack].Fault2 OR q_astRack[_nRack].Fault3
+    OR q_astRack[_nRack].Fault4 OR q_astRack[_nRack].Fault5 OR q_astRack[_nRack].Fault6
+    OR q_astRack[_nRack].Fault7 OR q_astRack[_nRack].Fault8) <> 0;
+   _anBatWarn[1] := _anBatWarn[1] OR q_astRack[_nRack].Warning1;
+   _anBatWarn[2] := _anBatWarn[2] OR q_astRack[_nRack].Warning2;
+   _anBatWarn[3] := _anBatWarn[3] OR q_astRack[_nRack].Warning3;
+   _anBatFault[1] := _anBatFault[1] OR q_astRack[_nRack].Fault1;
+   _anBatFault[2] := _anBatFault[2] OR q_astRack[_nRack].Fault2;
+   _anBatFault[3] := _anBatFault[3] OR q_astRack[_nRack].Fault3;
+   _anBatFault[4] := _anBatFault[4] OR q_astRack[_nRack].Fault4;
+   _anBatFault[5] := _anBatFault[5] OR q_astRack[_nRack].Fault5;
+   _anBatFault[6] := _anBatFault[6] OR q_astRack[_nRack].Fault6;
+   _anBatFault[7] := _anBatFault[7] OR q_astRack[_nRack].Fault7;
+   _anBatFault[8] := _anBatFault[8] OR q_astRack[_nRack].Fault8;
+   q_astRack[_nRack].Status := 0;
+   q_astRack[_nRack].Status.1 := NOT _wOperation.0; // Initializing
+   q_astRack[_nRack].Status.2 := _wOperation.3; // Ready = Idle RELAY ON
+   q_astRack[_nRack].Status.3 := _wOperation.1; // Charge
+   q_astRack[_nRack].Status.4 := _wOperation.2; // Discharge
+   q_astRack[_nRack].Status.5 := _bRackWarn; // Warning 칸 중 하나라도 0이 아님
+   q_astRack[_nRack].Status.6 := _bRackFault; // Fault 칸 중 하나라도 0이 아님
+   q_astRack[_nRack].Status.7 := _wOperation.1 OR _wOperation.2 OR _wOperation.3; // Online
+   q_astRack[_nRack].DcVoltage := WORD_TO_REAL(i_stRaw.awRackAnalog[_nAnalog]) * 0.1;
+   q_astRack[_nRack].DcCurrent := F_UpsSignedWord(i_stRaw.awRackAnalog[_nAnalog + 1]) * 0.1;
+   q_astRack[_nRack].Soc := WORD_TO_REAL(i_stRaw.awRackAnalog[_nAnalog + 2]) * 0.1;
+   q_astRack[_nRack].Soh := WORD_TO_REAL(i_stRaw.awRackAnalog[_nAnalog + 3]);
+   IF q_astRack[_nRack].Status.7 THEN _nOnlineRacks := _nOnlineRacks + 1; END_IF
+   _bInitializing := _bInitializing OR NOT _wOperation.0;
+   _bCharging := _bCharging OR _wOperation.1;
+   _bDischarging := _bDischarging OR _wOperation.2;
+
+   // 상세 데이터: 406칸. 모듈 슬롯 0부터 설치 수만큼 사용
+   IF i_stState.abDetailValid[_nRack] THEN
+    q_astRack[_nRack].MaxModuleTemp := F_UpsSignedWord(i_stRaw.aawDetail[_nRack, 0]) * 0.1;
+    q_astRack[_nRack].MinModuleTemp := F_UpsSignedWord(i_stRaw.aawDetail[_nRack, 1]) * 0.1;
+    q_astRack[_nRack].AvgModuleTemp := F_UpsSignedWord(i_stRaw.aawDetail[_nRack, 2]) * 0.1;
+    q_astRack[_nRack].MaxCellVoltage := WORD_TO_REAL(i_stRaw.aawDetail[_nRack, 3]) * 0.001;
+    q_astRack[_nRack].MinCellVoltage := WORD_TO_REAL(i_stRaw.aawDetail[_nRack, 4]) * 0.001;
+    q_astRack[_nRack].AvgCellVoltage := WORD_TO_REAL(i_stRaw.aawDetail[_nRack, 5]) * 0.001;
+    _wCellMax := 0;
+    _wCellMin := 16#FFFF;
+    _fTempMax := -1.0E6;
+    _fTempMin := 1.0E6;
+    FOR _nModule := 1 TO MIN(i_stState.nModuleCount, GVL_PARAM.MODULES_PER_RACK) DO
+     _nIndex := (_nRack - 1) * GVL_PARAM.MODULES_PER_RACK + _nModule;
+     _fTemp := F_UpsSignedWord(i_stRaw.aawDetail[_nRack, 31 + _nModule]) * 0.1; // 맵은 모듈당 최고 온도 1개
+     q_astModule[_nIndex].ModuleTemp1 := _fTemp;
+     IF _fTemp > _fTempMax THEN
+      _fTempMax := _fTemp;
+      q_astRack[_nRack].MaxModuleTempLocationFromModule := UINT_TO_UDINT(_nModule);
+     END_IF
+     IF _fTemp < _fTempMin THEN
+      _fTempMin := _fTemp;
+      q_astRack[_nRack].MinModuleTempLocationFromModule := UINT_TO_UDINT(_nModule);
+     END_IF
+     _pCell := ADR(q_astModule[_nIndex].CellVoltage1);
+     FOR _nCell := 1 TO MIN(GVL_PARAM.CELLS_PER_MODULE, 20) DO	// 설치 셀 수만 (맵은 모듈당 20칸, 레코드 CellVoltage15~20은 0으로 남음)
+      _wCell := i_stRaw.aawDetail[_nRack, 66 + 20 * (_nModule - 1) + _nCell - 1];
+      _pCell[_nCell - 1] := WORD_TO_REAL(_wCell) * 0.001;
+      IF _wCell > _wCellMax THEN
+       _wCellMax := _wCell;
+       q_astRack[_nRack].MaxCellVoltageLocationFromModule := UINT_TO_UDINT(_nModule);
+       q_astRack[_nRack].MaxCellVoltageLocationFromCell := UINT_TO_UDINT(_nCell);
+      END_IF
+      IF _wCell < _wCellMin THEN
+       _wCellMin := _wCell;
+       q_astRack[_nRack].MinCellVoltageLocationFromModule := UINT_TO_UDINT(_nModule);
+       q_astRack[_nRack].MinCellVoltageLocationFromCell := UINT_TO_UDINT(_nCell);
+      END_IF
+     END_FOR
+    END_FOR
+   END_IF
+  END_IF
+ END_FOR
+END_IF
+
+IF q_bValid THEN
+ q_stBat.OnlineRackCount := _nOnlineRacks;
+ q_stBat.Status := 0;
+ q_stBat.Status.1 := _bInitializing;
+ q_stBat.Status.2 := NOT _bInitializing AND _nOnlineRacks = 0; // Standby
+ q_stBat.Status.3 := _nOnlineRacks > 0 AND NOT _bCharging AND NOT _bDischarging; // Ready
+ q_stBat.Status.4 := _bCharging;
+ q_stBat.Status.5 := _bDischarging;
+ // 명세 RD-BAT-02: BAT Warning·Fault = 랙 값 OR (칸 배치는 RACK과 같음). Warning10·Fault10은 보호 기준 판정용 예비
+ q_stBat.Warning1 := _anBatWarn[1];
+ q_stBat.Warning2 := _anBatWarn[2];
+ q_stBat.Warning3 := _anBatWarn[3];
+ q_stBat.Fault1 := _anBatFault[1];
+ q_stBat.Fault2 := _anBatFault[2];
+ q_stBat.Fault3 := _anBatFault[3];
+ q_stBat.Fault4 := _anBatFault[4];
+ q_stBat.Fault5 := _anBatFault[5];
+ q_stBat.Fault6 := _anBatFault[6];
+ q_stBat.Fault7 := _anBatFault[7];
+ q_stBat.Fault8 := _anBatFault[8];
+ q_stBat.Status.6 := (_anBatWarn[1] OR _anBatWarn[2] OR _anBatWarn[3]) <> 0;
+ q_stBat.Status.7 := (_anBatFault[1] OR _anBatFault[2] OR _anBatFault[3] OR _anBatFault[4]
+  OR _anBatFault[5] OR _anBatFault[6] OR _anBatFault[7] OR _anBatFault[8]) <> 0;
+ q_stBat.Status.9 := i_stState.bSystemLock; // Emergency = 어느 랙이든 System Lock (Level 3, 현장 해제 필요)
+ // b8 Balancing, b10 E-stop은 맵에 정보가 없어 항상 0 (미지원)
+END_IF
+// Eol, 랙 충·방전 제한, 온도 셀 위치는 맵에 없어 0. RACK b8 Precharge·b9 Balancing은 미지원이라 0.
+]]></ST></Implementation>
+  </POU>
+</TcPlcObject>

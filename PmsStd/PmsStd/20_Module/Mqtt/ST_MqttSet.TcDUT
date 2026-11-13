@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_MqttSet" Id="{814b7a05-1908-4910-8741-c62838d8e689}">
+    <Declaration><![CDATA[TYPE ST_MqttSet :		// MQTT 접속 설정 (현장마다 다름. GVL_SITE.MQTT_SET → FB_MqttMain.i_stSet)
+STRUCT
+	nSiteId			: UDINT;			// 사이트 번호 (토픽·헤더·ClientId에 들어감)
+	stCloud			: ST_MqttBroker;
+	stLocal			: ST_MqttBroker;
+	stAzure			: ST_MqttBroker;
+	sUserName		: STRING;			// 브로커 계정 (세 브로커 공통)
+	sUserPassword	: STRING;
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

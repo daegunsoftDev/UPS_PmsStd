@@ -1,0 +1,155 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
+  <POU Name="FB_RedSync" Id="{13a4d750-8692-414b-9cac-681739d2a1bf}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_RedSync		// 동기화: 이 PLC의 운영 설정(GVL_PERSIST, 모듈 설정 묶음 제외)과 제어 모드 요청(PCS마다)을 EAP로 매 스캔 상대에게 보내고, 상대가 Active이고 내가 Active가 아닐 때 받은 값으로 내 설정을 맞춘다
+(* - 보내는 값은 EAP 변수 1개: 운영 설정(_stTx, ST_RedSyncCfg). 받는 값도 같은 모양(_stRx)
+   - 모듈 설정 묶음(GVL_PERSIST.g_stModuleSet)은 동기화하지 않음: HMI가 두 PLC 모두에 씀 (PLC가 꺼져 있던 동안 바꾼 값은 복귀 전에 HMI에서 다시 쓸 것)
+   - 맞추기: i_bApply일 때만, 값이 다른 것만 덮어씀 (같으면 안 씀: 저장을 불필요하게 만들지 않음). 바꾼 것이 없으면 q_bInSync
+   - 살아 있음: _stRx.nSeq가 i_tTimeout 안에 바뀌어야 함 (q_bFresh)
+   - I/O(AT %I*·%Q)는 설치할 때 XAE에서 연결. 인스턴스는 RedundancyTask의 PRG_Redundancy에 둠. 두 PLC 프로그램이 같아야 함 *)
+VAR_INPUT
+	i_bUse			: BOOL;
+	i_bApply		: BOOL;				// 받은 값을 내 설정에 덮어써도 됨 (내가 Active가 아니고 상대가 Active이며 통신 정상)
+	i_tTimeout		: TIME := T#2S;		// 새 값이 이 시간 안에 안 오면 낡은 것
+END_VAR
+VAR_OUTPUT
+	q_bInSync		: BOOL;				// 받은 값이 낡지 않았고 내 설정이 그와 같음 (i_bApply일 때만 TRUE)
+	q_bFresh		: BOOL;				// 상대가 보낸 값이 낡지 않음
+	q_nApplied		: UDINT;			// 받은 값으로 덮어쓴 횟수 (필드 단위)
+END_VAR
+VAR
+	(* I/O: XAE에서 연결 *)
+	_stTx			AT %Q* : ST_RedSyncCfg;
+	_stRx			AT %I* : ST_RedSyncCfg;
+
+	_nLastSeq		: UDINT;
+	_tonFresh		: TON;
+END_VAR
+VAR_TEMP
+	bNew			: BOOL;
+	bEq				: BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF NOT i_bUse THEN
+	RETURN;
+END_IF
+
+(* 1) 보내기 *)
+_stTx.nProtoVer	:= 1;
+_stTx.nSeq		:= _stTx.nSeq + 1;
+_stTx.nModeReq1	:= GVL_SITE.g_fbCtrlMode1.i_nModeReq;
+_stTx.aeOpMode := GVL_PERSIST.g_aeOpMode;
+_stTx.astGroupSet := GVL_PERSIST.g_astGroupSet;
+_stTx.astManualPolicy := GVL_PERSIST.g_astManualPolicy;
+_stTx.astSourceReg := GVL_PERSIST.g_astSourceReg;
+_stTx.astLimitReg := GVL_PERSIST.g_astLimitReg;
+_stTx.astPermitReg := GVL_PERSIST.g_astPermitReg;
+_stTx.astCompReg := GVL_PERSIST.g_astCompReg;
+_stTx.astRuleCfg := GVL_PERSIST.g_astRuleCfg;
+_stTx.astOutputCfg := GVL_PERSIST.g_astOutputCfg;
+_stTx.astUnitRuleReg := GVL_PERSIST.g_astUnitRuleReg;
+_stTx.astBatRuleReg := GVL_PERSIST.g_astBatRuleReg;
+_stTx.stCmdFilter := GVL_PERSIST.g_stCmdFilter;
+_stTx.stManualCmdSet := GVL_PERSIST.g_stManualCmdSet;
+_stTx.stSeqSet := GVL_PERSIST.g_stSeqSet;
+_stTx.stBrokerWatch := GVL_PERSIST.g_stBrokerWatch;	// [9번 수정 2026-11-09: 추가]
+
+(* 2) 받기: 새 값이 오는지 *)
+bNew := _stRx.nSeq <> _nLastSeq;
+_nLastSeq := _stRx.nSeq;
+_tonFresh(IN := NOT bNew, PT := i_tTimeout);
+q_bFresh := _stRx.nProtoVer = 1 AND _stRx.nSeq <> 0 AND NOT _tonFresh.Q;
+
+(* 3) 맞추기: 내가 Active가 아니고 상대가 Active일 때만 다른 것만 덮어씀 *)
+q_bInSync := FALSE;
+IF i_bApply AND q_bFresh THEN
+	bEq := TRUE;
+	IF GVL_SITE.g_fbCtrlMode1.i_nModeReq <> _stRx.nModeReq1 THEN
+		GVL_SITE.g_fbCtrlMode1.i_nModeReq := _stRx.nModeReq1;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_aeOpMode), ADR(_stRx.aeOpMode), SIZEOF(_stRx.aeOpMode)) <> 0 THEN
+		GVL_PERSIST.g_aeOpMode := _stRx.aeOpMode;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_astGroupSet), ADR(_stRx.astGroupSet), SIZEOF(_stRx.astGroupSet)) <> 0 THEN
+		GVL_PERSIST.g_astGroupSet := _stRx.astGroupSet;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_astManualPolicy), ADR(_stRx.astManualPolicy), SIZEOF(_stRx.astManualPolicy)) <> 0 THEN
+		GVL_PERSIST.g_astManualPolicy := _stRx.astManualPolicy;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_astSourceReg), ADR(_stRx.astSourceReg), SIZEOF(_stRx.astSourceReg)) <> 0 THEN
+		GVL_PERSIST.g_astSourceReg := _stRx.astSourceReg;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_astLimitReg), ADR(_stRx.astLimitReg), SIZEOF(_stRx.astLimitReg)) <> 0 THEN
+		GVL_PERSIST.g_astLimitReg := _stRx.astLimitReg;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_astPermitReg), ADR(_stRx.astPermitReg), SIZEOF(_stRx.astPermitReg)) <> 0 THEN
+		GVL_PERSIST.g_astPermitReg := _stRx.astPermitReg;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_astCompReg), ADR(_stRx.astCompReg), SIZEOF(_stRx.astCompReg)) <> 0 THEN
+		GVL_PERSIST.g_astCompReg := _stRx.astCompReg;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_astRuleCfg), ADR(_stRx.astRuleCfg), SIZEOF(_stRx.astRuleCfg)) <> 0 THEN
+		GVL_PERSIST.g_astRuleCfg := _stRx.astRuleCfg;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_astOutputCfg), ADR(_stRx.astOutputCfg), SIZEOF(_stRx.astOutputCfg)) <> 0 THEN
+		GVL_PERSIST.g_astOutputCfg := _stRx.astOutputCfg;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_astUnitRuleReg), ADR(_stRx.astUnitRuleReg), SIZEOF(_stRx.astUnitRuleReg)) <> 0 THEN
+		GVL_PERSIST.g_astUnitRuleReg := _stRx.astUnitRuleReg;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_astBatRuleReg), ADR(_stRx.astBatRuleReg), SIZEOF(_stRx.astBatRuleReg)) <> 0 THEN
+		GVL_PERSIST.g_astBatRuleReg := _stRx.astBatRuleReg;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_stCmdFilter), ADR(_stRx.stCmdFilter), SIZEOF(_stRx.stCmdFilter)) <> 0 THEN
+		GVL_PERSIST.g_stCmdFilter := _stRx.stCmdFilter;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_stManualCmdSet), ADR(_stRx.stManualCmdSet), SIZEOF(_stRx.stManualCmdSet)) <> 0 THEN
+		GVL_PERSIST.g_stManualCmdSet := _stRx.stManualCmdSet;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_stSeqSet), ADR(_stRx.stSeqSet), SIZEOF(_stRx.stSeqSet)) <> 0 THEN
+		GVL_PERSIST.g_stSeqSet := _stRx.stSeqSet;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	IF MEMCMP(ADR(GVL_PERSIST.g_stBrokerWatch), ADR(_stRx.stBrokerWatch), SIZEOF(_stRx.stBrokerWatch)) <> 0 THEN	// [9번 수정 2026-11-09: 추가]
+		GVL_PERSIST.g_stBrokerWatch := _stRx.stBrokerWatch;
+		q_nApplied := q_nApplied + 1;
+		bEq := FALSE;
+	END_IF
+	q_bInSync := bEq;
+END_IF]]></ST>
+    </Implementation>
+    <LineIds Name="FB_RedSync">
+      <LineId Id="3" Count="108" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

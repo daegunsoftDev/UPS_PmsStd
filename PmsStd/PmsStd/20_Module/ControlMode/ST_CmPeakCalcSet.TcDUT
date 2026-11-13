@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CmPeakCalcSet" Id="{fa86a9c1-8814-422e-a292-aa391c1de8f3}">
+    <Declaration><![CDATA[TYPE ST_CmPeakCalcSet :		// 15분 피크 제어 계산 (FB_CmPeakCalc)
+STRUCT
+	fTarget		: REAL;				// kW, 15분 평균 수전 목표 (계약·목표 피크). 0 = 피크 제어 안 함
+	fBandSens	: REAL := 0.0;		// 시작 기준 감도: 부하가 목표 + 가용 출력 × (남은 분/15, 정수 나눗셈) × 이 값 × 0.5를 넘을 때만 제어. 0 = Messis 실제 동작 (목표를 넘으면 바로)
+	fLoadRatio	: REAL := 0.8;		// 방전 상한 = 30초 평균 부하 × 이 값
+	fMinOut		: REAL := 10.0;		// kW, 제어량이 1 kW를 넘으면 최소 이 값
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ProtBmsComm" Id="{95d923c3-7670-4080-ba5b-da16a41a8350}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ProtBmsComm EXTENDS FB_ModuleBase IMPLEMENTS I_ProtectionRule		// 표준 보호: BMS 통신 끊김 (범위 Bms). 기본 등록. 빼면 이 보호 없음. 현장마다 다르면 복사해 이름을 바꿔 그 칸에 대신 등록
+VAR
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Evaluate" Id="{c3f116c3-51d2-4a98-ae66-871a0efa5107}">
+      <Declaration><![CDATA[METHOD M_Evaluate : BOOL		// 범위가 맞지 않게 등록되면 FALSE (보호 안 걸림)
+VAR_INPUT
+	i_stView	: ST_ProtView;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Evaluate := i_stView.eScope = E_ProtScope.Bms AND i_stView.bInstalled AND NOT i_stView.stBms.bComm;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

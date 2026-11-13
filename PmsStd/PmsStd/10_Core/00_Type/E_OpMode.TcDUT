@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_OpMode" Id="{c2b2c985-46e9-4e1e-ad68-2138d4297aa2}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_OpMode :
+(
+	Auto		:= 0,	// 자동: 원격·자동 지령원이 동작
+	Manual		:= 1	// 수동: 수동 지령원만 동작
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

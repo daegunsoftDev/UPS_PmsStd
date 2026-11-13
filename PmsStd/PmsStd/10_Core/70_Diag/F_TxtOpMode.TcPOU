@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtOpMode" Id="{99e474c7-bc92-4d31-9343-e51b15e31ef4}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtOpMode : WSTRING(31)		// 운전 모드 문구
+VAR_INPUT
+	i_e		: E_OpMode;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_e OF
+	E_OpMode.Auto:	F_TxtOpMode := "Auto";
+	E_OpMode.Manual:	F_TxtOpMode := "Manual";
+ELSE
+	F_TxtOpMode := "?";
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

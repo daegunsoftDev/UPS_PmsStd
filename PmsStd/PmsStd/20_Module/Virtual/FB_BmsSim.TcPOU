@@ -1,0 +1,97 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_BmsSim" Id="{a20491d9-300b-41f4-8eaa-ac23f639c2e0}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_BmsSim EXTENDS FB_DeviceBase IMPLEMENTS I_Bms		// 가상 배터리 (시험용)
+VAR_INPUT
+	i_fPDc			: REAL;				// kW, 배터리에서 나가는 전력 (방전 +). PRG_SimLink가 넣음
+	i_fSocInit		: REAL := 50.0;		// %
+	i_fCapacity		: REAL := 4000.0;	// kWh
+	i_fPLimit		: REAL := 2000.0;	// kW, 충·방전 한도
+	i_bForceFault	: BOOL;				// 시험: 배터리 고장
+	i_bForceSysStop	: BOOL;				// 시험: 시스템 정지
+	i_bForceCommLoss	: BOOL;			// 시험: 응답 안 함. i_tCommTimeout 뒤 통신 이상
+	i_bIgnoreCmd	: BOOL;				// 시험: 상태 명령을 접수하되 접촉기는 바꾸지 않음
+	i_bDisableAutoOpen : BOOL;		// 시험: 고장·시스템 정지 때 자동 개방 안 함 (명령에 의한 개방은 별도)
+END_VAR
+VAR
+	_bInit			: BOOL;
+	_bClosed		: BOOL;
+	_fSoc			: REAL;
+	_stBat			: ST_BatState;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Property Name="BatState" Id="{4e7a9500-ded3-4b92-92d5-5e0aea55cae6}">
+      <Declaration><![CDATA[PROPERTY BatState : ST_BatState]]></Declaration>
+      <Get Name="Get" Id="{a2485b08-ac88-4b7f-8e6d-47a1f239e31f}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[BatState := _stBat;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="M_Cycle" Id="{15787280-1c40-4a44-b9c0-3c2ba2b218aa}">
+      <Declaration><![CDATA[METHOD M_Cycle
+VAR
+	fDtHour		: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF M_IsReadTime() AND NOT i_bForceCommLoss THEN		// 시험: 통신 끊김이면 응답 안 함
+	M_MarkAlive();
+END_IF
+M_UpdateComm();
+
+IF NOT _bInit THEN
+	_fSoc	:= i_fSocInit;
+	_bInit	:= TRUE;
+END_IF
+
+// 고장·시스템 정지면 접촉기 개방 (시험 입력으로 자동 개방만 끌 수 있음)
+IF (i_bForceFault OR i_bForceSysStop) AND NOT i_bDisableAutoOpen THEN
+	_bClosed := FALSE;
+END_IF
+
+// SOC 적분 (접촉기 투입 중일 때만)
+IF _bClosed AND i_fCapacity > 0 THEN
+	fDtHour	:= F_CycleSec() / 3600.0;
+	_fSoc	:= LIMIT(0.0, _fSoc - i_fPDc * fDtHour / i_fCapacity * 100.0, 100.0);
+END_IF
+
+_stBat.bComm			:= _bComm;
+_stBat.bContactorClosed	:= _bClosed;
+_stBat.bWarn			:= FALSE;
+_stBat.bFault			:= i_bForceFault;
+_stBat.bSysStop			:= i_bForceSysStop;
+_stBat.stSoc.fValue		:= _fSoc;
+_stBat.stSoc.bValid		:= TRUE;
+_stBat.stSoh.fValue		:= 100.0;
+_stBat.stSoh.bValid		:= TRUE;
+_stBat.fPChgMax			:= SEL(_fSoc < 100.0, 0.0, i_fPLimit);
+_stBat.fPDisMax			:= SEL(_fSoc > 0.0, 0.0, i_fPLimit);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetStateCmd" Id="{0e87731e-add0-4c39-8ebf-ae403ead18ff}">
+      <Declaration><![CDATA[METHOD M_SetStateCmd : BOOL
+VAR_INPUT
+	i_stCmd		: ST_BatCmd;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE i_stCmd.eCmd OF
+	E_BatCmd.Close:
+		IF NOT i_bIgnoreCmd AND NOT i_bForceFault AND NOT i_bForceSysStop THEN _bClosed := TRUE; END_IF
+	E_BatCmd.Open,
+	E_BatCmd.EStop:
+		IF NOT i_bIgnoreCmd THEN _bClosed := FALSE; END_IF
+	E_BatCmd.Reset:
+		;	// 가상 장비는 고장 리셋을 입력(i_bForceFault)으로 함
+ELSE
+	RETURN;
+END_CASE
+M_SetStateCmd := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

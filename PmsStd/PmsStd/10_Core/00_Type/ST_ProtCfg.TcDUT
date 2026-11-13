@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_ProtCfg" Id="{39549224-8d05-4d5c-94b7-a928568075dc}">
+    <Declaration><![CDATA[TYPE ST_ProtCfg :
+STRUCT
+	bAuto		: BOOL := TRUE;		// Auto 유닛에 조치를 걸음
+	bManual		: BOOL := TRUE;		// Manual 유닛에 조치를 걸음
+	// 둘 중 하나라도 TRUE면 감지·발생 표시·로그. 둘 다 FALSE면 이 보호를 안 씀
+	// 아래는 표준 대응(g_fbProtRespStd를 대응 칸에 등록)이 쓰는 조치. 대응 칸이 비면 조치 없음 (알람만, 문구도 조치 없음). 다른 대응 모듈을 붙이면 그 모듈이 정함
+	// [결함 8 수정 2026-11-03: 주석 고침. 원래 '아래는 표준 대응(대응 칸이 비었을 때)이 쓰는 조치. 대응 모듈을 붙이면 그 모듈이 정함']
+	// BMS 조치는 같은 버스에 조치를 받는 유닛이 하나라도 있을 때 (버스에 유닛이 없으면 그대로 걸음)
+	ePcsAction	: E_PcsAction;		// PCS 조치: Standby = 출력 0 (명령 없음), Stop·EStop = 명령
+	eBatAction	: E_BatAction;		// 배터리 조치. PCS가 Stop·EStop일 때만 고를 수 있음 (시퀀서가 버스 PCS 정지 확인 뒤 보냄)
+	eModeAction	: E_ModeAction;		// 운전 모드 조치. ToManual = 조치를 받는 Auto 유닛의 요청 모드를 Manual로 바꿈 (보호가 풀려도 Manual 유지)
+	fPPct		: REAL := 100.0;	// P 상한 (유닛 정격 대비 %). 100 = 줄이지 않음
+	fQPct		: REAL := 100.0;	// Q 상한 (유닛 정격 대비 %). 100 = 줄이지 않음
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_ProtView" Id="{1bd863df-6932-4849-bc11-5fe7082db311}">
+    <Declaration><![CDATA[TYPE ST_ProtView :		// 보호 모듈에 넘기는 정보 (대상 하나). 칸은 추가만 함 (이름 바꾸기·삭제 금지: 복사한 모듈이 깨짐)
+STRUCT
+	eScope		: E_ProtScope;		// 범위 (g_astRuleCfg.eScope)
+	nTarget		: UINT;				// 지금 판단하는 대상 번호 (유닛·BMS·배터리 그룹·제어 그룹). Site면 1
+	fThreshold	: REAL;				// 임계값 (g_astRuleCfg.fThreshold, 단위는 모듈마다)
+	bInstalled	: BOOL;				// 대상 장비가 설치됨 (유닛 = PCS 칸, BMS = BMS 칸이 있음). 다른 범위는 TRUE
+	(* 범위가 Unit일 때 *)
+	stUnit		: ST_UnitState;		// 유닛 상태
+	eOpMode		: E_OpMode;			// 유닛의 실제 운전 모드
+	(* 범위가 Bms일 때 *)
+	stBms		: ST_BatState;		// BMS 상태
+	(* 범위가 Group일 때 *)
+	stPcc		: ST_PccMeas;		// 접속점 계측
+	(* 소속 (Unit: 그 유닛의 것, Bms: 그 BMS의 배터리 그룹, BatGroup·Group: 대상 번호) *)
+	nGroup		: UINT;				// 제어 그룹
+	nBatGroup	: UINT;				// 배터리 그룹 (0 = 배터리 없음)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_SocStandbySet" Id="{7bdb65ad-5aae-489f-8b1d-bf29cb873ea0}">
+    <Declaration><![CDATA[TYPE ST_SocStandbySet :	// FB_SocStandby 설정 (운전 중 HMI로 바꿈. GVL_PERSIST.g_stModuleSet 칸 → MAIN이 매 스캔 넘김)
+STRUCT
+	fSocMax	: REAL := 95.0;	// %, 충전 지령 중 최대 SOC가 이 값 이상이면 조건
+	fSocMin	: REAL := 5.0;	// %, 방전 지령 중 최소 SOC가 이 값 이하면 조건
+	tDelay	: TIME := T#2S;	// 조건이 이 시간 이어지면 Standby 요청 (한도 0도 같음)
+	fDirBand	: REAL := 1.0;	// %, 지령 |P|가 정격의 이 % 이하면 방향 없음
+	bResumeChg	: BOOL := FALSE;	// 자동 재개: 충전 쪽(SOC 상한·충전 한도 0)이 막혀 Standby → 다시 충전 가능해지면 Run 요청
+	bResumeDis	: BOOL := FALSE;	// 자동 재개: 방전 쪽(SOC 하한·방전 한도 0)이 막혀 Standby → 다시 방전 가능해지면 Run 요청
+	fResumeMargin	: REAL := 2.0;	// %, 재개 마진: 충전 쪽은 최대 SOC ≤ fSocMax − 이 값, 방전 쪽은 최소 SOC ≥ fSocMin + 이 값
+	tResumeDelay	: TIME := T#10S;	// 재개 조건이 이 시간 이어지면 Run 요청. 거부되면 같은 간격으로 다시
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

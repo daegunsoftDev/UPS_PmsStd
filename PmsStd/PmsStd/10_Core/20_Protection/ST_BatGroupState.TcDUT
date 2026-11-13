@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BatGroupState" Id="{f11d7e5d-7e77-4c56-8367-4078ba8d6feb}">
+    <Declaration><![CDATA[TYPE ST_BatGroupState :
+STRUCT
+	bUsable		: BOOL;		// 쓸 수 있는 BMS가 하나 이상
+	bReady		: BOOL;		// 투입 완료: 쓸 수 있는 BMS가 하나 이상이고 전부 투입됨
+	nBms		: UINT;		// 소속 BMS 수 (설치된 것만)
+	nBmsUsable	: UINT;		// 쓸 수 있는 BMS 수
+	fPChgMax	: REAL;		// kW, 쓸 수 있는 BMS 충전 한도 합 (양수)
+	fPDisMax	: REAL;		// kW, 방전 한도 합
+	stSoc		: ST_Val;	// %, 용량 가중 평균
+	stSocMin	: ST_Val;	// %
+	stSocMax	: ST_Val;	// %
+	fSocWeight	: REAL;		// 평균에 쓴 무게 합 (그룹끼리 다시 평균낼 때 씀)
+	fCapacity	: REAL;		// kWh, SOC가 유효한 쓸 수 있는 BMS 용량 합 (BMS_CFG.fCapacity. 설정 안 하면 0)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

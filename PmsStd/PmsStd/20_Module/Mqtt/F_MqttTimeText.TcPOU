@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_MqttTimeText" Id="{c7817914-4bb4-458a-97a0-93fc4b92a1a6}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_MqttTimeText : STRING(23)		// 시각 → 'YYYY-MM-DD hh:mm:ss.xxx' (MQTT 헤더 TimeStamp 형식, 23자). FB_MqttMain(발행 헤더)·FB_MqttLoggerListener(로거 시각)가 같이 씀
+VAR_INPUT
+	i_stTime	: TIMESTRUCT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* Tc2_Utilities SYSTEMTIME_TO_STRING 형식은 'YYYY-MM-DD-hh:mm:ss.xxx' → 11번째 글자 '-'를 공백으로 *)
+F_MqttTimeText := REPLACE(SYSTEMTIME_TO_STRING(i_stTime), ' ', 1, 11);]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

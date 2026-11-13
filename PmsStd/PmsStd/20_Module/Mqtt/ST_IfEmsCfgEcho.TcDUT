@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_IfEmsCfgEcho" Id="{b2172f4c-51f5-4e8f-8943-33daaeb3dc6c}">
+    <Declaration><![CDATA[TYPE ST_IfEmsCfgEcho :		// MAIN → MQTT config echo 칸 (GVL_IF.g_stEmsCfgEcho). 실제 설정을 config 레코드 모양으로 (칸 = DeviceIndex). 쓰는 곳: MAIN (FB_EmsConfigApply.M_BuildEcho) [9-21 수정 2026-11-04: 추가]
+STRUCT
+	astPcs	: ARRAY[0..GVL_PARAM.PCS_COUNT-1] OF ST_PcsConfig_Rx;	// 충·방전 한도 = 그 PCS 유닛들의 사용자 한도 합 (모두 켜져 있으면 is_available 1). PvMarginRate = 받은 값, is_available 0 (PLC가 쓰지 않음)
+	astBat	: ARRAY[0..GVL_PARAM.BMS_COUNT-1] OF ST_BatConfig_Rx;	// SOC 정책 상·하한 (버스 전체 한 세트라 BMS마다 같은 값)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_RangeAdd" Id="{d3de0742-9fb5-426f-9b78-b149a06c0da1}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_RangeAdd : ST_Range		// 범위를 제한 하나만큼 좁힘 (가장 좁은 범위가 남음)
+VAR_INPUT
+	i_stRange	: ST_Range;
+	i_stLimit	: ST_Limit;
+	i_nModule	: UINT;			// 제한을 낸 모듈 ID (0 = 코어)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_RangeAdd := i_stRange;
+IF NOT i_stLimit.bActive THEN
+	RETURN;
+END_IF
+IF i_stLimit.fMax < F_RangeAdd.fMax THEN
+	F_RangeAdd.fMax			:= i_stLimit.fMax;
+	F_RangeAdd.nMaxModule	:= i_nModule;
+	F_RangeAdd.nMaxReason	:= i_stLimit.nReason;
+END_IF
+IF i_stLimit.fMin > F_RangeAdd.fMin THEN
+	F_RangeAdd.fMin			:= i_stLimit.fMin;
+	F_RangeAdd.nMinModule	:= i_nModule;
+	F_RangeAdd.nMinReason	:= i_stLimit.nReason;
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

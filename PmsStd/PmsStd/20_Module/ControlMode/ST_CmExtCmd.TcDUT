@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CmExtCmd" Id="{a709e6b0-8fc9-4986-b9f4-4d6fc4cb99fb}">
+    <Declaration><![CDATA[TYPE ST_CmExtCmd :		// 바깥(EMS 등)에서 받은 지령 한 대 몫 (FB_CmStdSchedule 입력). MAIN이 지령원 결과에서 채움 (이 모드는 통신 형식을 모름)
+STRUCT
+	bUse		: BOOL;			// 이 칸(유닛)에 지령을 냄 (이 모드가 맡은 유닛). [16번 수정 2026-11-09: 추가 — 모드가 유닛마다 칸을 받음]
+	bAlive		: BOOL;			// 바깥 지령원이 살아 있음 (끊기면 받아 둔 P를 버리고 0)
+	nPSeq		: UDINT;		// P 지령 번호. 바뀌면 새 P 지령
+	fP			: REAL;			// kW, P 지령 (방전 +, 충전 -). 이 유닛 출력
+	nStateSeq	: UDINT;		// 상태 명령 번호. 바뀌면 새 상태 명령
+	eState		: E_PcsCmd;		// 마지막 상태 명령 (Stop·Standby·EStop이면 받아 둔 P를 버림)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

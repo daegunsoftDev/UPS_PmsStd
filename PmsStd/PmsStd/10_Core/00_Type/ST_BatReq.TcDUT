@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BatReq" Id="{2461f942-543f-449f-9d4e-b79a0262fdaa}">
+    <Declaration><![CDATA[TYPE ST_BatReq :		// 지령원의 배터리 요청
+STRUCT
+	eCmd		: E_BatCmd;		// Close / Open만 씀. None = 요청 없음. 새 요청일 때 1스캔만
+	nBatGroup	: UINT;			// 대상 배터리 그룹. 0 = 전체
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

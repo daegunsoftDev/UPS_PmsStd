@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BatConfigWirePacket" Id="{428c1753-d9c1-4409-8ddf-be0fef27f7ac}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_BatConfigWirePacket :
+STRUCT
+	Header	:	ST_MqttCommandHeader;
+	Records	:	ARRAY[0..GVL_PARAM.BMS_COUNT-1] OF ST_BatConfig_Rx;
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

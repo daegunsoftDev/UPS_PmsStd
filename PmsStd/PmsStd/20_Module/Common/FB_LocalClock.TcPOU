@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_LocalClock" Id="{a71bf80d-6a3c-4c4a-87d7-4917bd40dc47}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_LocalClock		// 현지 시각 읽기 (TwinCAT Tc2_Utilities FB_LocalSystemTime). 코어는 ST_LocalTime만 보므로 다른 플랫폼은 이 FB만 바꿈
+VAR_INPUT
+	i_sNetId	: T_AmsNetID := '';		// '' = 이 PLC
+	i_nSyncSec	: DWORD := 5;			// 운영체제 시각을 다시 읽는 주기 (s). 사이는 PLC가 셈
+END_VAR
+VAR_OUTPUT
+	q_stTime	: ST_LocalTime;
+END_VAR
+VAR
+	_fbTime		: FB_LocalSystemTime;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[_fbTime(sNetID := i_sNetId, bEnable := TRUE, dwCycle := i_nSyncSec);
+q_stTime.bValid		:= _fbTime.bValid;
+q_stTime.nYear		:= _fbTime.systemTime.wYear;
+q_stTime.nMonth		:= _fbTime.systemTime.wMonth;
+q_stTime.nDay		:= _fbTime.systemTime.wDay;
+q_stTime.nDayOfWeek	:= _fbTime.systemTime.wDayOfWeek;		// 0 = 일요일
+q_stTime.nHour		:= _fbTime.systemTime.wHour;
+q_stTime.nMinute	:= _fbTime.systemTime.wMinute;
+q_stTime.nSecond	:= _fbTime.systemTime.wSecond;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_IsStopped" Id="{23ae95f8-1a84-4712-8f33-fe5e9c892c5e}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_IsStopped : BOOL		// 장비가 멈춘 상태인가 (Stop 또는 Fault. Fault도 멈춘 상태). 통신 여부는 보지 않음: 통신이 있는지는 부르는 쪽이 따로 봄
+VAR_INPUT
+	i_eRun		: E_RunState;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_IsStopped := i_eRun = E_RunState.Stop OR i_eRun = E_RunState.Fault;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

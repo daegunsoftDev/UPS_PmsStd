@@ -1,0 +1,1861 @@
+<?xml version="1.0"?>
+<TcSmProject xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.beckhoff.com/schemas/2012/07/TcSmProject" TcSmVersion="1.0" TcVersion="3.1.4024.78">
+	<DataTypes>
+		<DataType>
+			<Name GUID="{A6BABD92-1EF6-EA48-291A-B1EC17A9A747}" AutoDeleteType="true">E_OpMode</Name>
+			<BitSize>16</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000006}">INT</BaseType>
+			<EnumInfo>
+				<Text><![CDATA[Auto]]></Text>
+				<Enum>0</Enum>
+				<Comment><![CDATA[ 자동: 원격·자동 지령원이 동작]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Manual]]></Text>
+				<Enum>1</Enum>
+				<Comment><![CDATA[ 수동: 수동 지령원만 동작]]></Comment>
+			</EnumInfo>
+			<Properties>
+				<Property>
+					<Name>qualified_only</Name>
+				</Property>
+				<Property>
+					<Name>strict</Name>
+				</Property>
+				<Property>
+					<Name>generate_implicit_init_function</Name>
+				</Property>
+			</Properties>
+		</DataType>
+		<DataType>
+			<Name GUID="{EE6FE45B-FEBD-F760-7DC4-4AE73E1D47B0}" AutoDeleteType="true">E_SelectMode</Name>
+			<BitSize>16</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000006}">INT</BaseType>
+			<EnumInfo>
+				<Text><![CDATA[Grade]]></Text>
+				<Enum>0</Enum>
+				<Comment><![CDATA[ 등급 우선 (등급 숫자가 작은 지령원)]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[MinAbs]]></Text>
+				<Enum>1</Enum>
+				<Comment><![CDATA[ 절대값이 가장 작은 값]]></Comment>
+			</EnumInfo>
+			<Properties>
+				<Property>
+					<Name>qualified_only</Name>
+				</Property>
+				<Property>
+					<Name>strict</Name>
+				</Property>
+				<Property>
+					<Name>generate_implicit_init_function</Name>
+				</Property>
+			</Properties>
+		</DataType>
+		<DataType>
+			<Name GUID="{426BC792-990D-2B59-F749-4611D8DB4D39}" AutoDeleteType="true">E_DistBasis</Name>
+			<BitSize>16</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000006}">INT</BaseType>
+			<EnumInfo>
+				<Text><![CDATA[Rating]]></Text>
+				<Enum>0</Enum>
+				<Comment><![CDATA[ 유닛 정격 비율]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Soc]]></Text>
+				<Enum>1</Enum>
+				<Comment><![CDATA[ 방전은 SOC 높은 쪽, 충전은 SOC 낮은 쪽이 많이 (P만. Q는 정격 비율)]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Equal]]></Text>
+				<Enum>2</Enum>
+				<Comment><![CDATA[ 균등]]></Comment>
+			</EnumInfo>
+			<Properties>
+				<Property>
+					<Name>qualified_only</Name>
+				</Property>
+				<Property>
+					<Name>strict</Name>
+				</Property>
+				<Property>
+					<Name>generate_implicit_init_function</Name>
+				</Property>
+			</Properties>
+		</DataType>
+		<DataType>
+			<Name GUID="{D6BB80EE-4667-8CE4-DE19-F3C36ED88BB8}" AutoDeleteType="true">ST_GroupSet</Name>
+			<BitSize>224</BitSize>
+			<SubItem>
+				<Name>eSelP</Name>
+				<Type GUID="{EE6FE45B-FEBD-F760-7DC4-4AE73E1D47B0}">E_SelectMode</Type>
+				<Comment><![CDATA[ 그룹 P 지령원 고르는 방식]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>0</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>eSelQ</Name>
+				<Type GUID="{EE6FE45B-FEBD-F760-7DC4-4AE73E1D47B0}">E_SelectMode</Type>
+				<Comment><![CDATA[ 그룹 Q 지령원 고르는 방식]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>16</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>bRamp</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 램프 사용 (Auto·Manual 공통). FALSE = 램프율과 관계없이 바로 목표 (기본)]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>32</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>fRampUp</Name>
+				<Type GUID="{18071995-0000-0000-0000-00000000000D}">REAL</Type>
+				<Comment><![CDATA[ kW/s, |P|가 커지는 쪽. 0 = 램프 없음]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>64</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>fRampDn</Name>
+				<Type GUID="{18071995-0000-0000-0000-00000000000D}">REAL</Type>
+				<Comment><![CDATA[ kW/s, |P|가 작아지는 쪽. 0 = 램프 없음]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>96</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>fRampResume</Name>
+				<Type GUID="{18071995-0000-0000-0000-00000000000D}">REAL</Type>
+				<Comment><![CDATA[ kW/s, 제한 모듈이 재개 중일 때 오르는 쪽. 0 = fRampUp 사용]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>128</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>tQFilter</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000048}">TIME</Type>
+				<Comment><![CDATA[ Q 응답 필터 시정수. T#0S = 필터 없음]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>160</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>eDistBasis</Name>
+				<Type GUID="{426BC792-990D-2B59-F749-4611D8DB4D39}">E_DistBasis</Type>
+				<Comment><![CDATA[ 그룹 몫 나누는 기준]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>192</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>bQPriority</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 피상전력 초과 시 TRUE = Q 우선, FALSE = P 우선]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>208</BitOffs>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{EF0C9602-234E-BC7C-29F4-12CB339BEA74}" AutoDeleteType="true">ST_ManualPolicy</Name>
+			<BitSize>56</BitSize>
+			<SubItem>
+				<Name>bRamp</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ P 램프·Q 응답 필터 (그룹 설정 bRamp·tQFilter를 따름)]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>bSrcLimit</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 지령원이 낸 P 제한]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>8</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>bPccLimit</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 접속점 기준 제한 모듈 (모듈 등록의 bManual = TRUE인 것만)]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>16</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>bComp</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 보정 (같은 그룹에 Auto 유닛이 있으면 Auto 쪽에만 더함: 두 번 더하지 않게)]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>24</BitOffs>
+				<Default>
+					<Bool>false</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>bDevLimit</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 설비 기준 제한 모듈 (P·Q)]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>32</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>bRating</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 유닛 정격·Derate·피상전력]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>40</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>bBatLimit</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ BMS 충방전 한도 (유닛·배터리 버스)]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>48</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{008CBD37-337B-FCFE-DB78-1E8CF10FFBB0}" AutoDeleteType="true">E_SourceMode</Name>
+			<BitSize>16</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000006}">INT</BaseType>
+			<EnumInfo>
+				<Text><![CDATA[Auto]]></Text>
+				<Enum>0</Enum>
+				<Comment><![CDATA[ 자동 모드에서만 동작]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Manual]]></Text>
+				<Enum>1</Enum>
+				<Comment><![CDATA[ 수동 모드에서만 동작]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Both]]></Text>
+				<Enum>2</Enum>
+				<Comment><![CDATA[ 운전 모드와 관계없이 동작]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[None]]></Text>
+				<Enum>3</Enum>
+				<Comment><![CDATA[ 받지 않음]]></Comment>
+			</EnumInfo>
+			<Properties>
+				<Property>
+					<Name>qualified_only</Name>
+				</Property>
+				<Property>
+					<Name>strict</Name>
+				</Property>
+				<Property>
+					<Name>generate_implicit_init_function</Name>
+				</Property>
+			</Properties>
+		</DataType>
+		<DataType>
+			<Name GUID="{AD0F791A-8245-0CF3-F430-32AB56971EA0}" AutoDeleteType="true">ST_PcsCmdMode</Name>
+			<BitSize>64</BitSize>
+			<SubItem>
+				<Name>eRun</Name>
+				<Type GUID="{008CBD37-337B-FCFE-DB78-1E8CF10FFBB0}">E_SourceMode</Type>
+				<Comment><![CDATA[ Run]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<EnumText>E_SourceMode.Manual</EnumText>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>eStandby</Name>
+				<Type GUID="{008CBD37-337B-FCFE-DB78-1E8CF10FFBB0}">E_SourceMode</Type>
+				<Comment><![CDATA[ Standby]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>16</BitOffs>
+				<Default>
+					<EnumText>E_SourceMode.Manual</EnumText>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>eStop</Name>
+				<Type GUID="{008CBD37-337B-FCFE-DB78-1E8CF10FFBB0}">E_SourceMode</Type>
+				<Comment><![CDATA[ Stop]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>32</BitOffs>
+				<Default>
+					<EnumText>E_SourceMode.Manual</EnumText>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>eEStop</Name>
+				<Type GUID="{008CBD37-337B-FCFE-DB78-1E8CF10FFBB0}">E_SourceMode</Type>
+				<Comment><![CDATA[ 비상정지]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>48</BitOffs>
+				<Default>
+					<EnumText>E_SourceMode.Manual</EnumText>
+				</Default>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{42D3C7C6-19B6-6675-C325-1CC9BF2426AB}" AutoDeleteType="true">ST_BatCmdMode</Name>
+			<BitSize>32</BitSize>
+			<SubItem>
+				<Name>eClose</Name>
+				<Type GUID="{008CBD37-337B-FCFE-DB78-1E8CF10FFBB0}">E_SourceMode</Type>
+				<Comment><![CDATA[ 배터리 투입]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<EnumText>E_SourceMode.Manual</EnumText>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>eOpen</Name>
+				<Type GUID="{008CBD37-337B-FCFE-DB78-1E8CF10FFBB0}">E_SourceMode</Type>
+				<Comment><![CDATA[ 배터리 개방]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>16</BitOffs>
+				<Default>
+					<EnumText>E_SourceMode.Manual</EnumText>
+				</Default>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{84201F4F-6679-2938-BD14-4FAFC26089BB}" AutoDeleteType="true">ST_StateModeSet</Name>
+			<BitSize>96</BitSize>
+			<SubItem>
+				<Name>stPcs</Name>
+				<Type GUID="{AD0F791A-8245-0CF3-F430-32AB56971EA0}">ST_PcsCmdMode</Type>
+				<Comment><![CDATA[ PCS(유닛): Run·Standby·Stop·EStop]]></Comment>
+				<BitSize>64</BitSize>
+				<BitOffs>0</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>stBat</Name>
+				<Type GUID="{42D3C7C6-19B6-6675-C325-1CC9BF2426AB}">ST_BatCmdMode</Type>
+				<Comment><![CDATA[ 배터리 그룹: 투입·개방]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>64</BitOffs>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{024A6375-CC4F-1984-E42B-D7B9E267EBC2}" AutoDeleteType="true">ST_SourceReg</Name>
+			<BitSize>224</BitSize>
+			<SubItem>
+				<Name>bEnable</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<BitSize>8</BitSize>
+				<BitOffs>0</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>nGrade</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000005}">UINT</Type>
+				<Comment><![CDATA[ 등급. 1이 가장 높음]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>16</BitOffs>
+				<Default>
+					<Value>9</Value>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>stStateMode</Name>
+				<Type GUID="{84201F4F-6679-2938-BD14-4FAFC26089BB}">ST_StateModeSet</Type>
+				<Comment><![CDATA[ 상태 요청을 명령마다 어느 운전 모드에서 받나 (기본 모두 Manual). 리셋은 모드와 관계없이 받음]]></Comment>
+				<BitSize>96</BitSize>
+				<BitOffs>32</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>ePowerMode</Name>
+				<Type GUID="{008CBD37-337B-FCFE-DB78-1E8CF10FFBB0}">E_SourceMode</Type>
+				<Comment><![CDATA[ P·Q 지령과 P 제한을 받는 운전 모드]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>128</BitOffs>
+				<Default>
+					<EnumText>E_SourceMode.Auto</EnumText>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>nGroup</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000005}">UINT</Type>
+				<Comment><![CDATA[ 대상 제어 그룹. 0 = 모든 그룹]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>144</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>tExpire</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000048}">TIME</Type>
+				<Comment><![CDATA[ 이 시간 동안 새 값이 없으면 끊김]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>160</BitOffs>
+				<Default>
+					<DateTime>T#10S</DateTime>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>bLostAlarm</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 끊기면 '지령원 끊김' 알람 (FB_EventLog). FALSE = 알람 안 냄 (끊김 처리는 그대로). [9번 수정 2026-11-09: 추가 — EMS는 브로커 끊김 알람으로 대신]]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>192</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{B44FD61D-FBE8-B2DC-0718-EBED4C00DE54}" AutoDeleteType="true">ST_ModuleReg</Name>
+			<BitSize>48</BitSize>
+			<SubItem>
+				<Name>bEnable</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<BitSize>8</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>nGroup</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000005}">UINT</Type>
+				<Comment><![CDATA[ 대상 제어 그룹. 0 = 모든 그룹 (제한·보정·기동 조건은 그룹이 1개일 때만. 2개 이상이면 그룹마다 인스턴스)]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>16</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>bManual</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 출력 제한 모듈만: 접속점 기준 모듈을 Manual 경로에도 적용 (Auto는 항상 적용)]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>32</BitOffs>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{EF85E0D1-A7E8-AFF0-3BD2-D97943C060FE}" AutoDeleteType="true">E_PcsAction</Name>
+			<BitSize>16</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000006}">INT</BaseType>
+			<EnumInfo>
+				<Text><![CDATA[None]]></Text>
+				<Enum>0</Enum>
+				<Comment><![CDATA[ 조치 없음 (알람만), 자동 해제]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Standby]]></Text>
+				<Enum>1</Enum>
+				<Comment><![CDATA[ 대기 = 출력 0 (명령 없음: 가용 아님으로 출력에서 빠짐). 조건이 있는 동안만, 풀리면 다시 출력]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Stop]]></Text>
+				<Enum>2</Enum>
+				<Comment><![CDATA[ 정지 명령. 조건이 풀려도 정지 유지 (다시 운전하려면 Run)]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[EStop]]></Text>
+				<Enum>3</Enum>
+				<Comment><![CDATA[ 비상정지. 위와 같음]]></Comment>
+			</EnumInfo>
+			<Properties>
+				<Property>
+					<Name>qualified_only</Name>
+				</Property>
+				<Property>
+					<Name>strict</Name>
+				</Property>
+				<Property>
+					<Name>generate_implicit_init_function</Name>
+				</Property>
+			</Properties>
+		</DataType>
+		<DataType>
+			<Name GUID="{B70AD360-617A-FF0A-EE7F-CEEC7F477513}" AutoDeleteType="true">E_BatAction</Name>
+			<BitSize>16</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000006}">INT</BaseType>
+			<EnumInfo>
+				<Text><![CDATA[None]]></Text>
+				<Enum>0</Enum>
+				<Comment><![CDATA[ 조치 없음]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Stop]]></Text>
+				<Enum>1</Enum>
+				<Comment><![CDATA[ 정지 (접촉기 개방). 잠금 없음. 다시 투입하려면 새 기동·투입 요청 필요]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[EStop]]></Text>
+				<Enum>2</Enum>
+				<Comment><![CDATA[ 비상정지. 재투입 조건은 Stop과 같음]]></Comment>
+			</EnumInfo>
+			<Properties>
+				<Property>
+					<Name>qualified_only</Name>
+				</Property>
+				<Property>
+					<Name>strict</Name>
+				</Property>
+				<Property>
+					<Name>generate_implicit_init_function</Name>
+				</Property>
+			</Properties>
+		</DataType>
+		<DataType>
+			<Name GUID="{BC7E9529-15E4-EE23-55A9-8003F0B449E6}" AutoDeleteType="true">E_ModeAction</Name>
+			<BitSize>16</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000006}">INT</BaseType>
+			<EnumInfo>
+				<Text><![CDATA[None]]></Text>
+				<Enum>0</Enum>
+				<Comment><![CDATA[ 모드를 바꾸지 않음 (기본)]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[ToManual]]></Text>
+				<Enum>1</Enum>
+				<Comment><![CDATA[ 조치를 받는 Auto 유닛의 요청 모드를 Manual로 바꿈. 보호가 풀려도 Manual 유지, 운전원이 Auto를 다시 요청]]></Comment>
+			</EnumInfo>
+			<Properties>
+				<Property>
+					<Name>qualified_only</Name>
+				</Property>
+				<Property>
+					<Name>strict</Name>
+				</Property>
+				<Property>
+					<Name>generate_implicit_init_function</Name>
+				</Property>
+			</Properties>
+		</DataType>
+		<DataType>
+			<Name GUID="{B3E244BB-704F-1DE7-59FA-F006D9588C0F}" AutoDeleteType="true">ST_ProtCfg</Name>
+			<BitSize>128</BitSize>
+			<SubItem>
+				<Name>bAuto</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ Auto 유닛에 조치를 걸음]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>bManual</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ Manual 유닛에 조치를 걸음]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>8</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>ePcsAction</Name>
+				<Type GUID="{EF85E0D1-A7E8-AFF0-3BD2-D97943C060FE}">E_PcsAction</Type>
+				<Comment><![CDATA[ PCS 조치: Standby = 출력 0 (명령 없음), Stop·EStop = 명령]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>16</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>eBatAction</Name>
+				<Type GUID="{B70AD360-617A-FF0A-EE7F-CEEC7F477513}">E_BatAction</Type>
+				<Comment><![CDATA[ 배터리 조치. PCS가 Stop·EStop일 때만 고를 수 있음 (시퀀서가 버스 PCS 정지 확인 뒤 보냄)]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>32</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>eModeAction</Name>
+				<Type GUID="{BC7E9529-15E4-EE23-55A9-8003F0B449E6}">E_ModeAction</Type>
+				<Comment><![CDATA[ 운전 모드 조치. ToManual = 조치를 받는 Auto 유닛의 요청 모드를 Manual로 바꿈 (보호가 풀려도 Manual 유지)]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>48</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>fPPct</Name>
+				<Type GUID="{18071995-0000-0000-0000-00000000000D}">REAL</Type>
+				<Comment><![CDATA[ P 상한 (유닛 정격 대비 %). 100 = 줄이지 않음]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>64</BitOffs>
+				<Default>
+					<Value>100</Value>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>fQPct</Name>
+				<Type GUID="{18071995-0000-0000-0000-00000000000D}">REAL</Type>
+				<Comment><![CDATA[ Q 상한 (유닛 정격 대비 %). 100 = 줄이지 않음]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>96</BitOffs>
+				<Default>
+					<Value>100</Value>
+				</Default>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{A51EE9DB-E484-3641-5FE2-4E37C2AE6D3B}" AutoDeleteType="true">E_ProtScope</Name>
+			<BitSize>16</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000006}">INT</BaseType>
+			<EnumInfo>
+				<Text><![CDATA[Unit]]></Text>
+				<Enum>0</Enum>
+				<Comment><![CDATA[ 유닛 하나]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Bms]]></Text>
+				<Enum>1</Enum>
+				<Comment><![CDATA[ BMS 하나 (PCS 조치는 그 BMS가 속한 배터리 그룹의 유닛에)]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[BatGroup]]></Text>
+				<Enum>2</Enum>
+				<Comment><![CDATA[ 배터리 그룹(DC 버스) 하나: 그 그룹의 BMS와 유닛 전부]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Group]]></Text>
+				<Enum>3</Enum>
+				<Comment><![CDATA[ 제어 그룹 하나]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Site]]></Text>
+				<Enum>4</Enum>
+				<Comment><![CDATA[ 사이트 전체]]></Comment>
+			</EnumInfo>
+			<Properties>
+				<Property>
+					<Name>qualified_only</Name>
+				</Property>
+				<Property>
+					<Name>strict</Name>
+				</Property>
+				<Property>
+					<Name>generate_implicit_init_function</Name>
+				</Property>
+			</Properties>
+		</DataType>
+		<DataType>
+			<Name GUID="{92385852-BFFE-5D6F-185E-27FF33B2F429}" AutoDeleteType="true">ST_RuleCfg</Name>
+			<BitSize>192</BitSize>
+			<SubItem>
+				<Name>stProt</Name>
+				<Type GUID="{B3E244BB-704F-1DE7-59FA-F006D9588C0F}">ST_ProtCfg</Type>
+				<Comment><![CDATA[ 사용 모드 (bAuto·bManual)·표준 대응 조치]]></Comment>
+				<BitSize>128</BitSize>
+				<BitOffs>0</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>eScope</Name>
+				<Type GUID="{A51EE9DB-E484-3641-5FE2-4E37C2AE6D3B}">E_ProtScope</Type>
+				<Comment><![CDATA[ Unit / Bms / BatGroup / Group / Site]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>128</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>nTarget</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000005}">UINT</Type>
+				<Comment><![CDATA[ 대상 번호 (유닛·배터리 그룹·제어 그룹). Site면 무시]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>144</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>fThreshold</Name>
+				<Type GUID="{18071995-0000-0000-0000-00000000000D}">REAL</Type>
+				<Comment><![CDATA[ 임계값 (단위는 규칙마다)]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>160</BitOffs>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{E3F0F722-D003-4C5E-0569-3269DA9CB074}" AutoDeleteType="true">ST_OutputCfg</Name>
+			<BitSize>192</BitSize>
+			<SubItem>
+				<Name>bEnable</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<BitSize>8</BitSize>
+				<BitOffs>0</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>nAux</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000005}">UINT</Type>
+				<Comment><![CDATA[ 낼 보조 장비 칸 (GVL_SITE.g_aipAux). 0 = 판단만 하고 안 냄]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>16</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>nPoint</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000005}">UINT</Type>
+				<Comment><![CDATA[ 그 장비의 디지털 출력 점 번호]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>32</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>fThreshold</Name>
+				<Type GUID="{18071995-0000-0000-0000-00000000000D}">REAL</Type>
+				<Comment><![CDATA[ 규칙에 넘기는 값 (예: 팬 켜는 온도)]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>64</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>tOnDelay</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000048}">TIME</Type>
+				<Comment><![CDATA[ 조건이 이 시간 유지되면 켬]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>96</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>tOffDelay</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000048}">TIME</Type>
+				<Comment><![CDATA[ 조건이 없어지고 이 시간 뒤에 끔]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>128</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>bLatch</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 켜지면 리셋할 때까지 유지 (리셋은 조건이 없을 때만 풀림)]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>160</BitOffs>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{E39A3DB5-3143-77DE-AFC5-6BE8A3D4714F}" AutoDeleteType="true">ST_RuleTargetReg</Name>
+			<BitSize>48</BitSize>
+			<SubItem>
+				<Name>bEnable</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<BitSize>8</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>nTarget</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000005}">UINT</Type>
+				<Comment><![CDATA[ 대상 번호 (유닛 제한 = 유닛, 버스 제한 = 배터리 그룹). 0 = 전체 (모듈이 대상별 상태를 따로 가짐)]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>16</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>bAuto</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ Auto 유닛에 적용]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>32</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>bManual</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ Manual 유닛에 적용. 버스 제한은 그 버스에 적용 대상 모드 유닛이 하나라도 있으면 버스 전체에 걸림 (버스에 유닛이 없으면 그대로 걸림)]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>40</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{84B20E9E-BA1B-4480-2A79-88F2D0BC5409}" AutoDeleteType="true">ST_CmdFilterSet</Name>
+			<BitSize>64</BitSize>
+			<SubItem>
+				<Name>bBadValue</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 이상값: NaN·무한대는 항상 무시. 켜면 정격 × 배수를 넘는 값도 무시 (Auto·Manual) ]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>fBadFactor</Name>
+				<Type GUID="{18071995-0000-0000-0000-00000000000D}">REAL</Type>
+				<Comment><![CDATA[ 그룹 값은 그룹 유닛 정격 합, 유닛별 값은 유닛 정격 기준]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>32</BitOffs>
+				<Default>
+					<Value>1.5</Value>
+				</Default>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{ABADB12B-A9F3-8FA5-21B2-85AD3D107EC6}" AutoDeleteType="true">ST_ManualCmdSet</Name>
+			<BitSize>96</BitSize>
+			<SubItem>
+				<Name>bReverse</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 1) Manual 방향 반대 지령 무시 (충전 중 방전, 방전 중 충전). 앞 값 유지 ]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>fDirBand</Name>
+				<Type GUID="{18071995-0000-0000-0000-00000000000D}">REAL</Type>
+				<Comment><![CDATA[ %, 실제 |P|가 정격의 이 % 이하면 멈춘 것으로 봄]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>32</BitOffs>
+				<Default>
+					<Value>1</Value>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>bClearOnStop</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 2) Manual 지령은 Run을 확인한 뒤 들어온 것만 씀. Run이 아니거나 Manual로 막 바뀌면 새 지령이 올 때까지 0 ]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>64</BitOffs>
+				<Default>
+					<Bool>true</Bool>
+				</Default>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{69FDE370-BCAB-41A3-0A9D-B6E8599AFA37}" AutoDeleteType="true">ST_PcsSeqSet</Name>
+			<BitSize>160</BitSize>
+			<SubItem>
+				<Name>tCmdConfirm</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000048}">TIME</Type>
+				<Comment><![CDATA[ 기동 쪽 명령(Run) 접수 확인 시간. 지나면 실패 알람 (재시도 없음)]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<DateTime>T#30S</DateTime>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>tStopRetry</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000048}">TIME</Type>
+				<Comment><![CDATA[ 정지 쪽 명령(Stop·EStop) 확인 시간·재시도 간격]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>32</BitOffs>
+				<Default>
+					<DateTime>T#5S</DateTime>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>nStopRetry</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000005}">UINT</Type>
+				<Comment><![CDATA[ 보호 명령(정지 쪽) 재시도 횟수. 넘으면 실패 알람만 (잠그지 않음)]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>64</BitOffs>
+				<Default>
+					<Value>3</Value>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>bStopRamp</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 정지 전에 출력을 0까지 내림 (기본: 바로 Stop)]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>80</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>fStopDonePct</Name>
+				<Type GUID="{18071995-0000-0000-0000-00000000000D}">REAL</Type>
+				<Comment><![CDATA[ 정지 램프 완료: |P| ≤ 유닛 정격의 이 %]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>96</BitOffs>
+				<Default>
+					<Value>1</Value>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>tStopRampMax</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000048}">TIME</Type>
+				<Comment><![CDATA[ 정지 램프 최대 대기. 지나면 그대로 Stop]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>128</BitOffs>
+				<Default>
+					<DateTime>T#30S</DateTime>
+				</Default>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{33C80F6F-D555-5A59-BB69-EDDE8EB4699D}" AutoDeleteType="true">E_BatClose</Name>
+			<BitSize>16</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000006}">INT</BaseType>
+			<EnumInfo>
+				<Text><![CDATA[OnStart]]></Text>
+				<Enum>0</Enum>
+				<Comment><![CDATA[ 순서 기동(E_StartMode.Sequence)하는 유닛이 있을 때 투입 (기본)]]></Comment>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[OnRequest]]></Text>
+				<Enum>2</Enum>
+				<Comment><![CDATA[ 지령원의 BatClose 요청으로만 투입 (운전 모드 Manual과 별개)]]></Comment>
+			</EnumInfo>
+			<Properties>
+				<Property>
+					<Name>qualified_only</Name>
+				</Property>
+				<Property>
+					<Name>strict</Name>
+				</Property>
+				<Property>
+					<Name>generate_implicit_init_function</Name>
+				</Property>
+			</Properties>
+		</DataType>
+		<DataType>
+			<Name GUID="{7F3578F8-168C-4DA0-E30B-F06076374031}" AutoDeleteType="true">ST_BatSeqSet</Name>
+			<BitSize>128</BitSize>
+			<SubItem>
+				<Name>eClose</Name>
+				<Type GUID="{33C80F6F-D555-5A59-BB69-EDDE8EB4699D}">E_BatClose</Type>
+				<Comment><![CDATA[ 투입 시점 (OnStart / OnRequest). 새 기동·요청이 있어야 투입 (보호·고장으로 열린 뒤 저절로 다시 넣지 않음)]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>0</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>bOpenOnStop</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 버스의 유닛이 모두 정지하면 개방 (기본: 투입 유지)]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>16</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>tConfirm</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000048}">TIME</Type>
+				<Comment><![CDATA[ 투입 확인 시간. 지나면 실패 알람 (재시도 없음)]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>32</BitOffs>
+				<Default>
+					<DateTime>T#60S</DateTime>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>tOpenRetry</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000048}">TIME</Type>
+				<Comment><![CDATA[ 개방·비상정지 확인 시간·재시도 간격]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>64</BitOffs>
+				<Default>
+					<DateTime>T#5S</DateTime>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>nOpenRetry</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000005}">UINT</Type>
+				<Comment><![CDATA[ 보호 조치(개방·비상정지) 재시도 횟수. 넘으면 실패 알람만 (잠그지 않음)]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>96</BitOffs>
+				<Default>
+					<Value>3</Value>
+				</Default>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{1E3EAFDF-27EC-89A2-6F41-1A8251DEB179}" AutoDeleteType="true">ST_SeqSet</Name>
+			<BitSize>320</BitSize>
+			<SubItem>
+				<Name>tWritePeriod</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000048}">TIME</Type>
+				<Comment><![CDATA[ Auto 유닛 P·Q 쓰기 주기 (Manual 유닛의 램프·설비 제한 추종도 이 주기)]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<DateTime>T#200MS</DateTime>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>stPcs</Name>
+				<Type GUID="{69FDE370-BCAB-41A3-0A9D-B6E8599AFA37}">ST_PcsSeqSet</Type>
+				<Comment><![CDATA[ PCS(유닛) 시퀀스]]></Comment>
+				<BitSize>160</BitSize>
+				<BitOffs>32</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>stBat</Name>
+				<Type GUID="{7F3578F8-168C-4DA0-E30B-F06076374031}">ST_BatSeqSet</Type>
+				<Comment><![CDATA[ 배터리 시퀀스]]></Comment>
+				<BitSize>128</BitSize>
+				<BitOffs>192</BitOffs>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{55B02106-9B21-C94D-0131-60D06AE8C886}" AutoDeleteType="true">E_MqttBroker</Name>
+			<BitSize>16</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000006}">INT</BaseType>
+			<EnumInfo>
+				<Text><![CDATA[Cloud]]></Text>
+				<Enum>1</Enum>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Local]]></Text>
+				<Enum>2</Enum>
+			</EnumInfo>
+			<EnumInfo>
+				<Text><![CDATA[Azure]]></Text>
+				<Enum>3</Enum>
+			</EnumInfo>
+			<Properties>
+				<Property>
+					<Name>qualified_only</Name>
+				</Property>
+				<Property>
+					<Name>strict</Name>
+				</Property>
+				<Property>
+					<Name>generate_implicit_init_function</Name>
+				</Property>
+			</Properties>
+		</DataType>
+		<DataType>
+			<Name GUID="{D1920D28-270E-0ABE-9220-2FF211B83682}" AutoDeleteType="true">ST_BrokerWatchSet</Name>
+			<BitSize>64</BitSize>
+			<SubItem>
+				<Name>eBroker</Name>
+				<Type GUID="{55B02106-9B21-C94D-0131-60D06AE8C886}">E_MqttBroker</Type>
+				<Comment><![CDATA[ 감시할 브로커. MQTT_SET에서 쓰지 않는(bUse FALSE) 브로커를 고르면 감시하지 않음]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<EnumText>E_MqttBroker.Local</EnumText>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>tLostDelay</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000048}">TIME</Type>
+				<Comment><![CDATA[ 접속이 이 시간 넘게 끊기면 '브로커 끊김' 알람 + 운전 모드 요청을 모두 Manual로 (끊김마다 한 번)]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>32</BitOffs>
+				<Default>
+					<DateTime>T#30S</DateTime>
+				</Default>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{2B0FFDFE-ADB0-C2A0-E35F-35B8C53B5380}" AutoDeleteType="true">ST_RedSyncCfg</Name>
+			<BitSize>3424</BitSize>
+			<SubItem>
+				<Name>nProtoVer</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000005}">UINT</Type>
+				<Comment><![CDATA[ 형식 번호]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<Value>1</Value>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>nSeq</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000008}">UDINT</Type>
+				<Comment><![CDATA[ 보낼 때마다 1 증가. 상대가 이 값이 바뀌는지로 살아 있음을 봄]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>32</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>nModeReq1</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000005}">UINT</Type>
+				<Comment><![CDATA[ 제어 모드 요청 접속점 그룹 1 (GVL_SITE.g_fbCtrlMode1.i_nModeReq). [16번 수정 2026-11-09: nModeReq2(PCS2) 없앰]]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>64</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>aeOpMode</Name>
+				<Type GUID="{A6BABD92-1EF6-EA48-291A-B1EC17A9A747}">E_OpMode</Type>
+				<ArrayInfo>
+					<LBound>1</LBound>
+					<Elements>2</Elements>
+				</ArrayInfo>
+				<BitSize>32</BitSize>
+				<BitOffs>80</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>astGroupSet</Name>
+				<Type GUID="{D6BB80EE-4667-8CE4-DE19-F3C36ED88BB8}">ST_GroupSet</Type>
+				<ArrayInfo>
+					<LBound>1</LBound>
+					<Elements>1</Elements>
+				</ArrayInfo>
+				<BitSize>224</BitSize>
+				<BitOffs>128</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>astManualPolicy</Name>
+				<Type GUID="{EF0C9602-234E-BC7C-29F4-12CB339BEA74}">ST_ManualPolicy</Type>
+				<ArrayInfo>
+					<LBound>1</LBound>
+					<Elements>1</Elements>
+				</ArrayInfo>
+				<BitSize>56</BitSize>
+				<BitOffs>352</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>astSourceReg</Name>
+				<Type GUID="{024A6375-CC4F-1984-E42B-D7B9E267EBC2}">ST_SourceReg</Type>
+				<ArrayInfo>
+					<LBound>1</LBound>
+					<Elements>3</Elements>
+				</ArrayInfo>
+				<BitSize>672</BitSize>
+				<BitOffs>416</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>astLimitReg</Name>
+				<Type GUID="{B44FD61D-FBE8-B2DC-0718-EBED4C00DE54}">ST_ModuleReg</Type>
+				<ArrayInfo>
+					<LBound>1</LBound>
+					<Elements>1</Elements>
+				</ArrayInfo>
+				<BitSize>48</BitSize>
+				<BitOffs>1088</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>astPermitReg</Name>
+				<Type GUID="{B44FD61D-FBE8-B2DC-0718-EBED4C00DE54}">ST_ModuleReg</Type>
+				<ArrayInfo>
+					<LBound>1</LBound>
+					<Elements>1</Elements>
+				</ArrayInfo>
+				<BitSize>48</BitSize>
+				<BitOffs>1136</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>astCompReg</Name>
+				<Type GUID="{B44FD61D-FBE8-B2DC-0718-EBED4C00DE54}">ST_ModuleReg</Type>
+				<ArrayInfo>
+					<LBound>1</LBound>
+					<Elements>1</Elements>
+				</ArrayInfo>
+				<BitSize>48</BitSize>
+				<BitOffs>1184</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>astRuleCfg</Name>
+				<Type GUID="{92385852-BFFE-5D6F-185E-27FF33B2F429}">ST_RuleCfg</Type>
+				<ArrayInfo>
+					<LBound>1</LBound>
+					<Elements>7</Elements>
+				</ArrayInfo>
+				<BitSize>1344</BitSize>
+				<BitOffs>1248</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>astOutputCfg</Name>
+				<Type GUID="{E3F0F722-D003-4C5E-0569-3269DA9CB074}">ST_OutputCfg</Type>
+				<ArrayInfo>
+					<LBound>1</LBound>
+					<Elements>1</Elements>
+				</ArrayInfo>
+				<BitSize>192</BitSize>
+				<BitOffs>2592</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>astUnitRuleReg</Name>
+				<Type GUID="{E39A3DB5-3143-77DE-AFC5-6BE8A3D4714F}">ST_RuleTargetReg</Type>
+				<ArrayInfo>
+					<LBound>1</LBound>
+					<Elements>1</Elements>
+				</ArrayInfo>
+				<BitSize>48</BitSize>
+				<BitOffs>2784</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>astBatRuleReg</Name>
+				<Type GUID="{E39A3DB5-3143-77DE-AFC5-6BE8A3D4714F}">ST_RuleTargetReg</Type>
+				<ArrayInfo>
+					<LBound>1</LBound>
+					<Elements>1</Elements>
+				</ArrayInfo>
+				<BitSize>48</BitSize>
+				<BitOffs>2832</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>stCmdFilter</Name>
+				<Type GUID="{84B20E9E-BA1B-4480-2A79-88F2D0BC5409}">ST_CmdFilterSet</Type>
+				<BitSize>64</BitSize>
+				<BitOffs>2880</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>stManualCmdSet</Name>
+				<Type GUID="{ABADB12B-A9F3-8FA5-21B2-85AD3D107EC6}">ST_ManualCmdSet</Type>
+				<BitSize>96</BitSize>
+				<BitOffs>2944</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>stSeqSet</Name>
+				<Type GUID="{1E3EAFDF-27EC-89A2-6F41-1A8251DEB179}">ST_SeqSet</Type>
+				<BitSize>320</BitSize>
+				<BitOffs>3040</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>stBrokerWatch</Name>
+				<Type GUID="{D1920D28-270E-0ABE-9220-2FF211B83682}">ST_BrokerWatchSet</Type>
+				<Comment><![CDATA[ MQTT 브로커 끊김 감시 [9번 수정 2026-11-09: 추가]]]></Comment>
+				<BitSize>64</BitSize>
+				<BitOffs>3360</BitOffs>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{09BFE6C1-6F13-9F5C-FE36-A6CEC3226C09}" AutoDeleteType="true">ST_RedHeartbeat</Name>
+			<BitSize>128</BitSize>
+			<SubItem>
+				<Name>nProtoVer</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000005}">UINT</Type>
+				<Comment><![CDATA[ 형식 번호. 상대와 다르면 필드 뜻이 다름]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>0</BitOffs>
+				<Default>
+					<Value>2</Value>
+				</Default>
+			</SubItem>
+			<SubItem>
+				<Name>nCounter</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000008}">UDINT</Type>
+				<Comment><![CDATA[ 보낼 때마다 1 증가. 상대가 이 값이 바뀌는지로 살아 있음을 봄]]></Comment>
+				<BitSize>32</BitSize>
+				<BitOffs>32</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>nRole</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000006}">INT</Type>
+				<Comment><![CDATA[ 보낸 PLC의 역할 (E_RedRole)]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>64</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>bActive</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000030}">BOOL</Type>
+				<Comment><![CDATA[ 보낸 PLC가 지금 장비에 쓰는가 (GVL_IF.g_bRedActive)]]></Comment>
+				<BitSize>8</BitSize>
+				<BitOffs>80</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>nState</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000006}">INT</Type>
+				<Comment><![CDATA[ 보낸 PLC의 이중화 상태 (E_RedState). Primary가 Handover이면 Secondary가 Active를 내려놓음]]></Comment>
+				<BitSize>16</BitSize>
+				<BitOffs>96</BitOffs>
+			</SubItem>
+		</DataType>
+		<DataType>
+			<Name GUID="{46C950DA-5D6E-6516-D69B-F24F38546D38}" IecBaseType="true" AutoDeleteType="true">ARRAY [1..16] OF BOOL</Name>
+			<BitSize>128</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000030}">BOOL</BaseType>
+			<ArrayInfo>
+				<LBound>1</LBound>
+				<Elements>16</Elements>
+			</ArrayInfo>
+		</DataType>
+		<DataType>
+			<Name GUID="{F852D9F7-9DB9-AE77-EE6D-D9BA52CDE308}" Namespace="Tc2_ModbusRTU" AutoDeleteType="true">MB_KL6inData22B</Name>
+			<BitSize>192</BitSize>
+			<SubItem>
+				<Name>Status</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000004}">WORD</Type>
+				<BitSize>16</BitSize>
+				<BitOffs>0</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>D</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000001}">BYTE</Type>
+				<ArrayInfo>
+					<LBound>0</LBound>
+					<Elements>22</Elements>
+				</ArrayInfo>
+				<BitSize>176</BitSize>
+				<BitOffs>16</BitOffs>
+			</SubItem>
+			<Properties>
+				<Property>
+					<Name>hide</Name>
+				</Property>
+			</Properties>
+		</DataType>
+		<DataType>
+			<Name GUID="{0F26313F-FDBE-7CED-BD04-19940A122245}" IecBaseType="true" AutoDeleteType="true">ARRAY [1..8] OF INT</Name>
+			<BitSize>128</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000006}">INT</BaseType>
+			<ArrayInfo>
+				<LBound>1</LBound>
+				<Elements>8</Elements>
+			</ArrayInfo>
+		</DataType>
+		<DataType>
+			<Name GUID="{E4C24E72-EF65-C814-8E17-663F53275EE3}" Namespace="Tc2_ModbusRTU" AutoDeleteType="true">MB_KL6outData22B</Name>
+			<BitSize>192</BitSize>
+			<SubItem>
+				<Name>Ctrl</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000004}">WORD</Type>
+				<BitSize>16</BitSize>
+				<BitOffs>0</BitOffs>
+			</SubItem>
+			<SubItem>
+				<Name>D</Name>
+				<Type GUID="{18071995-0000-0000-0000-000000000001}">BYTE</Type>
+				<ArrayInfo>
+					<LBound>0</LBound>
+					<Elements>22</Elements>
+				</ArrayInfo>
+				<BitSize>176</BitSize>
+				<BitOffs>16</BitOffs>
+			</SubItem>
+			<Properties>
+				<Property>
+					<Name>hide</Name>
+				</Property>
+			</Properties>
+		</DataType>
+		<DataType>
+			<Name GUID="{47A960A5-FA27-00CE-C256-D1FBA2A9645A}" IecBaseType="true" AutoDeleteType="true">ARRAY [1..4] OF INT</Name>
+			<BitSize>64</BitSize>
+			<BaseType GUID="{18071995-0000-0000-0000-000000000006}">INT</BaseType>
+			<ArrayInfo>
+				<LBound>1</LBound>
+				<Elements>4</Elements>
+			</ArrayInfo>
+		</DataType>
+		<DataType>
+			<Name GUID="{73BB2147-CD67-4258-97DB-7C2E8F5C14DC}" PersistentType="true">PmsSeq</Name>
+			<DisplayName TxtId=""><![CDATA[PMS 시퀀스]]></DisplayName>
+			<EventId>
+				<Name Id="1">StateRequest</Name>
+				<DisplayName TxtId=""><![CDATA[상태 변경 요청: {0} (모듈 {1}) {2}, 대상 {3}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="2">ReqRefused</Name>
+				<DisplayName TxtId=""><![CDATA[{0}: {1} 요청 거부 - {2}]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="3">SeqChange</Name>
+				<DisplayName TxtId=""><![CDATA[유닛 {0}: {1} → {2}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="4">CmdFail</Name>
+				<DisplayName TxtId=""><![CDATA[유닛 {0}: {1} 명령 접수 안 됨 (재시도 후)]]></DisplayName>
+				<Severity>Error</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="5">ModeChange</Name>
+				<DisplayName TxtId=""><![CDATA[유닛 {0} 운전 모드: {1} → {2}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="6">CmdRefused</Name>
+				<DisplayName TxtId=""><![CDATA[지령 무시: {0} (모듈 {1}) {2} - {3}]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="7">PermitWait</Name>
+				<DisplayName TxtId=""><![CDATA[기동 조건 대기: 그룹 {0} - {1} ({2}, 모듈 {3})]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="8">ModeForced</Name>
+				<DisplayName TxtId=""><![CDATA[유닛 {0}: 보호 {1}(모듈 {2})로 Manual 전환 (풀려도 유지)]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="9">CtrlModeChange</Name>
+				<DisplayName TxtId=""><![CDATA[제어 모드 {0}: {1} → {2}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="10">CtrlModeRefused</Name>
+				<DisplayName TxtId=""><![CDATA[제어 모드 {0}: {1} 요청 거부 - {2}]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="11">CtrlModeExit</Name>
+				<DisplayName TxtId=""><![CDATA[제어 모드 {0}: {1} 스스로 끝남 ({2}) → {3}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<Hides>
+				<Hide GUID="{5DFC3BA1-215A-4110-B57E-8EE243BC4F7D}"/>
+				<Hide GUID="{291260A2-C0AB-4F8B-B9F4-2531B83ED2B5}"/>
+				<Hide GUID="{3A2032AE-A209-430B-A964-F99ED76A8510}"/>
+				<Hide GUID="{909DFF81-538C-4951-AF5B-DAF9B853D6BF}"/>
+			</Hides>
+		</DataType>
+		<DataType>
+			<Name GUID="{FF7843C5-2B89-4D1D-866B-D4BEBE8FA9E0}" PersistentType="true">PmsOutput</Name>
+			<DisplayName TxtId=""><![CDATA[PMS 출력]]></DisplayName>
+			<EventId>
+				<Name Id="1">OutputLimited</Name>
+				<DisplayName TxtId=""><![CDATA[출력 제한: 그룹 {0} [{1}] {2} (모듈 {3}) {4}→{5} kW]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="2">OutputFree</Name>
+				<DisplayName TxtId=""><![CDATA[출력 제한 해소: 그룹 {0}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="3">UnitLimited</Name>
+				<DisplayName TxtId=""><![CDATA[유닛 {0} 출력 축소: {1} 요청 {2} kW → {3} kW]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="4">SourceLost</Name>
+				<DisplayName TxtId=""><![CDATA[지령원 끊김: {0} (모듈 {1})]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="5">VirtualOn</Name>
+				<DisplayName TxtId=""><![CDATA[가상신호 사용 중: 그룹 {0} {1}]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="6">BadSetpoint</Name>
+				<DisplayName TxtId=""><![CDATA[지령값 이상(NaN·무한대): 유닛 {0} - 0으로 씀]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="7">BrokerLost</Name>
+				<DisplayName TxtId=""><![CDATA[MQTT 브로커 끊김: {0} ({1} 넘게 접속 안 됨) - Auto 유닛을 Manual로 바꿈]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<Hides>
+				<Hide GUID="{7D03BC5D-E467-47FA-B57E-77B92FC53D2F}"/>
+				<Hide GUID="{0A19D6EA-E6E8-4C43-8FC2-519DB732A9E4}"/>
+				<Hide GUID="{43376233-27CF-4D7C-9C5F-8015E0198759}"/>
+			</Hides>
+		</DataType>
+		<DataType>
+			<Name GUID="{DB94A6C2-7214-4957-B058-4C623720DA47}" PersistentType="true">PmsSystem</Name>
+			<DisplayName TxtId=""><![CDATA[PMS 시스템]]></DisplayName>
+			<EventId>
+				<Name Id="1">PmsStart</Name>
+				<DisplayName TxtId=""><![CDATA[PMS 시작: 직전 동작 {0}, 꺼져 있던 시간 {1}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="2">ConfigError</Name>
+				<DisplayName TxtId=""><![CDATA[설정 오류: {0}]]></DisplayName>
+				<Severity>Error</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="3">ControlBlocked</Name>
+				<DisplayName TxtId=""><![CDATA[설정 오류로 장비 제어 중지 ({0}건) - 설정을 고치면 다시 제어]]></DisplayName>
+				<Severity>Error</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="4">SettingChanged</Name>
+				<DisplayName TxtId=""><![CDATA[운영 설정 바뀜: {0}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="5">PersistSaveFail</Name>
+				<DisplayName TxtId=""><![CDATA[설정 저장 실패 (오류 {0}) - 재기동하면 마지막으로 저장된 값으로 돌아감]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="6">SettingRejected</Name>
+				<DisplayName TxtId=""><![CDATA[잘못된 설정 값을 받지 않음 (마지막 정상값 유지): {0}]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="7">WriteFail</Name>
+				<DisplayName TxtId=""><![CDATA[장비 쓰기 실패: {0} (잇달아 실패)]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="8">RedStart</Name>
+				<DisplayName TxtId=""><![CDATA[이중화: {0}가 Active로 시작 (상대가 Active가 아님)]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="9">RedFailover</Name>
+				<DisplayName TxtId=""><![CDATA[이중화 절체: 상대 PLC 정지로 {0}가 Active가 됨]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="10">RedFailback</Name>
+				<DisplayName TxtId=""><![CDATA[이중화 복귀: {0}가 Active를 넘겨받음]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="11">RedYield</Name>
+				<DisplayName TxtId=""><![CDATA[이중화: {0}가 Active를 내려놓음 (Primary 복귀 또는 동시 Active)]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="12">RedResume</Name>
+				<DisplayName TxtId=""><![CDATA[이중화: PLC가 멈췄다 이어짐 - 상태를 처음부터 다시 정함 ({0}번째)]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="13">RedPeerLost</Name>
+				<DisplayName TxtId=""><![CDATA[이중화: 상대 PLC 끊김 (EAP·접점 모두 신호 없음)]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="14">RedLinkFault</Name>
+				<DisplayName TxtId=""><![CDATA[이중화: 상대와 통신 한쪽 고장 ({0}) - 상대는 살아 있음]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="15">RedSyncLost</Name>
+				<DisplayName TxtId=""><![CDATA[이중화: 상대의 설정 동기화 값을 받지 못함]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="16">RedFailed</Name>
+				<DisplayName TxtId=""><![CDATA[이중화 설정 오류: {0} - 장비에 쓰지 않음]]></DisplayName>
+				<Severity>Error</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="17">RedSyncApplied</Name>
+				<DisplayName TxtId=""><![CDATA[이중화 동기화: Active의 설정으로 {0}건 맞춤]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="18">LoggerTest</Name>
+				<DisplayName TxtId=""><![CDATA[로거 시험: {0}{1}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<Hides>
+				<Hide GUID="{5C29330C-F850-4102-8F7D-537D0AE41D48}"/>
+			</Hides>
+		</DataType>
+		<DataType>
+			<Name GUID="{384AC76F-9E63-426C-9772-D3CE7E03F6C6}" PersistentType="true">PmsProt</Name>
+			<DisplayName TxtId=""><![CDATA[PMS 보호]]></DisplayName>
+			<EventId>
+				<Name Id="1">ProtActive</Name>
+				<DisplayName TxtId=""><![CDATA[보호 동작: {0} (모듈 {1}) 대상 {2} / PCS {3} / 배터리 {4}]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="2">BatLocked</Name>
+				<DisplayName TxtId=""><![CDATA[BMS {0} - {1}]]></DisplayName>
+				<Severity>Error</Severity>
+			</EventId>
+			<Hides>
+				<Hide GUID="{40C41DE2-B6A3-4766-A289-37E81BC908A5}"/>
+				<Hide GUID="{0A47CE43-D099-4902-A7BD-9B3E0771B060}"/>
+				<Hide GUID="{0D829BD4-23F6-4C59-B6CF-089438498975}"/>
+				<Hide GUID="{1A8DC7F2-19D2-40AE-8EC6-323BC7B5CA57}"/>
+			</Hides>
+		</DataType>
+		<DataType>
+			<Name GUID="{1A8DC7F2-19D2-40AE-8EC6-323BC7B5CA57}" PersistentType="true">PmsProt</Name>
+			<DisplayName TxtId=""><![CDATA[PMS 보호]]></DisplayName>
+			<EventId>
+				<Name Id="1">ProtActive</Name>
+				<DisplayName TxtId=""><![CDATA[보호 동작: {0} (모듈 {1}) 대상 {2} / PCS {3} / 배터리 {4}]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="2">BatLocked</Name>
+				<DisplayName TxtId=""><![CDATA[배터리 잠금: BMS {0} - {1} (리셋 전 자동 투입 안 함)]]></DisplayName>
+				<Severity>Error</Severity>
+			</EventId>
+			<Hides>
+				<Hide GUID="{0A47CE43-D099-4902-A7BD-9B3E0771B060}"/>
+				<Hide GUID="{0D829BD4-23F6-4C59-B6CF-089438498975}"/>
+			</Hides>
+		</DataType>
+		<DataType>
+			<Name GUID="{5DFC3BA1-215A-4110-B57E-8EE243BC4F7D}" PersistentType="true">PmsSeq</Name>
+			<DisplayName TxtId=""><![CDATA[PMS 시퀀스]]></DisplayName>
+			<EventId>
+				<Name Id="1">StateRequest</Name>
+				<DisplayName TxtId=""><![CDATA[상태 변경 요청: {0} (모듈 {1}) {2}, 대상 {3}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="2">ReqRefused</Name>
+				<DisplayName TxtId=""><![CDATA[{0}: {1} 요청 거부 - {2}]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="3">SeqChange</Name>
+				<DisplayName TxtId=""><![CDATA[유닛 {0}: {1} → {2}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="4">CmdFail</Name>
+				<DisplayName TxtId=""><![CDATA[유닛 {0}: {1} 명령 접수 안 됨 (재시도 후)]]></DisplayName>
+				<Severity>Error</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="5">ModeChange</Name>
+				<DisplayName TxtId=""><![CDATA[유닛 {0} 운전 모드: {1} → {2}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="6">CmdRefused</Name>
+				<DisplayName TxtId=""><![CDATA[지령 무시: {0} (모듈 {1}) {2} - {3}]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="7">PermitWait</Name>
+				<DisplayName TxtId=""><![CDATA[기동 조건 대기: 그룹 {0} - {1} ({2}, 모듈 {3})]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="8">ModeForced</Name>
+				<DisplayName TxtId=""><![CDATA[유닛 {0}: 보호 {1}(모듈 {2})로 Manual 전환 (풀려도 유지)]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<Hides>
+				<Hide GUID="{291260A2-C0AB-4F8B-B9F4-2531B83ED2B5}"/>
+				<Hide GUID="{3A2032AE-A209-430B-A964-F99ED76A8510}"/>
+				<Hide GUID="{909DFF81-538C-4951-AF5B-DAF9B853D6BF}"/>
+			</Hides>
+		</DataType>
+		<DataType>
+			<Name GUID="{7D03BC5D-E467-47FA-B57E-77B92FC53D2F}" PersistentType="true">PmsOutput</Name>
+			<DisplayName TxtId=""><![CDATA[PMS 출력]]></DisplayName>
+			<EventId>
+				<Name Id="1">OutputLimited</Name>
+				<DisplayName TxtId=""><![CDATA[출력 제한: 그룹 {0} [{1}] {2} (모듈 {3}) {4}→{5} kW]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="2">OutputFree</Name>
+				<DisplayName TxtId=""><![CDATA[출력 제한 해소: 그룹 {0}]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="3">UnitLimited</Name>
+				<DisplayName TxtId=""><![CDATA[유닛 {0} 출력 축소: {1} 요청 {2} kW → {3} kW]]></DisplayName>
+				<Severity>Info</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="4">SourceLost</Name>
+				<DisplayName TxtId=""><![CDATA[지령원 끊김: {0} (모듈 {1})]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="5">VirtualOn</Name>
+				<DisplayName TxtId=""><![CDATA[가상신호 사용 중: 그룹 {0} {1}]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="6">BadSetpoint</Name>
+				<DisplayName TxtId=""><![CDATA[지령값 이상(NaN·무한대): 유닛 {0} - 0으로 씀]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<Hides>
+				<Hide GUID="{0A19D6EA-E6E8-4C43-8FC2-519DB732A9E4}"/>
+				<Hide GUID="{43376233-27CF-4D7C-9C5F-8015E0198759}"/>
+			</Hides>
+		</DataType>
+		<DataType>
+			<Name GUID="{40C41DE2-B6A3-4766-A289-37E81BC908A5}" PersistentType="true">PmsProt</Name>
+			<DisplayName TxtId=""><![CDATA[PMS 보호]]></DisplayName>
+			<EventId>
+				<Name Id="1">ProtActive</Name>
+				<DisplayName TxtId=""><![CDATA[보호 동작: {0} (모듈 {1}) 대상 {2} / PCS {3} / 배터리 {4}]]></DisplayName>
+				<Severity>Warning</Severity>
+			</EventId>
+			<EventId>
+				<Name Id="2">BatLocked</Name>
+				<DisplayName TxtId=""><![CDATA[배터리 잠금: BMS {0} - {1}]]></DisplayName>
+				<Severity>Error</Severity>
+			</EventId>
+			<Hides>
+				<Hide GUID="{0A47CE43-D099-4902-A7BD-9B3E0771B060}"/>
+				<Hide GUID="{0D829BD4-23F6-4C59-B6CF-089438498975}"/>
+				<Hide GUID="{1A8DC7F2-19D2-40AE-8EC6-323BC7B5CA57}"/>
+			</Hides>
+		</DataType>
+	</DataTypes>
+	<Project ProjectGUID="{8A0DB769-AC05-4B8F-9453-3FD99ABF42BE}" TargetNetId="5.69.107.242.1.1" ShowHideConfigurations="#x6">
+		<System>
+			<Licenses>
+				<Target>
+					<ManualSelect>{3EBB9639-5FF3-42B6-8847-35C70DC013C8}</ManualSelect>
+					<ManualSelect>{6952449D-F68C-49A2-ADE4-8639D85B33A4}</ManualSelect>
+				</Target>
+			</Licenses>
+			<Tasks>
+				<Task Id="3" Priority="20" CycleTime="100000" AmsPort="350" AdtTasks="true">
+					<Name>PlcTask</Name>
+				</Task>
+				<Task Id="4" Priority="30" CycleTime="100000" AmsPort="351" AdtTasks="true">
+					<Name>MqttTask</Name>
+				</Task>
+				<Task Id="5" Priority="2" CycleTime="100000" AmsPort="352" AdtTasks="true">
+					<Name>FastTask</Name>
+				</Task>
+				<Task Id="6" Priority="1" CycleTime="100000" AmsPort="353" AdtTasks="true">
+					<Name>RedundancyTask</Name>
+				</Task>
+			</Tasks>
+		</System>
+		<Plc>
+			<Project GUID="{F6DC6991-4D29-4407-8E00-5D3363987721}" Name="PmsStd" PrjFilePath="PmsStd\PmsStd.plcproj" TmcFilePath="PmsStd\PmsStd.tmc" ReloadTmc="true" AmsPort="851" FileArchiveSettings="#x000e" SymbolicMapping="true">
+				<Instance Id="#x08502000" TcSmClass="TComPlcObjDef" KeepUnrestoredLinks="2" TmcPath="PmsStd\PmsStd.tmc" TmcHash="{1F3BC131-DE93-DF34-1C85-3EE2BCEEA3EE}">
+					<Name>PmsStd Instance</Name>
+					<CLSID ClassFactory="TcPlc30">{08500001-0000-0000-F000-000000000064}</CLSID>
+					<Vars VarGrpType="1">
+						<Name>RedundancyTask Inputs</Name>
+						<Var>
+							<Name>PRG_Redundancy.fbRedSync._stRx</Name>
+							<Type GUID="{2B0FFDFE-ADB0-C2A0-E35F-35B8C53B5380}">ST_RedSyncCfg</Type>
+						</Var>
+						<Var>
+							<Name>PRG_Redundancy.fbRedLink._stRx</Name>
+							<Type GUID="{09BFE6C1-6F13-9F5C-FE36-A6CEC3226C09}">ST_RedHeartbeat</Type>
+						</Var>
+						<Var>
+							<Name>PRG_Redundancy.fbRedLink._nEapQuality</Name>
+							<Comment><![CDATA[ EAP Subscriber의 Quality = 갱신 안 된 시간 (100 us 단위). tEapTimeout 이하면 정상]]></Comment>
+							<Type>UINT</Type>
+						</Var>
+						<Var>
+							<Name>PRG_Redundancy.fbRedLink._bDiPeerAlive</Name>
+							<Comment><![CDATA[ EL1004 채널 1]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>PRG_Redundancy.fbRedLink._bDiPeerActive</Name>
+							<Comment><![CDATA[ EL1004 채널 2]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+					</Vars>
+					<Vars VarGrpType="2" AreaNo="1">
+						<Name>RedundancyTask Outputs</Name>
+						<Var>
+							<Name>PRG_Redundancy.fbRedSync._stTx</Name>
+							<Comment><![CDATA[ I/O: XAE에서 연결 ]]></Comment>
+							<Type GUID="{2B0FFDFE-ADB0-C2A0-E35F-35B8C53B5380}">ST_RedSyncCfg</Type>
+						</Var>
+						<Var>
+							<Name>PRG_Redundancy.fbRedLink._stTx</Name>
+							<Comment><![CDATA[ I/O: XAE에서 연결 ]]></Comment>
+							<Type GUID="{09BFE6C1-6F13-9F5C-FE36-A6CEC3226C09}">ST_RedHeartbeat</Type>
+						</Var>
+						<Var>
+							<Name>PRG_Redundancy.fbRedLink._bDoAlive</Name>
+							<Comment><![CDATA[ EL2004 채널 1]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>PRG_Redundancy.fbRedLink._bDoActive</Name>
+							<Comment><![CDATA[ EL2004 채널 2]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+					</Vars>
+					<Vars VarGrpType="1" ContextId="2" AreaNo="32">
+						<Name>PlcTask Inputs</Name>
+						<Var>
+							<Name>GVL_SITE.g_fbIo1._abDi</Name>
+							<Type GUID="{46C950DA-5D6E-6516-D69B-F24F38546D38}">ARRAY [1..16] OF BOOL</Type>
+						</Var>
+					</Vars>
+					<Vars VarGrpType="1" ContextId="3" AreaNo="48">
+						<Name>MqttTask Inputs</Name>
+						<Var>
+							<Name>GVL_SITE.g_fbThd1._fbRtu.InData</Name>
+							<Type GUID="{F852D9F7-9DB9-AE77-EE6D-D9BA52CDE308}" Namespace="Tc2_ModbusRTU">MB_KL6inData22B</Type>
+						</Var>
+						<Var>
+							<Name>GVL_SITE.g_fbThd1._fbRtu.WcState</Name>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_SITE.g_fbGfr1._fbRtu.InData</Name>
+							<Type GUID="{F852D9F7-9DB9-AE77-EE6D-D9BA52CDE308}" Namespace="Tc2_ModbusRTU">MB_KL6inData22B</Type>
+						</Var>
+						<Var>
+							<Name>GVL_SITE.g_fbGfr1._fbRtu.WcState</Name>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_SITE.g_fbAsd57._fbRtu.InData</Name>
+							<Type GUID="{F852D9F7-9DB9-AE77-EE6D-D9BA52CDE308}" Namespace="Tc2_ModbusRTU">MB_KL6inData22B</Type>
+						</Var>
+						<Var>
+							<Name>GVL_SITE.g_fbAsd57._fbRtu.WcState</Name>
+							<Type>BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_SITE.g_fbIo1._anAi</Name>
+							<Type GUID="{0F26313F-FDBE-7CED-BD04-19940A122245}">ARRAY [1..8] OF INT</Type>
+						</Var>
+						<Var>
+							<Name>GVL_SITE.g_fbIo1._bWcError</Name>
+							<Comment><![CDATA[ (선택) EtherCAT WcState 연결. 안 연결하면 늘 정상]]></Comment>
+							<Type>BOOL</Type>
+						</Var>
+					</Vars>
+					<Vars VarGrpType="2" ContextId="3" AreaNo="49">
+						<Name>MqttTask Outputs</Name>
+						<Var>
+							<Name>GVL_SITE.g_fbThd1._fbRtu.OutData</Name>
+							<Type GUID="{E4C24E72-EF65-C814-8E17-663F53275EE3}" Namespace="Tc2_ModbusRTU">MB_KL6outData22B</Type>
+						</Var>
+						<Var>
+							<Name>GVL_SITE.g_fbGfr1._fbRtu.OutData</Name>
+							<Type GUID="{E4C24E72-EF65-C814-8E17-663F53275EE3}" Namespace="Tc2_ModbusRTU">MB_KL6outData22B</Type>
+						</Var>
+						<Var>
+							<Name>GVL_SITE.g_fbAsd57._fbRtu.OutData</Name>
+							<Type GUID="{E4C24E72-EF65-C814-8E17-663F53275EE3}" Namespace="Tc2_ModbusRTU">MB_KL6outData22B</Type>
+						</Var>
+						<Var>
+							<Name>GVL_SITE.g_fbIo1._abDo</Name>
+							<Type GUID="{46C950DA-5D6E-6516-D69B-F24F38546D38}">ARRAY [1..16] OF BOOL</Type>
+						</Var>
+						<Var>
+							<Name>GVL_SITE.g_fbIo1._anAo</Name>
+							<Type GUID="{47A960A5-FA27-00CE-C256-D1FBA2A9645A}">ARRAY [1..4] OF INT</Type>
+						</Var>
+					</Vars>
+					<Contexts>
+						<Context>
+							<Id>0</Id>
+							<Name>RedundancyTask</Name>
+							<ManualConfig>
+								<OTCID>#x02010060</OTCID>
+							</ManualConfig>
+							<Priority>1</Priority>
+							<CycleTime>10000000</CycleTime>
+						</Context>
+						<Context>
+							<Id>1</Id>
+							<Name>FastTask</Name>
+							<ManualConfig>
+								<OTCID>#x02010050</OTCID>
+							</ManualConfig>
+							<Priority>2</Priority>
+							<CycleTime>10000000</CycleTime>
+						</Context>
+						<Context>
+							<Id>2</Id>
+							<Name>PlcTask</Name>
+							<ManualConfig>
+								<OTCID>#x02010030</OTCID>
+							</ManualConfig>
+							<Priority>20</Priority>
+							<CycleTime>10000000</CycleTime>
+						</Context>
+						<Context>
+							<Id>3</Id>
+							<Name>MqttTask</Name>
+							<ManualConfig>
+								<OTCID>#x02010040</OTCID>
+							</ManualConfig>
+							<Priority>30</Priority>
+							<CycleTime>10000000</CycleTime>
+						</Context>
+					</Contexts>
+					<TaskPouOids>
+						<TaskPouOid Prio="1" OTCID="#x08502004"/>
+						<TaskPouOid Prio="2" OTCID="#x08502003"/>
+						<TaskPouOid Prio="20" OTCID="#x08502001"/>
+						<TaskPouOid Prio="30" OTCID="#x08502002"/>
+					</TaskPouOids>
+				</Instance>
+			</Project>
+		</Plc>
+	</Project>
+</TcSmProject>

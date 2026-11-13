@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CmNoReverse" Id="{1e9bd022-1156-4413-a2c4-824a63de43da}">
+    <Declaration><![CDATA[TYPE ST_CmNoReverse :		// 역송 방지: 방전이 (부하 − 여유)를 넘으면 줄임. 부하 = ESS 출력(방전 +) − 접속점 공급
+STRUCT
+	bUse		: BOOL := TRUE;
+	fMargin		: REAL := 10.0;		// kW, 남길 수전 여유 (Messis ReversePowerLimit + 10에 해당)
+	fScale		: REAL := 0.95;		// 넘을 때 쓸 비율 (가능량 × 이 값)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

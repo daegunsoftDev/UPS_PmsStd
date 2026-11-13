@@ -1,0 +1,6 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<Itf Name="I_Ups" Id="{8028375b-48c3-463b-a841-70073e1cf4d9}"><Declaration><![CDATA[INTERFACE I_Ups EXTENDS I_Module]]></Declaration><Method Name="M_Cycle" Id="{8a964840-86b8-4bac-85dd-b74edcd1c425}"><Declaration><![CDATA[METHOD M_Cycle]]></Declaration></Method><Property Name="UpsState" Id="{663c5d05-48c4-4a40-ba83-ad012582bd9c}"><Declaration><![CDATA[PROPERTY UpsState : ST_UpsState]]></Declaration><Get Name="Get" Id="{a3a5fb98-8f91-42ac-ac07-5a846eb7f40c}"><Declaration><![CDATA[]]></Declaration></Get></Property><Method Name="M_RequestCommand" Id="{4e32ad59-8a82-4f4a-9a4c-dc890aa4708e}"><Declaration><![CDATA[METHOD M_RequestCommand : BOOL
+VAR_INPUT i_eCommand : E_UpsCommand; END_VAR]]></Declaration></Method><Method Name="M_SetParameter" Id="{a7fe4f11-b251-4301-a30b-f73824f11b9d}"><Declaration><![CDATA[METHOD M_SetParameter : BOOL
+VAR_INPUT i_nAddress : WORD; i_wRawValue : WORD; END_VAR]]></Declaration></Method></Itf>
+</TcPlcObject>

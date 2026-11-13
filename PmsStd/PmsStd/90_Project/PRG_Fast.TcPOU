@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="PRG_Fast" Id="{a20e0303-09a3-4102-8285-8c3001781778}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_Fast		// 빠른 계측 태스크에서 부름 (선택, 별도 코어 가능). 전력계를 빠르게 읽어야 하는 현장만
+VAR
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 자리만. 할 일
+   - 빠른 계측 FB를 부르고 결과를 GVL_IF 계측 칸에 다 쓴 뒤 GVL_IF.g_nFastSeq를 1 올림
+   - MAIN 쪽은 계측기 드라이버(I_Meter)가 GVL_IF에서 읽어 FB_Snapshot에 넘김
+   - 계측 FB 인스턴스(I/O 연결 있음)는 이 PRG의 VAR에 선언 → I/O가 FastTask 주기로 갱신됨
+     GVL에 두면 선언 위에 {attribute 'TcContextName' := 'FastTask'} 필요 (안 붙이면 PlcTask 주기로 갱신됨, 헬리오스 SETTING_VALUE 참고) *)
+;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

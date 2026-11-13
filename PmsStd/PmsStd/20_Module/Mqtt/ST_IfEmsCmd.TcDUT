@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_IfEmsCmd" Id="{6efdee93-1bcb-4adc-828f-b1df8af59b8c}">
+    <Declaration><![CDATA[TYPE ST_IfEmsCmd :		// MQTT → MAIN 명령 칸 (GVL_IF.g_stEmsCmd). 쓰는 곳: PRG_Mqtt (FB_EmsCommand 결과), 읽는 곳: FB_SrcEms
+STRUCT
+	nRxCount		: UDINT;		// 받은 command 메시지 누계 (브로커 3개 합). 명령이 없는 메시지도 셈 → EMS가 살아 있다는 표시
+	astPcs			: ARRAY[1..GVL_PARAM.PCS_COUNT] OF ST_PcsCmd;	// PCS 상태 명령 + 번호 (칸 = PCS 번호 = DeviceIndex + 1)
+	afPcsP			: ARRAY[1..GVL_PARAM.PCS_COUNT] OF REAL;		// 충전·방전 P 지령 kW (방전 +, 충전 −). PCS 한 대 몫
+	anPcsPSeq		: ARRAY[1..GVL_PARAM.PCS_COUNT] OF UDINT;		// P 지령 번호. 바뀌면 새 지령 (0 = 한 번도 못 받음)
+	astBatRack		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatRackCmd;	// 랙 컨택터 명령 (CommandType 11·12). MAIN → FB_BmsRackCommand
+	astBat			: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatCmd;	// BMS 명령 + 번호 (칸 = BMS 번호 = DeviceIndex + 1)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

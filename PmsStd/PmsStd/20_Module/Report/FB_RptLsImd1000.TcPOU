@@ -1,0 +1,56 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_RptLsImd1000" Id="{38ebcf39-b8e4-497f-a651-c500d054baf5}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_RptLsImd1000		// LS IMD1000 읽은 값 → IMD 보고값 (인터페이스\22. IMD.xlsx)
+(* 2026-11-09. 명세 DV-11·RD-IMD-01 (v1.8)
+   Status (사용자 결정 2026-11-09, 저항이 높은 경보부터)
+     b0 통신에러 = 통신 이상 또는 아직 못 읽음 (나머지 칸 0)
+     b1 Pre-Warning = Pre Alarm#3 동작 (IR 210 b3, 초기값 100 kΩ)
+     b2 Warning = Pre Alarm#1 OR #2 동작 (IR 210 b1·b2, 초기값 40·70 kΩ)
+     b3 Fault = 자가진단 오류 (IR 209 b0~2 메모리·RTC·교정) OR Device 이상 (IR 211 b1)
+     b4 Alarm = Ins. Alarm 동작 (IR 210 b0, 초기값 10 kΩ)
+     b5 Internal test = Self Test 진행 중 (IR 215 = 1)
+     b6 External test = 버튼·DI Self Test 입력 (IR 206 b0·b1)
+   Fault1 b0 = System 연결 이상 (IR 211 b2), b1 = PE 연결 이상 (IR 211 b0)
+   PreAlarmSettingValue = Pre Alarm#1 Pick-up, MainAlarmSettingValue = Ins. Alarm Pick-up (설정 영역을 못 읽었으면 0)
+   DeviceErrorLocation·InsulationResistanceFaultLocation은 Bender 항목이라 0 *)
+VAR_INPUT
+	i_stState		: ST_LsImd1000State;	// 장비 상태 (FB_LsImd1000.q_stState)
+	i_nDeviceIndex	: UDINT;				// IMD 번호 (1부터)
+END_VAR
+VAR_OUTPUT
+	q_stImd			: ST_ImdPublish_V1;		// IMD 보고값
+	q_bValid		: BOOL;					// 유효한 장비 데이터
+END_VAR
+VAR
+	_stEmpty		: ST_ImdPublish_V1;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[q_stImd := _stEmpty;
+q_stImd.DeviceIndex := i_nDeviceIndex;
+q_stImd.Status := 1;	// b0 통신에러
+q_bValid := i_stState.bValid;
+IF NOT q_bValid THEN
+	RETURN;
+END_IF
+
+q_stImd.Status := 0;
+q_stImd.Status.1 := i_stState.wAlarm.3;
+q_stImd.Status.2 := i_stState.wAlarm.1 OR i_stState.wAlarm.2;
+q_stImd.Status.3 := (i_stState.wSelfDiag AND 16#0007) <> 0 OR i_stState.wConnect.1;
+q_stImd.Status.4 := i_stState.wAlarm.0;
+q_stImd.Status.5 := i_stState.wSelfTest = 1;
+q_stImd.Status.6 := i_stState.wDiState.0 OR i_stState.wDiState.1;
+
+q_stImd.InsulationResistance := i_stState.fInsulation;
+IF i_stState.bSetValid THEN
+	q_stImd.PreAlarmSettingValue := i_stState.nPre1Pickup;
+	q_stImd.MainAlarmSettingValue := i_stState.nInsPickup;
+END_IF
+q_stImd.Fault1.0 := i_stState.wConnect.2;
+q_stImd.Fault1.1 := i_stState.wConnect.0;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

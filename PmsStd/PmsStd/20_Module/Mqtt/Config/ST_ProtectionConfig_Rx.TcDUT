@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.9">
+  <DUT Name="ST_ProtectionConfig_Rx" Id="{3ac122dd-5f44-4b2e-89e6-43295a74b0d4}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_ProtectionConfig_Rx :
+STRUCT
+	BatWarrning			:	REAL;
+	BatFault			:	REAL;
+	BatRoomTempWarrning	:	REAL;
+	BatRoomTempFault	:	REAL;
+	BatRoomHumWarrning	:	REAL;
+	BatRoomHumFault		:	REAL;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

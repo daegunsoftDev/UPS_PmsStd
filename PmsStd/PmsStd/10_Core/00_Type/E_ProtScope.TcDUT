@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_ProtScope" Id="{38cdb77e-2424-4999-9a67-3fe8d1c50f68}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_ProtScope :
+(
+	Unit		:= 0,	// 유닛 하나
+	Bms			:= 1,	// BMS 하나 (PCS 조치는 그 BMS가 속한 배터리 그룹의 유닛에)
+	BatGroup	:= 2,	// 배터리 그룹(DC 버스) 하나: 그 그룹의 BMS와 유닛 전부
+	Group		:= 3,	// 제어 그룹 하나
+	Site		:= 4	// 사이트 전체
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

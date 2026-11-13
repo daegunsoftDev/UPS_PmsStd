@@ -1,0 +1,368 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="PRG_TestLogger" Id="{b9eb7c6e-3ec3-44b2-9f2c-78c0401d91bc}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_TestLogger		// 로거(MQTT 로거 토픽, 지금 pms_log) 시험 (GVL_SITE.TEST_MODE일 때 PRG_Mqtt가 부름): 이벤트 로거에 등록된 이벤트를 찾아 보내고, 브로커 대신 큐에서 패킷을 꺼내 확인. 브로커 접속 없이 됨
+// 버튼은 온라인에서 TRUE로 쓰면 1회 하고 FALSE로 돌아감 (bAlarm만 켜 두는 스위치)
+// 등록된 이벤트 (시작할 때 자동으로 찾음. 이벤트를 추가·삭제·변경해도 이 프로그램은 고치지 않음)
+//   클래스 4개(TC_EVENT_CLASSES: PmsSystem·PmsProt·PmsOutput·PmsSeq) × 번호 1..SCAN_ID_MAX를 이벤트 로거에 문구 요청 → 문구가 오면 등록된 이벤트
+//   bScanDone 뒤 nFound(찾은 수), astReg[n]: 이름(클래스 번호)·문구 틀(인자 자리 #0#~#5#)·인자 수·고정 글자·남는 글자(95 − 고정)·확인 필요
+//   확인 필요(bCheck, nCheck) = 고정 글자 FIXED_MAX(50) 초과 또는 인자 하나당 남는 글자(nPerArg)가 ARG_MIN(10)자 미만 → 문구 틀을 줄이거나 실제 인자 길이를 확인 (PMS_STD.md 7장 "로그 문구 길이")
+// 보내기 (인자 자리에는 문구 틀에 적힌 그대로 {0}, {1} … 를 넣음 → Error List·EMS에 문구 틀 모양 그대로 보임)
+//   bSendAll 찾은 것 전부 (스캔마다 SEND_PER_SCAN건) → bAllDone 뒤 bAllOk (다 받음 + 잘린 수 = 예상 nExpectTrunc + 문구 오류 0)
+//   bSendOne nSendNo번 한 건, bSendNext nSendNo번 보내고 다음 번호로 (wsSendName, wsLastSent)
+//   문구가 실제 로그와 같게 Error List·EMS에 나감 (심각도는 모두 Info: 원래 심각도는 PLC에서 읽을 수 없음)
+// 로거 경로 시험 (시험 이벤트 PmsSystem.LoggerTest "로거 시험: {0}{1}")
+//   bAlarm 켜면 알람 발생 "로거 시험: 알람", 끄면 해소 "[해소] 로거 시험: 알람" (등록된 이벤트 보내기는 메시지만 보내서 알람 경로는 여기서만 시험)
+//   bSendLong 127자 메시지 → 99자 + '…'로 잘리고 PRG_Mqtt.fbMqttMain.fbLogger.q_nTruncated 1 증가
+// 받은 로그: awsAllRx·asAllRxTime (큐에서 꺼낸 전체 로그, ALL_KEEP칸을 돌려 씀, 마지막 칸 = nAllRxLast)
+VAR
+	(* 로거 경로 시험 *)
+	bAlarm			: BOOL;			// TRUE = 알람 발생, FALSE = 해소
+	bSendLong		: BOOL;			// 127자 메시지 1건
+	(* 등록된 이벤트 (자동으로 찾음) *)
+	bScanDone		: BOOL;			// 찾기 끝 (시작 뒤 약 5 s)
+	wsScanStep		: WSTRING(40);	// 찾는 중인 클래스·번호, 끝나면 찾은 수
+	nFound			: UINT;			// 찾은 이벤트 수
+	nCheck			: UINT;			// 확인 필요 수
+	nScanMiss		: UINT;			// 없는 번호(오류·빈 문구·시간 초과)로 건너뛴 수
+	nScanOverflow	: UINT;			// REG_MAX를 넘어 못 담은 수 (0이어야 함)
+	astReg			: ARRAY[1..REG_MAX] OF ST_LoggerTestReg;
+	(* 보내기 *)
+	bSendAll		: BOOL;			// 찾은 것 전부
+	bSendOne		: BOOL;			// nSendNo번 한 건
+	bSendNext		: BOOL;			// nSendNo번 한 건 보내고 다음 번호로
+	nSendNo			: UINT := 1;	// 1..nFound
+	wsSendName		: WSTRING(31);	// nSendNo번 이벤트 (클래스 번호)
+	wsLastSent		: WSTRING(31);	// 마지막으로 보낸 이벤트
+	bAllBusy		: BOOL;			// 보내는 중 또는 받기를 기다리는 중
+	bAllDone		: BOOL;
+	bAllOk			: BOOL;			// 다 받음 + 잘린 수 = 예상 + 문구 오류 0
+	nAllRx			: UDINT;		// 보낸 뒤 받은 로그 수 (실제 로그가 끼면 더 많을 수 있음)
+	nAllTrunc		: UDINT;		// 그동안 100자를 넘어 잘린 수
+	nExpectTrunc	: UDINT;		// 잘릴 것으로 계산한 수 (고정 + 인자 수 × 3자 > 100. 보통 0)
+	nAllTextErr		: UDINT;
+	(* 받은 로그 (큐에서 꺼낸 순서) *)
+	nAllRxCount		: UDINT;
+	nAllRxLast		: UINT;
+	awsAllRx		: ARRAY[1..ALL_KEEP] OF WSTRING(100);
+	asAllRxTime		: ARRAY[1..ALL_KEEP] OF STRING(23);
+	(* 내부 *)
+	bInit			: BOOL;
+	nNext			: UDINT;		// 이 시험이 큐에서 꺼낼 다음 번호 (브로커와 따로)
+	stPacket		: ST_LoggerPublish_V1;
+	fbMsg			: FB_LogMsg;
+	fbAlarm			: FB_LogAlarm;
+	asArg			: ARRAY[1..6] OF WSTRING(63);
+	asAlarmArg		: ARRAY[1..6] OF WSTRING(63) := ["알람", 5("")];
+	aClassGuid		: ARRAY[1..CLASS_COUNT] OF GUID;
+	awsClassName	: ARRAY[1..CLASS_COUNT] OF WSTRING(15);
+	fbScanText		: FB_RequestEventText;
+	fbScanArgs		: FB_TcMessage;		// 문구 틀 분석용 인자(#0#~#5#)만 담음. 보내지 않음
+	tonScan			: TON := (PT := T#2S);
+	nScanState		: UINT;			// 0 준비, 1 요청, 2 받기, 3 끝
+	nScanClass		: UINT;
+	nScanId			: UDINT;
+	{attribute 'TcEncoding' := 'UTF-8'}
+	sScanText		: STRING(511);
+	wsText			: WSTRING(255);
+	wsWork			: WSTRING(255);
+	wsMark			: WSTRING(5);
+	wsTrail			: WSTRING(8);	// 문구 끝에 덧붙은 인자 표시 " (#n#)"
+	bTrail			: BOOL;
+	bArgUsed		: BOOL;
+	nArgs			: UINT;
+	nFixed			: UINT;
+	nPos			: INT;
+	afbReg			: ARRAY[1..REG_MAX] OF FB_LogMsg;
+	asFill			: ARRAY[1..6] OF WSTRING(63);	// 보낼 인자: {0} … {5} (A_InitScan)
+	nRegIdx			: UINT;
+	nSendIdx		: UINT;
+	nAllStartRx		: UDINT;
+	nAllTruncBefore	: UDINT;
+	nAllTextErrBefore : UDINT;
+	tonAll			: TON := (PT := T#5S);
+	i				: UINT;
+	k				: UINT;
+END_VAR
+VAR CONSTANT
+	CLASS_COUNT		: UINT := 4;		// 찾는 이벤트 클래스 수 (A_InitScan, 로거 리스너 필터와 같은 클래스)
+	SCAN_ID_MAX		: UDINT := 64;		// 클래스마다 찾아보는 번호 (1..64)
+	REG_MAX			: UINT := 64;		// 담을 수 있는 이벤트 수
+	TEXT_RULE		: UINT := 95;		// 로그 문구 규칙 (PMS_STD.md 7장)
+	FIXED_MAX		: UINT := 50;		// 문구 틀 고정 글자 권장 한도
+	ARG_MIN			: UINT := 10;		// 판정: 인자 하나당 남는 글자가 이보다 적으면 확인 필요
+	SEND_PER_SCAN	: UINT := 32;		// bSendAll이 한 스캔에 보내는 수 (로거 큐 GVL_MQTT.LOGGER_QUEUE 64칸 안)
+	ALL_KEEP		: UINT := 70;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF NOT bInit THEN
+	bInit := TRUE;
+	nNext := PRG_Mqtt.fbMqttMain.fbLogger.q_nReceived + 1;		// 시작 전 로그는 건너뜀
+	A_InitScan();
+END_IF
+
+fbMsg(i_stEntry := TC_EVENTS.PmsSystem.LoggerTest);
+IF bSendLong THEN
+	bSendLong := FALSE;
+	A_SendLong();
+END_IF
+fbAlarm(i_stEntry := TC_EVENTS.PmsSystem.LoggerTest, i_bActive := bAlarm, i_nArgs := 2, i_asArg := asAlarmArg);
+
+A_Scan();
+A_Send();
+A_Receive();]]></ST>
+    </Implementation>
+    <Action Name="A_AddReg" Id="{bd8ec07d-19ba-4064-ab53-512515b12c66}">
+      <Implementation>
+        <ST><![CDATA[// 찾은 이벤트 한 칸: 문구 틀(wsText, 인자 자리 #n#)을 분석해 인자 수·고정 글자·확인 필요를 정하고, 보낼 FB를 이 이벤트로 정함
+IF nFound >= REG_MAX THEN
+	nScanOverflow := nScanOverflow + 1;
+	RETURN;
+END_IF
+nFound := nFound + 1;
+
+// TwinCAT은 문구 자리보다 많이 넘긴 인자를 문구 끝에 " (값)"으로 덧붙인다 (요청할 때 6개를 넘기므로).
+// 끝에서부터 " (#5#)", " (#4#)" … 을 떼어 내고 남은 것이 문구 틀이다.
+// 한계: 문구 틀이 맨 끝에서 " ({n})"으로 끝나면 덧붙은 것과 구분하지 못함 (2026-10-28 기준 그런 문구 없음)
+bTrail := TRUE;
+FOR k := 0 TO 5 DO
+	IF bTrail THEN
+		wsTrail := WCONCAT(WCONCAT(" (#", TO_WSTRING(5 - k)), "#)");
+		nPos := WLEN(wsText) - WLEN(wsTrail) + 1;
+		IF nPos >= 1 AND_THEN WMID(wsText, WLEN(wsTrail), nPos) = wsTrail THEN
+			wsText := WLEFT(wsText, nPos - 1);
+		ELSE
+			bTrail := FALSE;
+		END_IF
+	END_IF
+END_FOR
+
+astReg[nFound].stEntry.uuidEventClass	:= aClassGuid[nScanClass];
+astReg[nFound].stEntry.nEventId			:= nScanId;
+astReg[nFound].stEntry.eSeverity		:= TcEventSeverity.Info;
+astReg[nFound].wsName					:= WCONCAT(WCONCAT(awsClassName[nScanClass], " "), TO_WSTRING(nScanId));
+astReg[nFound].wsTemplate				:= wsText;
+
+// 인자 자리 표시(#n#, 인자가 안 들어갔으면 {n})를 지운 길이 = 고정 글자. 인자 수 = 쓰인 가장 큰 번호 + 1
+wsWork	:= wsText;
+nArgs	:= 0;
+FOR i := 0 TO 5 DO
+	bArgUsed := FALSE;
+	wsMark := WCONCAT(WCONCAT("#", TO_WSTRING(i)), "#");
+	A_StripMark();
+	wsMark := WCONCAT(WCONCAT("{", TO_WSTRING(i)), "}");
+	A_StripMark();
+	IF bArgUsed THEN
+		nArgs := i + 1;
+	END_IF
+END_FOR
+nFixed := INT_TO_UINT(WLEN(wsWork));
+astReg[nFound].nArgs	:= nArgs;
+astReg[nFound].nFixed	:= nFixed;
+astReg[nFound].nFree	:= UINT_TO_INT(TEXT_RULE) - UINT_TO_INT(nFixed);
+IF nArgs > 0 AND nFixed < TEXT_RULE THEN
+	astReg[nFound].nPerArg := (TEXT_RULE - nFixed) / nArgs;
+ELSIF nArgs > 0 THEN
+	astReg[nFound].nPerArg := 0;
+ELSE
+	astReg[nFound].nPerArg := TEXT_RULE - MIN(nFixed, TEXT_RULE);
+END_IF
+astReg[nFound].bCheck	:= nFixed > FIXED_MAX OR astReg[nFound].nPerArg < ARG_MIN;
+IF astReg[nFound].bCheck THEN
+	nCheck := nCheck + 1;
+END_IF
+afbReg[nFound].i_stEntry := astReg[nFound].stEntry;		// FB_LogMsg는 처음 보낼 때 이 이벤트로 만들어짐]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_InitScan" Id="{26720d18-a7a3-48dc-93a8-8e51fdb93962}">
+      <Implementation>
+        <ST><![CDATA[// 찾을 클래스 (로거 리스너 필터와 같은 4개. 새 이벤트 클래스를 만들면 여기와 CLASS_COUNT에도 더함)
+aClassGuid[1] := TC_EVENT_CLASSES.PmsSystem;	awsClassName[1] := "PmsSystem";
+aClassGuid[2] := TC_EVENT_CLASSES.PmsProt;		awsClassName[2] := "PmsProt";
+aClassGuid[3] := TC_EVENT_CLASSES.PmsOutput;	awsClassName[3] := "PmsOutput";
+aClassGuid[4] := TC_EVENT_CLASSES.PmsSeq;		awsClassName[4] := "PmsSeq";
+
+// 문구 틀 분석용 인자: 인자 자리마다 표시 #0#~#5# (이 메시지는 만들기만 하고 보내지 않음)
+fbScanArgs.CreateEx(stEventEntry := TC_EVENTS.PmsSystem.LoggerTest, ipSourceInfo := 0);
+fbScanArgs.ipArguments.Clear();
+FOR i := 0 TO 5 DO
+	wsMark := WCONCAT(WCONCAT("#", TO_WSTRING(i)), "#");
+	fbScanArgs.ipArguments.AddWString(wsMark);
+END_FOR
+
+// 보낼 인자: 문구 틀에 적힌 그대로 {0} … {5}
+FOR i := 1 TO 6 DO
+	asFill[i] := WCONCAT(WCONCAT("{", TO_WSTRING(i - 1)), "}");
+END_FOR
+
+nScanClass	:= 1;
+nScanId		:= 1;
+nScanState	:= 1;]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_Receive" Id="{040bd048-a71a-4297-9a45-4b3cf3359086}">
+      <Implementation>
+        <ST><![CDATA[// 브로커 대신 큐에서 꺼냄 (스캔마다 준비된 것 전부)
+FOR i := 1 TO 40 DO
+	IF NOT PRG_Mqtt.fbMqttMain.fbLogger.M_GetPacket(i_nSiteId := GVL_SITE.MQTT_SET.nSiteId, iq_nNext := nNext, iq_stPacket := stPacket) THEN
+		EXIT;
+	END_IF
+	nNext := nNext + 1;
+	nAllRxCount				:= nAllRxCount + 1;
+	nAllRxLast				:= UDINT_TO_UINT(((nAllRxCount - 1) MOD ALL_KEEP) + 1);
+	awsAllRx[nAllRxLast]	:= stPacket.Contents;
+	asAllRxTime[nAllRxLast]	:= stPacket.Header.TimeStamp;
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_Scan" Id="{3df7bff5-9672-46a7-93bd-01aa24d72481}">
+      <Implementation>
+        <ST><![CDATA[// 등록된 이벤트 찾기: 클래스·번호마다 문구를 요청해 문구가 오면 등록된 것. 한 번에 하나씩 (시작 뒤 약 5 s)
+CASE nScanState OF
+	1:	// 요청
+		wsScanStep := WCONCAT(WCONCAT(awsClassName[nScanClass], " "), TO_WSTRING(nScanId));
+		fbScanText.Clear();
+		fbScanText.Request(eventClass := aClassGuid[nScanClass], nEventId := nScanId,
+						nLangId := GVL_MQTT.LOGGER_LANG_ID, ipArgs := fbScanArgs.ipArguments);
+		tonScan(IN := FALSE);
+		nScanState := 2;
+
+	2:	// 받기: 오류·빈 문구·시간 초과 = 없는 번호
+		tonScan(IN := TRUE);
+		IF fbScanText.bError OR tonScan.Q THEN
+			nScanMiss := nScanMiss + 1;
+			A_ScanNext();
+		ELSIF NOT fbScanText.bBusy THEN
+			sScanText := '';
+			fbScanText.GetString(sScanText, SIZEOF(sScanText));
+			wsText := F_Utf8ToWstring(i_pSrc := ADR(sScanText), i_nSrcSize := SIZEOF(sScanText));
+			// 없는 번호: 빈 문구, 또는 런타임이 돌려주는 "EventText not found…" (4024.17은 오류 대신 이 문구)
+			IF wsText = "" OR WFIND(wsText, "EventText not found") = 1 THEN
+				nScanMiss := nScanMiss + 1;
+			ELSE
+				A_AddReg();
+			END_IF
+			A_ScanNext();
+		END_IF
+END_CASE]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_ScanNext" Id="{3972c3a1-f04c-4a3a-b8d0-efd9e6f49312}">
+      <Implementation>
+        <ST><![CDATA[// 다음 번호, 클래스 끝이면 다음 클래스, 모두 끝이면 찾기 끝
+tonScan(IN := FALSE);
+nScanId := nScanId + 1;
+IF nScanId > SCAN_ID_MAX THEN
+	nScanId		:= 1;
+	nScanClass	:= nScanClass + 1;
+END_IF
+IF nScanClass > CLASS_COUNT THEN
+	nScanState	:= 3;
+	bScanDone	:= TRUE;
+	wsScanStep	:= WCONCAT(TO_WSTRING(nFound), "종 찾음");
+ELSE
+	nScanState := 1;
+END_IF]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_Send" Id="{abcbed60-8322-4d06-a27a-4961399a90c3}">
+      <Implementation>
+        <ST><![CDATA[// 보내기 버튼 (누르면 1회 하고 FALSE로). 찾기가 끝나야 보냄
+IF nSendNo < 1 OR nSendNo > MAX(nFound, 1) THEN
+	nSendNo := 1;
+END_IF
+IF nFound > 0 THEN
+	wsSendName := astReg[nSendNo].wsName;
+END_IF
+IF NOT bScanDone OR nFound = 0 THEN
+	bSendAll	:= FALSE;
+	bSendOne	:= FALSE;
+	bSendNext	:= FALSE;
+	RETURN;
+END_IF
+
+// 인자는 {0} … {5} 그대로 (A_InitScan에서 한 번 채움)
+
+IF bSendOne THEN
+	bSendOne := FALSE;
+	nRegIdx := nSendNo;
+	A_SendReg();
+END_IF
+IF bSendNext THEN
+	bSendNext := FALSE;
+	nRegIdx := nSendNo;
+	A_SendReg();
+	nSendNo := (nSendNo MOD nFound) + 1;
+END_IF
+
+IF bSendAll THEN
+	bSendAll			:= FALSE;
+	nSendIdx			:= 1;
+	nAllStartRx			:= nAllRxCount;
+	nAllTruncBefore		:= PRG_Mqtt.fbMqttMain.fbLogger.q_nTruncated;
+	nAllTextErrBefore	:= PRG_Mqtt.fbMqttMain.fbLogger.q_nTextError;
+	nExpectTrunc		:= 0;
+	FOR i := 1 TO nFound DO
+		IF astReg[i].nFixed + astReg[i].nArgs * 3 > INT_TO_UINT(GVL_MQTT.LOGGER_TEXT_MAX) THEN
+			nExpectTrunc := nExpectTrunc + 1;
+		END_IF
+	END_FOR
+	bAllBusy	:= TRUE;
+	bAllDone	:= FALSE;
+	bAllOk		:= FALSE;
+	tonAll(IN := FALSE);
+END_IF
+
+IF bAllBusy THEN
+	// 스캔마다 SEND_PER_SCAN건씩 (로거 큐를 넘지 않게)
+	k := 0;
+	WHILE nSendIdx <= nFound AND k < SEND_PER_SCAN DO
+		nRegIdx := nSendIdx;
+		A_SendReg();
+		nSendIdx	:= nSendIdx + 1;
+		k			:= k + 1;
+	END_WHILE
+	// 다 보낸 뒤: 다 받음 + 잘린 수가 예상과 같음 + 문구 오류 없음
+	IF nSendIdx > nFound THEN
+		tonAll(IN := TRUE);
+		nAllRx := nAllRxCount - nAllStartRx;
+		IF nAllRx >= nFound OR tonAll.Q THEN
+			bAllBusy	:= FALSE;
+			bAllDone	:= TRUE;
+			nAllTrunc	:= PRG_Mqtt.fbMqttMain.fbLogger.q_nTruncated - nAllTruncBefore;
+			nAllTextErr	:= PRG_Mqtt.fbMqttMain.fbLogger.q_nTextError - nAllTextErrBefore;
+			bAllOk		:= nAllRx >= nFound AND nAllTrunc = nExpectTrunc AND nAllTextErr = 0;
+			tonAll(IN := FALSE);
+		END_IF
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_SendLong" Id="{91363082-dea6-482f-829e-175ee6545d2b}">
+      <Implementation>
+        <ST><![CDATA[// 고정 7자 + 인자 60자 + 60자 = 127자 → 99자 + '…'로 잘려야 함
+asArg[1] := "012345678901234567890123456789012345678901234567890123456789";
+asArg[2] := asArg[1];
+fbMsg.M_SendEvent(2, asArg);]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_SendReg" Id="{338654a9-ef95-44dc-9290-058e7d7e6456}">
+      <Implementation>
+        <ST><![CDATA[// 찾은 이벤트 nRegIdx 한 건 (인자 수만큼 {0} … 를 넣음)
+afbReg[nRegIdx].M_SendEvent(astReg[nRegIdx].nArgs, asFill);
+wsLastSent := astReg[nRegIdx].wsName;]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_StripMark" Id="{a070c5bf-a684-4bbd-9e45-9046a7be5646}">
+      <Implementation>
+        <ST><![CDATA[// wsWork에서 wsMark를 모두 지움. 하나라도 있으면 bArgUsed
+nPos := WFIND(wsWork, wsMark);
+WHILE nPos > 0 DO
+	wsWork		:= WDELETE(wsWork, WLEN(wsMark), nPos);
+	bArgUsed	:= TRUE;
+	nPos		:= WFIND(wsWork, wsMark);
+END_WHILE]]></ST>
+      </Implementation>
+    </Action>
+  </POU>
+</TcPlcObject>

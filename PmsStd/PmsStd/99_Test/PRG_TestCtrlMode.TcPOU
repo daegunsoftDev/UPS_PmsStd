@@ -1,0 +1,281 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="PRG_TestCtrlMode" Id="{58aed2f9-cddd-4c84-a1fb-8ff173c0f42b}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_TestCtrlMode		// 제어 모드 자동 시험 (GVL_SITE.TEST_MODE일 때 MAIN이 부름). 실제 제어와 따로 둔 인스턴스만 씀 (장비 지령에 영향 없음)
+// 온라인에서 bDone = TRUE가 되면 fbTally.q_nPass·q_nFail, 실패하면 fbTally.q_anFail(실패한 시험 번호)을 봄. bRestart := TRUE로 다시 돌림
+// 1~16: 스케줄 모드 단위 시험 (한 스캔). 20~32: 관리자 전환 시험 (여러 스캔, 약 3 s)
+VAR
+	bRestart	: BOOL;			// TRUE로 쓰면 처음부터 다시
+	bDone		: BOOL;			// 시험 끝
+	nStep		: UINT;
+	fbTally		: FB_TestTally;
+	fbSched		: FB_CmSchedule		:= (i_nModuleId := 9001, i_sName := 'TestSched');
+	fbConst		: FB_CmConstPower	:= (i_nModuleId := 9002, i_sName := 'TestConst');
+	fbMgr		: FB_CtrlModeMgr	:= (i_nModuleId := 9000, i_sName := 'TestMgr');
+	aipMode		: ARRAY[1..GVL_PARAM.CTRL_MODE_COUNT] OF I_ControlMode;	// 1 = 정출력 50 kW, 2 = 스케줄
+	stCommon	: ST_CmCommonSet;
+	stTable		: ST_CmScheduleSet;
+	stView		: ST_CtrlModeView;
+	stOut		: ST_CtrlModeOut;
+	stMgrOut	: ST_SourceOutput;
+	stReg		: ST_SourceReg := (bEnable := TRUE, nGrade := 1, ePowerMode := E_SourceMode.Auto, nGroup := 0, tExpire := T#10S);
+	tonWait		: TON;
+	wsTmp		: WSTRING(63);
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF bRestart THEN
+	bRestart	:= FALSE;
+	bDone		:= FALSE;
+	nStep		:= 0;
+END_IF
+
+CASE nStep OF
+	0:	// 준비 + 스케줄 단위 시험 (한 스캔)
+		fbTally.M_Reset();
+		A_Setup();
+		A_UnitSchedule();
+		fbMgr.i_nModeReq := 2;
+		nStep := 10;
+
+	10:	// 관리자: 모드 없음 → 스케줄(2). 켜진 모드가 없으므로 바로 진입
+		A_CycleMgr();
+		fbTally.M_Check(i_nId := 20, i_bOk := fbMgr.q_nActive = 2 AND fbMgr.q_eStep = E_CtrlModeStep.Active);
+		fbTally.M_Check(i_nId := 21, i_bOk := stMgrOut.bPSetActive AND ABS(stMgrOut.fPSet - 200.0) < 0.01);
+		fbMgr.i_nModeReq := 1;
+		nStep := 11;
+
+	11:	// 정출력(1) 요청 첫 스캔: 이전 모드 끝, 출력 0으로 전환 중
+		A_CycleMgr();
+		fbTally.M_Check(i_nId := 22, i_bOk := fbMgr.q_eStep = E_CtrlModeStep.Leaving AND fbMgr.q_nActive = 0 AND fbMgr.q_nTarget = 1);
+		fbTally.M_Check(i_nId := 23, i_bOk := stMgrOut.bPSetActive AND ABS(stMgrOut.fPSet) < 0.01);
+		nStep := 12;
+
+	12:	// tZeroDelay(1 s) 뒤 정출력 진입
+		A_CycleMgr();
+		tonWait(IN := TRUE, PT := T#3S);
+		IF fbMgr.q_eStep = E_CtrlModeStep.Active OR tonWait.Q THEN
+			fbTally.M_Check(i_nId := 24, i_bOk := fbMgr.q_nActive = 1 AND ABS(stMgrOut.fPSet - 50.0) < 0.01);
+			fbTally.M_Check(i_nId := 25, i_bOk := tonWait.ET >= T#900MS AND NOT tonWait.Q);
+			tonWait(IN := FALSE);
+			fbMgr.i_nModeReq := 9;
+			nStep := 13;
+		END_IF
+
+	13:	// 없는 칸(9) → BadSlot, 지금 모드 유지
+		A_CycleMgr();
+		fbTally.M_Check(i_nId := 26, i_bOk := fbMgr.q_eRefuse = E_CtrlModeRefuse.BadSlot AND fbMgr.q_nActive = 1);
+		stView.stTime.bValid	:= FALSE;
+		fbMgr.i_nModeReq		:= 2;
+		nStep := 14;
+
+	14:	// 시각 무효 → 스케줄 진입 거부 (NotReady, 이유 NO_TIME), 정출력 유지
+		A_CycleMgr();
+		fbTally.M_Check(i_nId := 27, i_bOk := fbMgr.q_eRefuse = E_CtrlModeRefuse.NotReady AND fbMgr.q_nRefuseReason = GVL_CM_RSN.NO_TIME AND fbMgr.q_nActive = 1);
+		fbTally.M_Check(i_nId := 28, i_bOk := ABS(stMgrOut.fPSet - 50.0) < 0.01);
+		stView.stTime.bValid	:= TRUE;
+		fbMgr.i_bRetry			:= TRUE;		// 같은 요청(2)을 다시
+		nStep := 15;
+
+	15:	// 재시도 → 전환 시작
+		A_CycleMgr();
+		fbTally.M_Check(i_nId := 29, i_bOk := fbMgr.q_eStep = E_CtrlModeStep.Leaving AND fbMgr.q_nTarget = 2 AND NOT fbMgr.i_bRetry);
+		nStep := 16;
+
+	16:	// 스케줄 진입
+		A_CycleMgr();
+		tonWait(IN := TRUE, PT := T#3S);
+		IF fbMgr.q_eStep = E_CtrlModeStep.Active OR tonWait.Q THEN
+			fbTally.M_Check(i_nId := 30, i_bOk := fbMgr.q_nActive = 2 AND ABS(stMgrOut.fPSet - 200.0) < 0.01);
+			tonWait(IN := FALSE);
+			fbMgr.i_nModeReq := 0;
+			nStep := 17;
+		END_IF
+
+	17:	// 모드 없음(0) → 출력 0 뒤 지령 없음
+		A_CycleMgr();
+		tonWait(IN := TRUE, PT := T#3S);
+		IF fbMgr.q_eStep = E_CtrlModeStep.Idle OR tonWait.Q THEN
+			fbTally.M_Check(i_nId := 31, i_bOk := fbMgr.q_eStep = E_CtrlModeStep.Idle AND fbMgr.q_nActive = 0 AND NOT stMgrOut.bPSetActive);
+			tonWait(IN := FALSE);
+			// 설정 점검: 시작 > 끝인 칸이 있으면 관리자가 모드의 오류 문구를 올림
+			stTable.astSlot[2, 3, 5].nStart	:= 1500;
+			stTable.astSlot[2, 3, 5].nEnd	:= 1400;
+			fbSched.i_stTable := stTable;
+			wsTmp := fbMgr.M_CheckSet();
+			fbTally.M_Check(i_nId := 32, i_bOk := wsTmp <> "");
+			stTable.astSlot[2, 3, 5].nStart	:= 0;
+			stTable.astSlot[2, 3, 5].nEnd	:= 0;
+			fbSched.i_stTable := stTable;
+			wsTmp := fbMgr.M_CheckSet();
+			fbTally.M_Check(i_nId := 33, i_bOk := wsTmp = "");
+			nStep := 99;
+		END_IF
+
+	99:
+		bDone := TRUE;
+END_CASE]]></ST>
+    </Implementation>
+    <Action Name="A_Setup" Id="{3b11e27a-3af2-4d72-bbb4-f66dc7a047be}">
+      <Implementation>
+        <ST><![CDATA[// 모드 등록·설정
+aipMode[1]	:= fbConst;
+aipMode[2]	:= fbSched;
+fbConst.i_stSet.fPSet	:= 50.0;
+fbConst.i_stSet.bQSet	:= FALSE;
+fbConst.i_stSet.tDuration	:= T#0S;
+// 공통 설정: 기본값(방전 08:00~22:00, 일요일 금지, 역송 여유 10 kW·0.95) + 7월 14일 휴일
+stCommon.abHoliday[7, 14]	:= TRUE;
+// 시간표: 여름(0) 월요일(1), 일요일(0)
+stTable.astSlot[0, 1, 1].nStart := 100;		stTable.astSlot[0, 1, 1].nEnd := 600;		stTable.astSlot[0, 1, 1].fP := -300.0;	// 충전
+stTable.astSlot[0, 1, 2].nStart := 1000;	stTable.astSlot[0, 1, 2].nEnd := 1200;		stTable.astSlot[0, 1, 2].fP := 200.0;	// 방전
+stTable.astSlot[0, 1, 3].nStart := 1100;	stTable.astSlot[0, 1, 3].nEnd := 1130;		stTable.astSlot[0, 1, 3].fP := 400.0;	// 겹침: 번호 큰 칸
+stTable.astSlot[0, 1, 4].nStart := 2300;	stTable.astSlot[0, 1, 4].nEnd := 2400;		stTable.astSlot[0, 1, 4].fP := 100.0;	// 방전 허용 시간 밖
+stTable.astSlot[0, 0, 1].nStart := 1000;	stTable.astSlot[0, 0, 1].nEnd := 1200;		stTable.astSlot[0, 0, 1].fP := 200.0;	// 일요일
+fbSched.i_stCommon	:= stCommon;
+fbSched.i_stTable	:= stTable;
+// 관리자: 기본 설정 (전환 때 1 s 출력 0, 대체 모드 없음)
+fbMgr.i_stSet.bZeroOnSwitch	:= TRUE;
+fbMgr.i_stSet.tZeroDelay	:= T#1S;
+fbMgr.i_stSet.nFallback		:= 0;
+fbMgr.i_bRetry				:= FALSE;
+A_ViewBase();]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_ViewBase" Id="{0c6b849f-d08b-4979-be88-258a3ed1c072}">
+      <Implementation>
+        <ST><![CDATA[// 기준 상황: 2026-07-13 월요일 10:30:00, 가용 유닛 1, 가용 출력 1000 kW, 수전 1000 kW (접속점 P = -1000), ESS 출력 0
+stView.stTime.bValid		:= TRUE;
+stView.stTime.nYear			:= 2026;
+stView.stTime.nMonth		:= 7;
+stView.stTime.nDay			:= 13;
+stView.stTime.nDayOfWeek	:= 1;
+stView.stTime.nHour			:= 10;
+stView.stTime.nMinute		:= 30;
+stView.stTime.nSecond		:= 0;
+stView.stGroup.nUnitAvail	:= 1;
+stView.stGroup.fPRatedAvail	:= 1000.0;
+stView.stGroup.fPOut		:= 0.0;
+stView.stGroup.stPcc.stMeas.stP.bValid	:= TRUE;
+stView.stGroup.stPcc.stMeas.stP.fValue	:= -1000.0;]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_UnitSchedule" Id="{94d9c43e-9687-430d-bc11-7741f8920383}">
+      <Implementation>
+        <ST><![CDATA[fbSched.M_Enter(i_stView := stView);
+
+// 1) 03:00 충전 칸 → -300
+A_ViewBase();
+stView.stTime.nHour := 3;	stView.stTime.nMinute := 0;
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 1, i_bOk := ABS(stOut.fPSet + 300.0) < 0.01 AND fbSched.q_nSlot = 1 AND fbSched.q_nState = 0);
+
+// 2) 10:30 방전 칸 → 200
+A_ViewBase();
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 2, i_bOk := ABS(stOut.fPSet - 200.0) < 0.01 AND fbSched.q_nSlot = 2 AND fbSched.q_nState = 0);
+
+// 3) 11:15 겹친 칸 → 번호 큰 칸 400
+A_ViewBase();
+stView.stTime.nHour := 11;	stView.stTime.nMinute := 15;
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 3, i_bOk := ABS(stOut.fPSet - 400.0) < 0.01 AND fbSched.q_nSlot = 3);
+
+// 4) 12:00 = 끝 시각 (미포함) → 칸 없음 0, 지령은 냄
+A_ViewBase();
+stView.stTime.nHour := 12;	stView.stTime.nMinute := 0;
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 4, i_bOk := stOut.bPSetActive AND ABS(stOut.fPSet) < 0.01 AND fbSched.q_nSlot = 0 AND fbSched.q_nState = GVL_CM_RSN.NO_SLOT);
+
+// 5) 23:30 방전 칸이지만 방전 허용 시간 밖 → 0
+A_ViewBase();
+stView.stTime.nHour := 23;
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 5, i_bOk := ABS(stOut.fPSet) < 0.01 AND fbSched.q_nSlot = 4 AND fbSched.q_nState = GVL_CM_RSN.DIS_TIME);
+
+// 6) 일요일 10:30 방전 칸 → 일요일 방전 금지로 0
+A_ViewBase();
+stView.stTime.nDayOfWeek := 0;	stView.stTime.nDay := 12;
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 6, i_bOk := ABS(stOut.fPSet) < 0.01 AND fbSched.q_nSlot = 1 AND fbSched.q_nState = GVL_CM_RSN.DIS_TIME);
+
+// 7) 역송 방지: 수전 150 kW → 부하 150, 가능 140 → 140 × 0.95 = 133
+A_ViewBase();
+stView.stGroup.stPcc.stMeas.stP.fValue := -150.0;
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 7, i_bOk := ABS(stOut.fPSet - 133.0) < 0.01 AND fbSched.q_nState = GVL_CM_RSN.REV_LIMIT);
+
+// 8) 접속점 계측 무효 → 방전 0
+A_ViewBase();
+stView.stGroup.stPcc.stMeas.stP.bValid := FALSE;
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 8, i_bOk := ABS(stOut.fPSet) < 0.01 AND fbSched.q_nState = GVL_CM_RSN.NO_PCC);
+
+// 9) 휴일 (7월 14일) → 0
+A_ViewBase();
+stView.stTime.nDay := 14;	stView.stTime.nDayOfWeek := 2;
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 9, i_bOk := ABS(stOut.fPSet) < 0.01 AND fbSched.q_nState = GVL_CM_RSN.HOLIDAY);
+
+// 10) 시각 무효 → 0, 진입 거부 이유 NO_TIME
+A_ViewBase();
+stView.stTime.bValid := FALSE;
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 10, i_bOk := ABS(stOut.fPSet) < 0.01 AND fbSched.q_nState = GVL_CM_RSN.NO_TIME AND fbSched.M_CheckEnter(i_stView := stView) = GVL_CM_RSN.NO_TIME);
+
+// 11) 1월 = 겨울(2): 겨울 시간표가 비어 칸 없음
+A_ViewBase();
+stView.stTime.nMonth := 1;
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 11, i_bOk := fbSched.q_nSeason = 2 AND fbSched.q_nState = GVL_CM_RSN.NO_SLOT);
+
+// 12) ESS 충전 중 역송 방지: 수전 500, ESS -300 → 부하 200, 가능 190 → 180.5
+A_ViewBase();
+stView.stGroup.stPcc.stMeas.stP.fValue := -500.0;
+stView.stGroup.fPOut := -300.0;
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 12, i_bOk := ABS(stOut.fPSet - 180.5) < 0.01 AND fbSched.q_nState = GVL_CM_RSN.REV_LIMIT);
+
+// 13) 진입 검사: 정상이면 0
+A_ViewBase();
+fbTally.M_Check(i_nId := 13, i_bOk := fbSched.M_CheckEnter(i_stView := stView) = 0);
+
+// 14) 설정 점검: 시작 > 끝인 칸 → 오류 문구, 되돌리면 정상
+stTable.astSlot[1, 4, 2].nStart := 1300;	stTable.astSlot[1, 4, 2].nEnd := 1200;
+fbSched.i_stTable := stTable;
+wsTmp := fbSched.M_CheckSet();
+fbTally.M_Check(i_nId := 14, i_bOk := wsTmp <> "");
+stTable.astSlot[1, 4, 2].nStart := 0;		stTable.astSlot[1, 4, 2].nEnd := 0;
+fbSched.i_stTable := stTable;
+wsTmp := fbSched.M_CheckSet();
+fbTally.M_Check(i_nId := 15, i_bOk := wsTmp = "");
+
+// 16) 방전 허용 시간을 끄면 23:30 방전 칸 100
+stCommon.stDis.bUse := FALSE;
+fbSched.i_stCommon := stCommon;
+A_ViewBase();
+stView.stTime.nHour := 23;
+stOut := fbSched.M_Calc(i_stView := stView);
+fbTally.M_Check(i_nId := 16, i_bOk := ABS(stOut.fPSet - 100.0) < 0.01 AND fbSched.q_nState = 0);
+stCommon.stDis.bUse := TRUE;
+fbSched.i_stCommon := stCommon;
+
+// 17) 진입 검사: 가용 유닛 없음 → NO_UNIT
+A_ViewBase();
+stView.stGroup.nUnitAvail := 0;
+fbTally.M_Check(i_nId := 17, i_bOk := fbSched.M_CheckEnter(i_stView := stView) = GVL_CM_RSN.NO_UNIT);
+
+fbSched.M_Exit();
+A_ViewBase();]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_CycleMgr" Id="{36ced5b5-ed81-4308-ab80-3b3273eca2f1}">
+      <Implementation>
+        <ST><![CDATA[// 관리자 한 스캔 (FB_SourceHub가 하는 것처럼 M_Cycle을 부름)
+fbMgr.i_aipMode	:= aipMode;
+fbMgr.i_stTime	:= stView.stTime;
+fbMgr.M_Cycle(i_stReg := stReg, i_stView := stView.stGroup);
+stMgrOut := fbMgr.Output;]]></ST>
+      </Implementation>
+    </Action>
+  </POU>
+</TcPlcObject>

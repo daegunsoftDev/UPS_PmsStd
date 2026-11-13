@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_CmdRefuse" Id="{f8c70457-8a2a-4714-b683-65f1b6326b0f}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_CmdRefuse :		// 무시한 지령의 이유
+(
+	None		:= 0,
+	Reversed	:= 1	// Manual: 지금 출력 방향과 반대
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

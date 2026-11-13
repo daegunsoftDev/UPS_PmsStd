@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CmWindowSet" Id="{08a1f275-a066-451f-a913-75107f6d22a4}">
+    <Declaration><![CDATA[TYPE ST_CmWindowSet :		// 시간 구간 + SOC (자동 충전: 채울 목표 SOC, 잔량 방전: 남길 하한 SOC)
+STRUCT
+	bUse		: BOOL;
+	nStart		: UINT;		// HHMM (포함). 시작 > 끝이면 자정을 넘김
+	nEnd		: UINT;		// HHMM (미포함). 이 시각까지 SOC를 맞추도록 출력을 정함
+	fSoc		: REAL;		// %
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

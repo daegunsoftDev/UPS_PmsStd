@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_RuleBitSet" Id="{a263be4e-20cb-4423-90f1-e2b070942b65}">
+    <Declaration><![CDATA[TYPE ST_RuleBitSet :	// FB_RuleBit 설정 (운전 중 HMI로 바꿈. GVL_PERSIST.g_stModuleSet 칸 → MAIN이 매 스캔 넘김)
+STRUCT
+	bInvert	: BOOL;	// TRUE = b접점 (평소 닫힘, 열리면 조건)
+	bOnCommLoss	: BOOL;	// 보조 장비 통신(I/O)이 끊기면 조건 있음으로 봄
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

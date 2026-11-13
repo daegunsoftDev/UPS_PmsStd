@@ -1,0 +1,266 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_UnitSeq" Id="{53f51419-c2de-4368-ace2-c21d7f16941b}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_UnitSeq		// 유닛 하나의 시퀀스: 받은 명령을 한 번 보내고 장비 상태로 확인. 보호 정지 쪽 명령만 재시도
+// 정지 쪽: 지령원 Stop·EStop(접수된 스캔), 보호 Stop·EStop(걸려 있는 동안) 중 센 쪽 하나. 통신이 없으면 기다렸다가 돌아오면 보냄
+// 기동 쪽: 멈춘 유닛에 Run(또는 Standby = 활성 + 출력 0) 요청이 오면 Run 1회. 순서 기동은 배터리 투입 → 기동 조건 → Run
+//          활성(Run·대기)이면 지령(P·Q)만 씀. PMS가 Run을 다시 보내거나 대기 명령을 만들지 않음 (대기 = 출력 0)
+// 재시도: 보호 명령만 tStopRetry × nStopRetry. 넘거나 지령원 명령이 확인되지 않으면 실패 알람만 남김 (잠그지 않음)
+VAR_INPUT
+	i_bNewReq		: BOOL;			// 이번 스캔에 접수된 지령원 상태 요청 있음 (FB_StateArbiter)
+	i_eReq			: E_PcsCmd;		// 그 요청
+	i_eProtCmd		: E_PcsCmd;		// 보호 정지 쪽 조치 (Stop·EStop, 없으면 None). 보호 대기는 출력 0이라 명령 없음
+	i_bProtActive	: BOOL;			// 보호 조치가 걸려 있음 (대기 포함): 진행 중인 기동을 멈춤
+	i_eStartMode	: E_StartMode;
+	i_stUnit		: ST_UnitState;
+	i_bAvail		: BOOL;
+	i_bBatReady		: BOOL;			// 연결 배터리 그룹 투입 완료 (배터리 없는 유닛은 TRUE)
+	i_bPermit		: BOOL;			// 그룹 기동 조건 (등록 없으면 TRUE)
+	i_fPRated		: REAL;
+	i_bReset		: BOOL;			// 고장 리셋: 상승 에지에 장비가 고장이면 고장 리셋 명령 1회 (PMS 상태는 바꾸지 않음)
+	i_stSet			: ST_PcsSeqSet;
+	i_bCmdEnable	: BOOL := TRUE;	// FALSE = 설정 오류: 명령을 만들지 않음
+END_VAR
+VAR_OUTPUT
+	q_stCmd			: ST_PcsCmd;		// 보낼 명령. nSeq가 바뀌면 새 명령 (디스패처가 1회 전송)
+	q_eSeqState		: E_UnitSeq;
+	q_bWantBat		: BOOL;			// 배터리 투입 필요 (순서 기동 중)
+	q_bWaitPermit	: BOOL;			// 기동 조건 대기 중
+	q_eFailCmd		: E_PcsCmd;		// 확인되지 않은 명령 (실패 알람). 새 요청이 오거나 그 보호가 풀리면 지움. None = 실패 없음
+	q_bStopping		: BOOL;			// 정지 진행 중 (보낼 차례·정지 램프·확인 중). 출력 0 (FB_OutputReady), 기동 요청 거부 (접수 검사). 둘 다 다음 스캔에 씀
+END_VAR
+VAR
+	_nCmdSeq		: UDINT;
+	_ePending		: E_PcsCmd;		// 확인 중인 명령
+	_bStopSide		: BOOL;			// 확인 중인 명령이 정지 쪽 (확인 시간 tStopRetry)
+	_bRetry			: BOOL;			// 확인 중인 명령을 재시도함 (보호 명령)
+	_nTries			: UINT;
+	_eWant			: E_PcsCmd;		// 보낼 차례인 정지 쪽 명령 (통신을 기다리거나 정지 램프 중)
+	_bWantRetry		: BOOL;			// 그 명령을 재시도함 (통신이 있을 때 생긴 보호 명령. 통신이 없을 때 생긴 것은 돌아오면 1회만)
+	_eGaveUp		: E_PcsCmd;		// 재시도를 다 쓴 보호 명령: 그 보호가 걸려 있는 동안 다시 보내지 않음
+	_bStarting		: BOOL;			// 기동 진행 중 (순서 기동은 활성이 될 때까지, 단계별은 요청 스캔만)
+	_bStartPermit	: BOOL;			// 이 기동은 기동 조건을 봄 (Run 요청. Standby 요청은 안 봄)
+	_tonConfirm		: TON;
+	_tonStopRamp	: TON;
+	_rtReset		: R_TRIG;
+	_bResetReq		: BOOL;			// 고장 리셋 보낼 차례 기다림 (같은 스캔 다른 명령·진행 중인 정지가 먼저)
+	(* 임시값: 본문과 액션(A_)이 함께 씀. 액션이 본문의 VAR_TEMP를 못 볼 수 있어 VAR에 둠. 매 스캔 쓴 뒤에 읽음 *)
+	_eRunState		: E_RunState;
+	_bRamping		: BOOL;
+	_nSeqBefore		: UDINT;			// 이번 스캔 명령을 만들기 전 번호 (같은 스캔에 다른 명령을 보냈는지 확인)
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[_eRunState		:= i_stUnit.eRunState;
+q_bWantBat		:= FALSE;
+q_bWaitPermit	:= FALSE;
+_rtReset(CLK := i_bReset);
+// 실패 표시 지우기: 새 요청이 오거나, 포기한 보호 명령보다 보호가 약해지면 (다시 보낼 수 있음)
+IF i_bNewReq OR F_StateRank(i_eProtCmd) < F_StateRank(_eGaveUp) THEN
+	q_eFailCmd	:= E_PcsCmd.None;
+	_eGaveUp	:= E_PcsCmd.None;
+END_IF
+IF NOT i_bCmdEnable THEN
+	// 설정 오류: 명령을 만들지 않고, 진행 중인 것도 내려놓음 (기동 요청 거부는 접수 검사가 함)
+	_ePending	:= E_PcsCmd.None;
+	_eWant		:= E_PcsCmd.None;
+	_bStarting	:= FALSE;
+	_tonConfirm(IN := FALSE);
+	_tonStopRamp(IN := FALSE);
+	_bRamping	:= FALSE;
+	_bResetReq	:= FALSE;
+ELSE
+	_nSeqBefore := _nCmdSeq;
+	A_TakeRequest();		// 요청·보호 받기
+	A_ConfirmSentCmd();		// 보낸 명령 확인
+	A_SendStop();			// 정지 쪽 보내기
+	A_SendStart();			// 기동 쪽 보내기
+	A_ResetFault();			// 고장 리셋
+END_IF
+A_SummarizeState();		// 상태 요약]]></ST>
+    </Implementation>
+    <Method Name="M_SendCmdAndStartConfirm" Id="{4c6a5ae1-b44b-4c42-b5c7-9b06678723d9}">
+      <Declaration><![CDATA[METHOD PRIVATE M_SendCmdAndStartConfirm	// 명령 1회 보내고 확인 시작
+VAR_INPUT
+	i_eCmd		: E_PcsCmd;
+	i_bStopSide	: BOOL;
+	i_bRetry	: BOOL;		// 확인되지 않으면 재시도 (보호 명령)
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_eCmd = _ePending THEN
+	_nTries := _nTries + 1;		// 같은 명령 재전송
+ELSE
+	_nTries := 0;
+END_IF
+_nCmdSeq		:= _nCmdSeq + 1;
+q_stCmd.eCmd	:= i_eCmd;
+q_stCmd.nSeq	:= _nCmdSeq;
+_ePending		:= i_eCmd;
+_bStopSide		:= i_bStopSide;
+_bRetry			:= i_bRetry;
+_tonConfirm(IN := FALSE);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Want" Id="{197a81d8-b2ea-4013-86a5-fbd281f479ce}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Want	// 정지 쪽 명령을 보낼 차례로 둠: 보낼 차례인 것·확인 중인 것보다 셀 때만. 같은 명령을 확인 중이면 재시도만 더함
+VAR_INPUT
+	i_eCmd		: E_PcsCmd;
+	i_bRetry	: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF _bStopSide AND _ePending = i_eCmd THEN
+	_bRetry := _bRetry OR i_bRetry;
+ELSIF F_StateRank(i_eCmd) > F_StateRank(_eWant)
+	AND (NOT _bStopSide OR F_StateRank(i_eCmd) > F_StateRank(_ePending)) THEN
+	_eWant		:= i_eCmd;
+	_bWantRetry	:= i_bRetry;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Action Name="A_TakeRequest" Id="{2f32681d-2385-4ef9-bc93-fba5a51f7fb7}">
+      <Implementation>
+        <ST><![CDATA[(* 1) 받기: 이번 스캔에 접수된 지령원 요청, 걸려 있는 보호 *)
+IF i_bNewReq THEN
+	IF i_eReq = E_PcsCmd.Stop OR i_eReq = E_PcsCmd.EStop THEN
+		M_Want(i_eReq, FALSE);		// 지령원 명령은 한 번만
+	ELSIF (i_eReq = E_PcsCmd.Run OR i_eReq = E_PcsCmd.Standby) AND F_IsStopped(_eRunState) THEN
+		// 멈춘 유닛 기동 (Standby 요청 = 활성 + 출력 0). 이미 활성이면 할 일 없음: 출력은 지령으로
+		_bStarting		:= TRUE;
+		_bStartPermit	:= i_eReq = E_PcsCmd.Run;
+	END_IF
+END_IF
+// 보호 정지 쪽: 장비가 아직 그 상태가 아니면 보낼 차례로 둠. 통신이 없을 때 생긴 것은 통신이 돌아오면 1회만 (재시도 없음)
+IF i_eProtCmd <> E_PcsCmd.None AND i_eProtCmd <> _eGaveUp
+	AND NOT (i_stUnit.bComm AND F_CmdReached(i_eProtCmd, _eRunState)) THEN
+	M_Want(i_eProtCmd, i_stUnit.bComm);
+END_IF
+// 보호·정지가 기동을 멈춤 (풀려도 저절로 기동하지 않음)
+IF i_bProtActive OR _eWant <> E_PcsCmd.None THEN
+	_bStarting := FALSE;
+END_IF]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_ConfirmSentCmd" Id="{c957946b-2c29-4756-b6c3-99fa3c68810f}">
+      <Implementation>
+        <ST><![CDATA[(* 2) 보낸 명령 확인: 장비 상태가 바뀌면 끝. 안 바뀌면 보호 명령만 재시도, 나머지는 실패 알람 *)
+IF _ePending <> E_PcsCmd.None THEN
+	IF F_CmdReached(_ePending, _eRunState) THEN
+		_ePending	:= E_PcsCmd.None;
+		_nTries		:= 0;
+	ELSE
+		IF _bStopSide THEN
+			_tonConfirm(IN := TRUE, PT := i_stSet.tStopRetry);
+		ELSE
+			_tonConfirm(IN := TRUE, PT := i_stSet.tCmdConfirm);
+		END_IF
+		IF _tonConfirm.Q THEN
+			IF _bRetry AND _nTries < i_stSet.nStopRetry THEN
+				IF i_stUnit.bComm THEN		// 통신이 끊기면 기다렸다가 이어서 보냄 (기다린 동안은 횟수를 세지 않음)
+					M_SendCmdAndStartConfirm(_ePending, _bStopSide, TRUE);
+				END_IF
+			ELSE
+				q_eFailCmd := _ePending;		// 실패 알람만 (잠그지 않음)
+				IF _bRetry THEN
+					_eGaveUp := _ePending;		// 그 보호가 걸려 있는 동안 다시 보내지 않음
+				END_IF
+				IF NOT _bStopSide THEN
+					_bStarting := FALSE;		// 기동 실패: 다시 요청해야 함
+				END_IF
+				_ePending := E_PcsCmd.None;
+			END_IF
+		END_IF
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_SendStop" Id="{5d06fc40-fc06-4793-b863-6080362dd58d}">
+      <Implementation>
+        <ST><![CDATA[(* 3) 정지 쪽 보내기: 통신이 있을 때. 정지 램프를 켰으면 출력이 내려간 뒤 Stop (지령값은 q_bStopping으로 이미 0) *)
+_bRamping := FALSE;
+IF _eWant <> E_PcsCmd.None AND i_stUnit.bComm THEN
+	IF F_CmdReached(_eWant, _eRunState) THEN
+		_eWant := E_PcsCmd.None;		// 이미 그 상태
+	ELSE
+		IF _eWant = E_PcsCmd.Stop AND _eRunState = E_RunState.Run AND i_stSet.bStopRamp THEN
+			_tonStopRamp(IN := TRUE, PT := i_stSet.tStopRampMax);
+			_bRamping := ABS(i_stUnit.stP.fValue) > i_fPRated * i_stSet.fStopDonePct / 100.0 AND NOT _tonStopRamp.Q;
+		END_IF
+		IF NOT _bRamping THEN
+			M_SendCmdAndStartConfirm(_eWant, TRUE, _bWantRetry);
+			_eWant := E_PcsCmd.None;
+		END_IF
+	END_IF
+END_IF
+IF NOT _bRamping THEN
+	_tonStopRamp(IN := FALSE);
+END_IF]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_SendStart" Id="{a2740bfb-84cf-44ac-83f6-73c9ff574fa9}">
+      <Implementation>
+        <ST><![CDATA[(* 4) 기동 쪽: 멈춘 유닛에 Run 1회 (순서 기동은 배터리 투입 → 기동 조건 → Run). 활성(Run·대기)이 되면 끝 *)
+IF _bStarting AND (_eRunState = E_RunState.Run OR _eRunState = E_RunState.Standby) THEN
+	_bStarting := FALSE;
+END_IF
+IF _bStarting THEN
+	q_bWantBat := i_eStartMode = E_StartMode.Sequence;
+	IF i_bAvail AND i_stUnit.bComm AND _ePending = E_PcsCmd.None AND F_IsStopped(_eRunState) AND i_bBatReady THEN
+		q_bWaitPermit := _bStartPermit AND NOT i_bPermit;
+		IF NOT q_bWaitPermit THEN
+			M_SendCmdAndStartConfirm(E_PcsCmd.Run, FALSE, FALSE);
+		END_IF
+	END_IF
+	IF i_eStartMode <> E_StartMode.Sequence THEN
+		_bStarting := FALSE;		// 단계별: 요청 스캔에 한 번 (배터리·기동 조건은 접수 검사가 이미 봄)
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_ResetFault" Id="{739448b9-c21d-46e7-af0d-301524548c75}">
+      <Implementation>
+        <ST><![CDATA[(* 5) 고장 리셋: 장비가 고장이면 고장 리셋 명령 1회 (확인·재시도 없음. 풀리면 장비 상태가 Stop으로 바뀜)
+   보호가 걸려 있어도 보냄. 단, 이번 스캔에 다른 명령을 보냈거나 정지가 진행 중이면 그게 끝난 뒤 보냄 (보호 명령을 덮지 않음) *)
+IF _rtReset.Q THEN
+	_bResetReq := TRUE;
+END_IF
+IF _bResetReq THEN
+	IF NOT i_stUnit.bComm OR NOT (_eRunState = E_RunState.Fault OR i_stUnit.bFault) THEN
+		_bResetReq := FALSE;		// 리셋할 고장 없음 (또는 통신 없음)
+	ELSIF _nCmdSeq = _nSeqBefore AND NOT _bRamping AND _eWant = E_PcsCmd.None AND NOT (_ePending <> E_PcsCmd.None AND _bStopSide) THEN
+		_nCmdSeq		:= _nCmdSeq + 1;
+		q_stCmd.eCmd	:= E_PcsCmd.Reset;
+		q_stCmd.nSeq	:= _nCmdSeq;
+		_bResetReq		:= FALSE;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_SummarizeState" Id="{3896f47f-1601-4a34-87c6-b4c25a10f07d}">
+      <Implementation>
+        <ST><![CDATA[(* 6) 상태 요약 *)
+q_bStopping := _bRamping OR _eWant <> E_PcsCmd.None OR (_ePending <> E_PcsCmd.None AND _bStopSide);
+IF _bRamping THEN
+	q_eSeqState := E_UnitSeq.StopRamp;
+ELSIF _ePending = E_PcsCmd.Run THEN
+	q_eSeqState := E_UnitSeq.ToRun;
+ELSIF q_bStopping THEN
+	q_eSeqState := E_UnitSeq.ToStop;
+ELSIF _eRunState = E_RunState.Run THEN
+	q_eSeqState := E_UnitSeq.Running;
+ELSIF _eRunState = E_RunState.Standby THEN
+	q_eSeqState := E_UnitSeq.Standby;
+ELSIF F_IsStopped(_eRunState) THEN
+	IF q_bWantBat AND NOT i_bBatReady THEN
+		q_eSeqState := E_UnitSeq.WaitBat;
+	ELSIF q_bWaitPermit THEN
+		q_eSeqState := E_UnitSeq.WaitPermit;
+	ELSE
+		q_eSeqState := E_UnitSeq.Stopped;
+	END_IF
+ELSE
+	q_eSeqState := E_UnitSeq.Unknown;
+END_IF]]></ST>
+      </Implementation>
+    </Action>
+  </POU>
+</TcPlcObject>

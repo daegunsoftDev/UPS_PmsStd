@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_UnitCfg" Id="{0141b6e7-c56a-44ee-8c62-7e3dd1866aa2}">
+    <Declaration><![CDATA[TYPE ST_UnitCfg :
+STRUCT
+	nPcs		: UINT := 1;		// 소속 PCS 번호 (GVL_SITE.g_aipPcs 칸)
+	nSub		: UINT := 1;		// PCS 안의 유닛 번호 (1..GVL_PARAM.MAX_SUB)
+	nBatGroup	: UINT := 1;		// 연결된 배터리 그룹(DC 버스). BMS는 BMS_CFG.nBatGroup으로 같은 그룹에 속함. 0 = 연결 없음
+	nGroup		: UINT := 1;		// 소속 제어 그룹
+	fPRated		: REAL;				// kW
+	fQRated		: REAL;				// kvar
+	fSRated		: REAL;				// kVA
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

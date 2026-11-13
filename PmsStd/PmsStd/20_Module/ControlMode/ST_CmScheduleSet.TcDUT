@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CmScheduleSet" Id="{f3417804-03f5-474b-810a-bc3db28bed6b}">
+    <Declaration><![CDATA[TYPE ST_CmScheduleSet :		// 스케줄 시간표 (스케줄·통합 모드가 같은 표를 씀)
+STRUCT
+	astSlot		: ARRAY[0..2, 0..6, 1..GVL_PARAM.SCHED_SLOT_COUNT] OF ST_SchedSlot;	// [계절, 요일(0 = 일), 칸]. 맞는 칸이 여럿이면 번호가 큰 칸
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

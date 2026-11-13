@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_PointCfg" Id="{2d083633-3b0d-4b72-b239-64a03a42cb07}">
+    <Declaration><![CDATA[TYPE ST_PointCfg :		// 계측점 = 계측기 값을 부호와 함께 더한 것. 전압·주파수는 첫 계측기 값
+STRUCT
+	astTerm		: ARRAY[1..GVL_PARAM.POINT_TERM_MAX] OF ST_PointTerm;
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

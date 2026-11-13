@@ -1,0 +1,223 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="PRG_TestSchedLive" Id="{b387c7d8-1e76-4ae5-88b9-9821bd50f443}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_TestSchedLive		// 스케줄 모드 실제 경로 시험 (시험 모드, MAIN이 부름): 지금 PLC 시각으로 시간표를 넣고 Auto → 배터리 투입 → Run → 스케줄 모드
+// bStart := TRUE로 시작. 충전 칸 -200 kW (지금 분 ~ +2분) → 방전 칸 +100 kW (+2 ~ +4분) → 칸 없음 0 kW. 구간마다 5 s 안정 뒤 가상 PCS 실제 출력을 판정
+// PCS1(유닛 1, 관리자 g_fbCtrlMode1)로 시험. 접속점은 실측 그대로(ePccShare := Actual)로 둠 (PCS2는 Manual 0)
+// 시험 동안만: 방전 허용 시간 끔 (PLC 시계가 UTC), 가상신호로 수전 500 kW (가상 계측기는 부하가 없어 역송 방지에 걸림). 끝나면 설정·모드를 되돌리고 PCS 정지
+VAR
+	bStart		: BOOL;				// TRUE로 쓰면 시작 (시작하면 FALSE로 돌아감)
+	bDone		: BOOL;				// 끝 (bPass로 결과)
+	bPass		: BOOL;				// 세 구간 모두 맞음
+	nStep		: UINT;
+	wsStep		: WSTRING(80);		// 지금 단계
+	wsFail		: WSTRING(80);		// 실패 이유
+	(* 넣은 시간표 *)
+	nSeason		: UINT;				// 0 여름, 1 봄·가을, 2 겨울
+	nDow		: UINT;				// 0 = 일요일
+	nChgStart	: UINT;				// HHMM, 충전 칸 시작
+	nChgEnd		: UINT;				// HHMM, 충전 칸 끝 = 방전 칸 시작
+	nDisEnd		: UINT;				// HHMM, 방전 칸 끝
+	(* 지금 값 *)
+	stNow		: ST_LocalTime;		// PLC 시각 (MAIN.fbClock)
+	nActiveMode	: UINT;				// 관리자 켜진 모드 (2 = 스케줄)
+	nSlot		: UINT;				// 스케줄 모드가 맞춘 칸
+	nSchedState	: UINT;				// 스케줄 모드 상태 (GVL_CM_RSN)
+	fSchedP		: REAL;				// 스케줄 모드가 낸 값 (kW, 방전 +)
+	fMgrP		: REAL;				// 관리자 지령 (지령원 출력, kW)
+	fUnitP		: REAL;				// 가상 PCS 실제 출력 (kW, 방전 +)
+	eRun		: E_RunState;		// 가상 PCS 운전 상태
+	(* 판정: 구간마다 안정 뒤 값 *)
+	fChgP		: REAL;
+	fDisP		: REAL;
+	fZeroP		: REAL;
+	bChgOk		: BOOL;
+	bDisOk		: BOOL;
+	bZeroOk		: BOOL;
+	(* 내부 *)
+	nLastStep	: UINT;
+	tonStep		: TON;				// 단계 시간 초과
+	tonSettle	: TON;				// 구간 진입 뒤 안정
+	bBackedUp	: BOOL;
+	stSchedBak	: ST_CmScheduleSet;
+	stCommonBak	: ST_CmCommonSet;
+	stCmBak		: ST_CtrlModeSet;
+	stVirtBak	: ST_VirtualSet;
+	stMgrOut	: ST_SourceOutput;
+	nMin		: UINT;
+	k			: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// 지금 값 (화면용)
+stNow		:= MAIN.fbClock.q_stTime;
+nActiveMode	:= GVL_SITE.g_fbCtrlMode1.q_nActive;
+nSlot		:= GVL_SITE.g_fbCmSchedule1.q_nSlot;
+nSchedState	:= GVL_SITE.g_fbCmSchedule1.q_nState;
+fSchedP		:= GVL_SITE.g_fbCmSchedule1.q_fOutP;
+stMgrOut	:= GVL_SITE.g_fbCtrlMode1.Output;
+fMgrP		:= stMgrOut.fPSet;	// [16번 수정 2026-11-09: 관리자가 접속점 그룹 단위 → 접속점 그룹 지령 칸. 원래 stMgrOut.astUnit[1].fPSet (PCS2는 Manual이라 접속점 그룹 지령이 유닛 1로 감)]
+fUnitP		:= MAIN.fbSnapshot.q_astUnit[1].stP.fValue;
+eRun		:= MAIN.fbSnapshot.q_astUnit[1].eRunState;
+
+tonStep(IN := nStep >= 20 AND nStep < 90, PT := T#200S);
+
+CASE nStep OF
+	0:
+		IF bStart THEN
+			bStart		:= FALSE;
+			bDone		:= FALSE;
+			bPass		:= FALSE;
+			bChgOk		:= FALSE;
+			bDisOk		:= FALSE;
+			bZeroOk		:= FALSE;
+			fChgP		:= 0.0;
+			fDisP		:= 0.0;
+			fZeroP		:= 0.0;
+			wsFail		:= "";
+			nStep		:= 10;
+		ELSIF NOT bDone THEN
+			wsStep := "대기: bStart := TRUE로 시작";
+		END_IF
+
+	10:	// 지금 시각으로 시간표 넣기
+		wsStep := "시간표 넣는 중";
+		IF NOT stNow.bValid OR stNow.nMonth < 1 OR stNow.nMonth > 12 OR stNow.nDay < 1 OR stNow.nDay > 31 OR stNow.nDayOfWeek > 6 THEN
+			wsFail	:= "PLC 시각 무효";
+			nStep	:= 90;
+		ELSE
+			nMin := stNow.nHour * 60 + stNow.nMinute;
+			IF nMin + 4 >= 1440 THEN
+				wsFail	:= "자정 직전이라 시험 안 함 (몇 분 뒤 다시)";
+				nStep	:= 90;
+			ELSE
+				stSchedBak	:= GVL_PERSIST.g_stModuleSet.stCmSchedule1;
+				stCommonBak	:= GVL_PERSIST.g_stModuleSet.stCmCommon;
+				stVirtBak	:= GVL_TEST.g_astVirtual[1];
+				stCmBak		:= GVL_PERSIST.g_stModuleSet.stCtrlMode1;
+				GVL_PERSIST.g_stModuleSet.stCtrlMode1.ePccShare := E_PccShare.Actual;
+				bBackedUp	:= TRUE;
+				nSeason := GVL_PERSIST.g_stModuleSet.stCmCommon.anSeasonOfMonth[stNow.nMonth];
+				IF nSeason > 2 THEN
+					nSeason := 0;
+				END_IF
+				nDow		:= stNow.nDayOfWeek;
+				nChgStart	:= (nMin / 60) * 100 + nMin MOD 60;
+				nChgEnd		:= ((nMin + 2) / 60) * 100 + (nMin + 2) MOD 60;
+				nDisEnd		:= ((nMin + 4) / 60) * 100 + (nMin + 4) MOD 60;
+				FOR k := 1 TO GVL_PARAM.SCHED_SLOT_COUNT DO
+					GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, nDow, k].nStart	:= 0;
+					GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, nDow, k].nEnd	:= 0;
+					GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, nDow, k].fP		:= 0.0;
+				END_FOR
+				GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, nDow, 1].nStart	:= nChgStart;
+				GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, nDow, 1].nEnd	:= nChgEnd;
+				GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, nDow, 1].fP		:= -200.0;
+				GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, nDow, 2].nStart	:= nChgEnd;
+				GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, nDow, 2].nEnd	:= nDisEnd;
+				GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, nDow, 2].fP		:= 100.0;
+				GVL_PERSIST.g_stModuleSet.stCmCommon.abHoliday[stNow.nMonth, stNow.nDay]	:= FALSE;
+				GVL_PERSIST.g_stModuleSet.stCmCommon.stDis.bUse	:= FALSE;
+				GVL_TEST.g_astVirtual[1].bPEna	:= TRUE;
+				GVL_TEST.g_astVirtual[1].fP		:= -500.0;		// 수전 500 kW
+				GVL_PERSIST.g_aeOpMode[1]		:= E_OpMode.Auto;
+				nStep := 20;
+			END_IF
+		END_IF
+
+	20:	// Auto 전환 → 배터리 투입 요청
+		wsStep := "Auto 전환 대기";
+		IF MAIN.fbModeSwitch.q_aeOpMode[1] = E_OpMode.Auto THEN
+			GVL_SITE.g_fbSrcTest.i_nBatGroup	:= 0;
+			GVL_SITE.g_fbSrcTest.i_eBatReq		:= E_BatCmd.Close;
+			nStep := 30;
+		END_IF
+
+	30:	// 배터리 투입 → Run 요청
+		wsStep := "배터리 투입 대기";
+		IF MAIN.fbBatGroup.q_astBatGroup[1].bReady THEN
+			GVL_SITE.g_fbSrcTest.i_nPcsUnit	:= 0;
+			GVL_SITE.g_fbSrcTest.i_ePcsReq	:= E_PcsCmd.Run;
+			nStep := 40;
+		END_IF
+
+	40:	// Run → 스케줄 모드(2) 요청
+		wsStep := "PCS Run 대기";
+		IF eRun = E_RunState.Run THEN
+			GVL_SITE.g_fbCtrlMode1.i_nModeReq := 2;
+			nStep := 50;
+		END_IF
+
+	50:
+		wsStep := "스케줄 모드 켜는 중";
+		IF nActiveMode = 2 THEN
+			nStep := 60;
+		END_IF
+
+	60:	// 충전 칸
+		wsStep := "충전 칸: -200 kW";
+		tonSettle(IN := nSlot = 1, PT := T#5S);
+		IF tonSettle.Q THEN
+			fChgP	:= fUnitP;
+			bChgOk	:= ABS(fUnitP + 200.0) < 5.0 AND ABS(fSchedP + 200.0) < 0.1 AND ABS(fMgrP + 200.0) < 0.1;
+		END_IF
+		IF nSlot = 2 THEN
+			tonSettle(IN := FALSE);
+			nStep := 70;
+		END_IF
+
+	70:	// 방전 칸
+		wsStep := "방전 칸: +100 kW";
+		tonSettle(IN := nSlot = 2, PT := T#5S);
+		IF tonSettle.Q THEN
+			fDisP	:= fUnitP;
+			bDisOk	:= ABS(fUnitP - 100.0) < 5.0 AND ABS(fSchedP - 100.0) < 0.1 AND ABS(fMgrP - 100.0) < 0.1;
+		END_IF
+		IF nSlot = 0 THEN
+			tonSettle(IN := FALSE);
+			nStep := 80;
+		END_IF
+
+	80:	// 칸 없음 → 0
+		wsStep := "칸 없음: 0 kW";
+		tonSettle(IN := nSlot = 0, PT := T#5S);
+		IF tonSettle.Q THEN
+			fZeroP	:= fUnitP;
+			bZeroOk	:= ABS(fUnitP) < 5.0 AND nSchedState = GVL_CM_RSN.NO_SLOT AND stMgrOut.bPSetActive;	// [16번 수정 2026-11-09: 원래 stMgrOut.astUnit[1].bPSetActive]
+			tonSettle(IN := FALSE);
+			nStep := 90;
+		END_IF
+
+	90:	// 정리: 모드 끔, PCS 정지, 설정·가상신호·운전 모드 되돌림
+		GVL_SITE.g_fbCtrlMode1.i_nModeReq	:= 0;
+		GVL_SITE.g_fbSrcTest.i_nPcsUnit		:= 0;
+		GVL_SITE.g_fbSrcTest.i_ePcsReq		:= E_PcsCmd.Stop;
+		IF bBackedUp THEN
+			GVL_PERSIST.g_stModuleSet.stCmSchedule1	:= stSchedBak;
+			GVL_PERSIST.g_stModuleSet.stCmCommon	:= stCommonBak;
+			GVL_TEST.g_astVirtual[1]				:= stVirtBak;
+			GVL_PERSIST.g_stModuleSet.stCtrlMode1	:= stCmBak;
+			bBackedUp := FALSE;
+		END_IF
+		GVL_PERSIST.g_aeOpMode[1] := E_OpMode.Manual;
+		bPass	:= bChgOk AND bDisOk AND bZeroOk AND wsFail = "";
+		bDone	:= TRUE;
+		IF bPass THEN
+			wsStep := "끝: 통과";
+		ELSE
+			wsStep := "끝: 실패 (wsFail·구간 값 확인)";
+		END_IF
+		nStep := 0;
+END_CASE
+
+// 단계 시간 초과
+IF tonStep.Q AND nStep >= 20 AND nStep < 90 THEN
+	wsFail	:= WCONCAT("시간 초과: ", wsStep);
+	nStep	:= 90;
+END_IF
+IF nStep <> nLastStep THEN
+	tonStep(IN := FALSE);
+	nLastStep := nStep;
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

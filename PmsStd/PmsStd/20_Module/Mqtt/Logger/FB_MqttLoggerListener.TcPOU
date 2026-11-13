@@ -1,0 +1,262 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MqttLoggerListener" Id="{821c0022-ecc4-486e-8a5e-17ffd42ce95e}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_MqttLoggerListener EXTENDS FB_ListenerBase2		// 로거 리스너: TwinCAT 이벤트 로거에 남은 PMS 이벤트를 받아 시각·문구를 큐에 쌓음 (로거 토픽 발행용. FB_MqttMain이 M_Cycle·M_GetPacket을 부름)
+(* - FB_EventLog가 이벤트 로거에 남긴 것을 그대로 받는다 (메시지 1회, 알람 발생·해소). 기록하는 곳은 FB_EventLog 하나이고, 이 FB는 받아서 옮기기만 한다
+   - 받는 이벤트 클래스: PmsSystem·PmsProt·PmsOutput·PmsSeq (TwinCAT 시스템 이벤트는 받지 않음). 구독은 클래스 단위(TC_EVENT_CLASSES)
+   - 제어기 TwinCAT 런타임 3.1.4024.17 이상 필요 (FB_ListenerBase2). 낮으면 구독이 16#98110701(서비스 미지원)로 실패해 아무것도 받지 못함 (_hrSubscribe)
+   - 문구: FB_RequestEventText로 비동기로 받는다 (UTF-8 → F_Utf8ToWstring). 해소는 앞에 '[해소] '.
+     LOGGER_TEXT_MAX(100)자를 넘으면 99자 + '…'로 자르고 q_nTruncated를 센다 (문구 규칙: 인자를 채운 로그 문구 95자 이내, PMS_STD.md 7장)
+   - 시각: 로거 기록 시각(UTC)을 현지 시각으로 바꾼다 (i_nUtcOffset, FB_MqttMain이 계산). 시간대를 아직 모르면 기다린다
+   - 큐: LOGGER_QUEUE칸 링 버퍼. 브로커마다 M_GetPacket으로 다음 번호를 꺼내 간다. 밀려서 덮어쓰인 것은 건너뛰고 q_nLost
+   - 본체는 부르지 않는다 (리스너 기반 FB). 매 스캔 M_Cycle을 부른다 *)
+VAR_OUTPUT
+	q_bSubscribed	: BOOL;		// 이벤트 로거 구독 중
+	q_nReceived		: UDINT;	// 받은 이벤트 수 (= 마지막 이벤트 번호)
+	q_nTruncated	: UDINT;	// LOGGER_TEXT_MAX를 넘어 자른 수 (문구 규칙 위반: 문구 틀·인자를 줄일 것)
+	q_nTextError	: UDINT;	// 문구를 못 받아 대체 문구를 쓴 수
+	q_nLost			: UDINT;	// 브로커가 밀려 보내지 못하고 덮어쓰인 수 (브로커 합)
+END_VAR
+VAR CONSTANT
+	TEXT_TIMEOUT	: ULINT := 50000000;	// 문구 요청 제한 5 s (100 ns 단위). 넘으면 대체 문구
+	SUBSCRIBE_RETRY	: UINT := 100;			// 구독 실패 뒤 다시 시도까지 M_Cycle 호출 수 (MqttTask 10 ms × 100 = 1 s)
+	CLEARED_MARK	: WSTRING(7) := "[해소] ";	// 알람 해소 표시 (5자)
+END_VAR
+VAR
+	_fbFilter		: FB_TcEventFilter;
+	_hrSubscribe	: HRESULT;
+	_hrExecute		: HRESULT;
+	_nSubscribeWait	: UINT;
+	_nUtcOffset		: LINT;		// 현지 시각 − UTC (100 ns). M_Cycle 입력
+	_bTimeValid		: BOOL;
+	_nWriteNo		: UDINT;	// 마지막으로 넣은 이벤트 번호
+	_astSlot		: ARRAY[1..GVL_MQTT.LOGGER_QUEUE] OF ST_LoggerSlot;
+	_afbText		: ARRAY[1..GVL_MQTT.LOGGER_QUEUE] OF FB_RequestEventText;	// 칸마다 하나 (한 스캔에 여러 이벤트가 와도 요청이 겹치지 않게)
+	{attribute 'TcEncoding' := 'UTF-8'}
+	_sText			: STRING(511);		// 받은 문구 (UTF-8. 한글 95자 ≈ 285 byte)
+	_wsText			: WSTRING(255);
+	_k				: UINT;
+	_nNow			: ULINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 본체는 쓰지 않는다. M_Cycle을 부른다 *)]]></ST>
+    </Implementation>
+    <Method Name="M_Cycle" Id="{1df6c60d-ec0d-40e2-bfb7-eafd8dcaee40}">
+      <Declaration><![CDATA[METHOD M_Cycle		// 매 스캔 (MqttTask): 구독 → 이벤트 받기(콜백이 큐에 넣음) → 칸마다 문구·시각 채우기
+VAR_INPUT
+	i_nUtcOffset	: LINT;		// 현지 시각 − UTC (100 ns 단위)
+	i_bTimeValid	: BOOL;		// i_nUtcOffset을 믿을 수 있음 (현지 시각을 얻음)
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_nUtcOffset	:= i_nUtcOffset;
+_bTimeValid	:= i_bTimeValid;
+
+(* 1. 구독 (처음, 실패하면 SUBSCRIBE_RETRY 호출 뒤 다시) *)
+IF NOT THIS^.bSubscribed THEN
+	IF _nSubscribeWait = 0 THEN
+		(* 클래스 단위 (TC_EVENT_CLASSES): 클래스 안의 이벤트를 추가·삭제·이름 변경해도 고치지 않음. 새 이벤트 클래스를 만들면 여기에 한 줄 *)
+		_fbFilter.Clear().EventClass.EqualTo(TC_EVENT_CLASSES.PmsSystem)
+			.OR_OP().EventClass.EqualTo(TC_EVENT_CLASSES.PmsProt)
+			.OR_OP().EventClass.EqualTo(TC_EVENT_CLASSES.PmsOutput)
+			.OR_OP().EventClass.EqualTo(TC_EVENT_CLASSES.PmsSeq);
+		_hrSubscribe := THIS^.Subscribe2(_fbFilter);
+		_nSubscribeWait := SUBSCRIBE_RETRY;
+	ELSE
+		_nSubscribeWait := _nSubscribeWait - 1;
+	END_IF
+END_IF
+q_bSubscribed := THIS^.bSubscribed;
+
+(* 2. 이벤트 받기: 이 안에서 OnMessageSent·OnAlarmRaised·OnAlarmCleared가 불려 큐에 넣고 문구를 요청함 *)
+_hrExecute := THIS^.Execute();
+
+(* 3. 칸마다: 문구가 오면 받고, 시간대를 알면 시각 문자열을 만들어 발행 준비 *)
+_nNow := F_GetSystemTime();
+FOR _k := 1 TO GVL_MQTT.LOGGER_QUEUE DO
+	IF _astSlot[_k].bRequesting THEN
+		IF _afbText[_k].bError OR (_nNow - _astSlot[_k].nRequestStart) > TEXT_TIMEOUT THEN
+			q_nTextError := q_nTextError + 1;
+			M_SetText(i_nSlot := _k, i_wsText := WCONCAT("로그 문구를 가져오지 못함: 이벤트 ID ", TO_WSTRING(_astSlot[_k].nEventId)));
+		ELSIF NOT _afbText[_k].bBusy THEN
+			_sText := '';
+			_afbText[_k].GetString(_sText, SIZEOF(_sText));
+			M_SetText(i_nSlot := _k, i_wsText := F_Utf8ToWstring(i_pSrc := ADR(_sText), i_nSrcSize := SIZEOF(_sText)));
+		END_IF
+	END_IF
+	IF _astSlot[_k].bTextDone AND NOT _astSlot[_k].bReady AND _bTimeValid THEN
+		_astSlot[_k].sTime	:= M_TimeText(_astSlot[_k].nTimestamp);
+		_astSlot[_k].bReady	:= TRUE;
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetPacket" Id="{e5ba5114-97f2-40c1-835f-544a80e35e75}">
+      <Declaration><![CDATA[METHOD M_GetPacket : BOOL		// 브로커 하나가 보낼 다음 이벤트 패킷. TRUE면 iq_stPacket을 채움 (보낸 뒤 부르는 쪽이 iq_nNext를 1 올림)
+VAR_INPUT
+	i_nSiteId	: UDINT;
+END_VAR
+VAR_IN_OUT
+	iq_nNext	: UDINT;				// 이 브로커가 다음에 보낼 이벤트 번호 (1부터)
+	iq_stPacket	: ST_LoggerPublish_V1;
+END_VAR
+VAR
+	k			: UINT;
+	nOldest		: UDINT;
+	nBytes		: UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_GetPacket := FALSE;
+IF iq_nNext = 0 THEN
+	iq_nNext := 1;
+END_IF
+IF _nWriteNo < iq_nNext THEN
+	RETURN;		// 새 이벤트 없음
+END_IF
+
+(* 큐 칸 수보다 많이 밀렸으면 덮어쓰인 것은 건너뜀 *)
+IF _nWriteNo - iq_nNext >= UINT_TO_UDINT(GVL_MQTT.LOGGER_QUEUE) THEN
+	nOldest		:= _nWriteNo - UINT_TO_UDINT(GVL_MQTT.LOGGER_QUEUE) + 1;
+	q_nLost		:= q_nLost + (nOldest - iq_nNext);
+	iq_nNext	:= nOldest;
+END_IF
+
+k := M_SlotOf(iq_nNext);
+IF _astSlot[k].nNo <> iq_nNext OR NOT _astSlot[k].bReady THEN
+	RETURN;		// 문구·시각을 아직 받는 중
+END_IF
+
+(* 매번 비우고 채움: 짧은 문구의 null 뒤에 지난 문구가 남지 않게.
+   문자열은 대입(:=)하지 않고 길이 + null만 MEMCPY: 문자열 대입은 선언 크기 전체를 복사해서,
+   큐 칸을 돌려 쓰는 동안 null 뒤에 남은 옛 문구까지 패킷에 들어감 (PC 도구 재pack 비교에서 "불일치"로 보임) *)
+MEMSET(destAddr := ADR(iq_stPacket), fillByte := 0, n := SIZEOF(iq_stPacket));
+iq_stPacket.Header.HeaderVersion	:= GVL_MQTT.HEADER_VERSION;
+iq_stPacket.Header.DeviceVersion	:= GVL_MQTT.LOGGER_VERSION;
+iq_stPacket.Header.SiteId			:= i_nSiteId;
+nBytes := INT_TO_UDINT(LEN(_astSlot[k].sTime)) + 1;
+IF nBytes > SIZEOF(iq_stPacket.Header.TimeStamp) THEN
+	nBytes := SIZEOF(iq_stPacket.Header.TimeStamp);
+END_IF
+MEMCPY(destAddr := ADR(iq_stPacket.Header.TimeStamp), srcAddr := ADR(_astSlot[k].sTime), n := nBytes);
+nBytes := (INT_TO_UDINT(WLEN(_astSlot[k].wsText)) + 1) * 2;
+IF nBytes > SIZEOF(iq_stPacket.Contents) THEN
+	nBytes := SIZEOF(iq_stPacket.Contents);
+END_IF
+MEMCPY(destAddr := ADR(iq_stPacket.Contents), srcAddr := ADR(_astSlot[k].wsText), n := nBytes);
+M_GetPacket := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="OnMessageSent" Id="{8ac1e3ca-35ed-45cc-ab12-8eb7ada0f318}">
+      <Declaration><![CDATA[METHOD OnMessageSent : HRESULT		// 메시지 1건 (FB_LogMsg) → 큐
+VAR_INPUT
+	fbEvent	: REFERENCE TO FB_TcEvent;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Push(i_fbEvent := fbEvent, i_bCleared := FALSE);
+OnMessageSent := S_OK;		// S_OK여야 이번 스캔에 다음 콜백을 계속 받음]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="OnAlarmRaised" Id="{b4163f5a-47a5-4063-a28e-9d95f70c6dd3}">
+      <Declaration><![CDATA[METHOD OnAlarmRaised : HRESULT		// 알람 발생 (FB_LogAlarm) → 큐
+VAR_INPUT
+	fbEvent	: REFERENCE TO FB_TcEvent;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Push(i_fbEvent := fbEvent, i_bCleared := FALSE);
+OnAlarmRaised := S_OK;		// S_OK여야 이번 스캔에 다음 콜백을 계속 받음]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="OnAlarmCleared" Id="{8bc635d8-e42b-4042-856b-f536f72a0ac4}">
+      <Declaration><![CDATA[METHOD OnAlarmCleared : HRESULT		// 알람 해소 → 큐 ('[해소] ' 표시)
+VAR_INPUT
+	fbEvent	: REFERENCE TO FB_TcEvent;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Push(i_fbEvent := fbEvent, i_bCleared := TRUE);
+OnAlarmCleared := S_OK;		// S_OK여야 이번 스캔에 다음 콜백을 계속 받음]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="OnAlarmConfirmed" Id="{530b607f-91fc-4570-8750-e0fb2e454ff9}">
+      <Declaration><![CDATA[METHOD OnAlarmConfirmed : HRESULT		// 쓰지 않음
+VAR_INPUT
+	fbEvent	: REFERENCE TO FB_TcEvent;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[OnAlarmConfirmed := S_OK;		// 확인(Confirm)은 쓰지 않음 (알람을 확인 없이 만듦)]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Push" Id="{2a4efebc-4879-4259-908c-5dbd6edd9ffb}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Push		// 받은 이벤트를 큐 다음 칸에 넣고 문구를 요청 (콜백이 부름). 큐가 차면 가장 오래된 칸을 덮어씀
+VAR_INPUT
+	i_fbEvent	: REFERENCE TO FB_TcEvent;
+	i_bCleared	: BOOL;
+END_VAR
+VAR
+	k			: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_nWriteNo	:= _nWriteNo + 1;
+q_nReceived	:= _nWriteNo;
+k := M_SlotOf(_nWriteNo);
+
+_astSlot[k].nNo				:= _nWriteNo;
+_astSlot[k].nTimestamp		:= i_fbEvent.nTimestamp;
+_astSlot[k].nEventId		:= i_fbEvent.nEventId;
+_astSlot[k].bCleared		:= i_bCleared;
+_astSlot[k].bRequesting		:= TRUE;
+_astSlot[k].nRequestStart	:= F_GetSystemTime();
+_astSlot[k].bTextDone		:= FALSE;
+_astSlot[k].bReady			:= FALSE;
+_astSlot[k].sTime			:= '';
+_astSlot[k].wsText			:= "";
+
+(* 문구는 비동기로 옴 (M_Cycle에서 받음). 인자는 요청할 때 넘김 (콜백 밖에서는 i_fbEvent를 쓸 수 없음) *)
+_afbText[k].Request(eventClass := i_fbEvent.EventClass, nEventId := i_fbEvent.nEventId,
+					nLangId := GVL_MQTT.LOGGER_LANG_ID, ipArgs := i_fbEvent.ipArguments);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetText" Id="{0e6a70d4-6beb-4d21-9f5d-68c4e01b939e}">
+      <Declaration><![CDATA[METHOD PRIVATE M_SetText		// 받은 문구를 칸에 넣음: 해소 표시를 붙이고 LOGGER_TEXT_MAX자로 맞춤
+VAR_INPUT
+	i_nSlot		: UINT;
+	i_wsText	: WSTRING(255);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_wsText := i_wsText;
+IF _astSlot[i_nSlot].bCleared THEN
+	_wsText := WCONCAT(CLEARED_MARK, _wsText);
+END_IF
+IF WLEN(_wsText) > GVL_MQTT.LOGGER_TEXT_MAX THEN
+	_wsText := WCONCAT(WLEFT(_wsText, GVL_MQTT.LOGGER_TEXT_MAX - 1), "…");
+	q_nTruncated := q_nTruncated + 1;
+END_IF
+_astSlot[i_nSlot].wsText		:= _wsText;
+_astSlot[i_nSlot].bRequesting	:= FALSE;
+_astSlot[i_nSlot].bTextDone		:= TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SlotOf" Id="{47bd10d7-c025-4950-b73d-a860c7673203}">
+      <Declaration><![CDATA[METHOD PRIVATE M_SlotOf : UINT		// 이벤트 번호 → 큐 칸 (1..LOGGER_QUEUE)
+VAR_INPUT
+	i_nNo	: UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_SlotOf := UDINT_TO_UINT(((i_nNo - 1) MOD UINT_TO_UDINT(GVL_MQTT.LOGGER_QUEUE)) + 1);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_TimeText" Id="{1da45b2a-f74d-4cbe-99c3-34e95c9dbd79}">
+      <Declaration><![CDATA[METHOD PRIVATE M_TimeText : STRING(23)		// 로거 시각(FILETIME, UTC) → 현지 시각 문자열
+VAR_INPUT
+	i_nFileTime	: ULINT;
+END_VAR
+VAR
+	nLocal		: ULINT;
+	stFileTime	: T_FILETIME;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[nLocal := LINT_TO_ULINT(ULINT_TO_LINT(i_nFileTime) + _nUtcOffset);
+MEMCPY(destAddr := ADR(stFileTime), srcAddr := ADR(nLocal), n := SIZEOF(stFileTime));
+M_TimeText := F_MqttTimeText(FILETIME_TO_SYSTEMTIME(stFileTime));]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

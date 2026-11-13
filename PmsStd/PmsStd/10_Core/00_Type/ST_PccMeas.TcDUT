@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_PccMeas" Id="{d2765383-5bf7-4549-8cc0-f358744fcc80}">
+    <Declaration><![CDATA[TYPE ST_PccMeas :
+STRUCT
+	stMeas		: ST_MeterState;	// 제어용 값 (가상신호 적용 후)
+	bNoPoint	: BOOL;				// 접속점 계측점이 없음 (GROUP_CFG.nPccPoint 0 = 없음). [결함 7 수정 2026-11-03: 추가]
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

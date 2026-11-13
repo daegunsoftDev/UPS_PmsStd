@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="ST_BatRackCmd" Id="{c4caad16-def7-4d66-9062-733233e1a771}">
+    <Declaration><![CDATA[(* EMS 랙 컨택터 명령 하나 (command/bat CommandType 11 닫기, 12 열기, Value = 랙 번호). 2026-11-10.
+   쓰는 곳: FB_EmsCommand, 읽는 곳: MAIN → FB_BmsRackCommand. 명세 WR-BAT-01 *)
+TYPE ST_BatRackCmd :
+STRUCT
+	nSeq		: UDINT;	// 명령 번호. 바뀌면 새 명령 (0 = 한 번도 못 받음)
+	nRack		: UINT;		// 랙 번호 1~ (BMS 안 번호). 범위 밖이면 거절
+	bClose		: BOOL;		// TRUE = 랙 닫기(11), FALSE = 랙 열기(12)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

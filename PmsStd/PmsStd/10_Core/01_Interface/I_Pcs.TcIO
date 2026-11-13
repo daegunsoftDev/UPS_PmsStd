@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_Pcs" Id="{1a67d698-0697-4ea9-a264-60d5aa626233}">
+    <Declaration><![CDATA[INTERFACE I_Pcs EXTENDS I_Module]]></Declaration>
+    <Method Name="M_Cycle" Id="{5a526c28-8ae0-409f-83ce-c966feba746c}">
+      <Declaration><![CDATA[METHOD M_Cycle]]></Declaration>
+    </Method>
+    <Method Name="M_GetUnitState" Id="{e2a1da14-ffd0-45fb-b2b0-703bdaeeec7e}">
+      <Declaration><![CDATA[METHOD M_GetUnitState : ST_UnitState
+VAR_INPUT
+	i_nSub		: UINT;			// PCS 안의 유닛 번호
+END_VAR]]></Declaration>
+    </Method>
+    <Method Name="M_SetPower" Id="{7a702075-3183-40f8-8344-aff648b33f6a}">
+      <Declaration><![CDATA[METHOD M_SetPower : BOOL
+VAR_INPUT
+	i_nSub		: UINT;
+	i_fP		: REAL;			// kW, 방전 +
+	i_fQ		: REAL;			// kvar, 공급 +
+END_VAR]]></Declaration>
+    </Method>
+    <Method Name="M_SetStateCmd" Id="{48a1e244-5dfc-41db-b4c0-881ccc13686e}">
+      <Declaration><![CDATA[METHOD M_SetStateCmd : BOOL
+VAR_INPUT
+	i_nSub		: UINT;
+	i_stCmd		: ST_PcsCmd;
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

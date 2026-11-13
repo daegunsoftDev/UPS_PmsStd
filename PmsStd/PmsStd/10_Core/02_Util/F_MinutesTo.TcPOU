@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_MinutesTo" Id="{820f795e-b0b3-4e81-8905-434caf5d24a2}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_MinutesTo : UINT		// 지금(HHMM)부터 끝(HHMM)까지 남은 분. 끝이 지났으면 다음 날 그 시각까지 (자정을 넘김). 같으면 0
+VAR_INPUT
+	i_nNow		: UINT;		// HHMM
+	i_nEnd		: UINT;		// HHMM (2400 = 자정)
+END_VAR
+VAR
+	nDiff		: DINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[nDiff := (UINT_TO_DINT(i_nEnd / 100) * 60 + UINT_TO_DINT(i_nEnd MOD 100)) - (UINT_TO_DINT(i_nNow / 100) * 60 + UINT_TO_DINT(i_nNow MOD 100));
+IF nDiff < 0 THEN
+	nDiff := nDiff + 1440;
+END_IF
+F_MinutesTo := DINT_TO_UINT(nDiff);]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_StartPermit" Id="{8f06d0ef-5c75-4bd4-98a5-8b8d5cdeee4b}">
+    <Declaration><![CDATA[INTERFACE I_StartPermit EXTENDS I_Module]]></Declaration>
+    <Method Name="M_Evaluate" Id="{3cd81494-4c77-4336-a333-a58b1c627ec4}">
+      <Declaration><![CDATA[METHOD M_Evaluate : BOOL		// TRUE = 기동 허가
+VAR_INPUT
+	i_stView	: ST_GroupView;
+	i_bRequest	: BOOL;				// 그룹이 기동을 기다리는 중
+END_VAR]]></Declaration>
+    </Method>
+    <Property Name="Reason" Id="{5ba203c5-87ef-4d30-8303-11df6ceae83c}">
+      <Declaration><![CDATA[PROPERTY Reason : UINT			// 허가하지 않은 이유 코드. 0 = 없음]]></Declaration>
+      <Get Name="Get" Id="{3f456f3b-ac4b-4a8f-badc-1d507d88d6b3}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

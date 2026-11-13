@@ -1,0 +1,58 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_AliveRecorder" Id="{3e1a482c-f141-4b62-9180-819db98b48ff}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_AliveRecorder		// 마지막 동작 시각을 1 s마다 갱신 (파일 저장은 FB_PersistSave) → 시작할 때 "직전 동작, 꺼져 있던 시간"을 FB_EventLog에 알림 (UPS 신호 없음. 기록은 FB_EventLog가 함)
+VAR_IN_OUT
+	iq_nLastAlive	: ULINT;			// PERSISTENT: 마지막 동작 시각 (FILETIME 모양, 현지 시각, 100 ns). 글자(iq_sLastAlive)와 같은 출처 FB_LocalSystemTime
+	iq_sLastAlive	: STRING(31);		// PERSISTENT: 같은 시각을 현지 시각 글자로
+END_VAR
+VAR_OUTPUT
+	q_bStartLogged	: BOOL;			// 시작 처리를 마침 (이후 1 s마다 시각 갱신)
+	q_bStartEvent	: BOOL;			// PMS 시작 (1스캔): FB_EventLog가 기록
+	q_sLastAlive	: WSTRING(63);	// 직전 동작 시각 (글자)
+	q_sOffTime		: WSTRING(63);	// 꺼져 있던 시간 (글자)
+END_VAR
+VAR
+	_fbLocal		: FB_LocalSystemTime;
+	_tonUpdate		: TON;
+	_nOffSec		: ULINT;
+	_stNowFt		: T_FILETIME;	// 지금 현지 시각 (FILETIME 변환)
+	_nNow			: ULINT;			// 지금 현지 시각 (100 ns). 시작 계산·갱신 모두 이 값 하나만 씀
+	(* 결함 4 (2026-11-03): 전에는 F_GetSystemTime()(UTC)으로 갱신·비교했는데, 재기동 첫 유효 스캔에서 직전 동작과 1 s 안의 값이 나와
+	   꺼져 있던 시간이 0분으로 기록됨 (글자 시각은 맞았음). 글자와 같은 FB_LocalSystemTime 한 곳에서 시각을 얻도록 바꿈 *)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[_fbLocal(bEnable := TRUE, dwCycle := 1);
+q_bStartEvent := FALSE;
+IF _fbLocal.bValid THEN
+	_stNowFt := SYSTEMTIME_TO_FILETIME(_fbLocal.systemTime);
+	MEMCPY(destAddr := ADR(_nNow), srcAddr := ADR(_stNowFt), n := SIZEOF(_nNow));
+END_IF
+
+// 1) 시작 알림: 현지 시각을 처음 얻었을 때 한 번
+IF NOT q_bStartLogged AND _fbLocal.bValid THEN
+	IF iq_nLastAlive = 0 THEN
+		q_sLastAlive := "기록 없음";
+		q_sOffTime := "-";
+	ELSIF _nNow < iq_nLastAlive THEN
+		// 지금이 직전 동작보다 앞 (시각을 뒤로 맞춤 등): 빼면 넘치므로 시간을 내지 않음
+		q_sLastAlive	:= STRING_TO_WSTRING(iq_sLastAlive);
+		q_sOffTime	:= "알 수 없음 (지금 시각이 직전 동작보다 앞섬)";
+	ELSE
+		_nOffSec	:= (_nNow - iq_nLastAlive) / 10000000;
+		q_sLastAlive	:= STRING_TO_WSTRING(iq_sLastAlive);
+		q_sOffTime	:= WCONCAT(TO_WSTRING(_nOffSec / 3600), WCONCAT("시간 ", WCONCAT(TO_WSTRING((_nOffSec MOD 3600) / 60), "분")));
+	END_IF
+	q_bStartEvent := TRUE;
+	q_bStartLogged := TRUE;
+END_IF
+
+// 2) 동작 중: 1 s마다 시각 갱신 (메모리만. 파일 저장은 FB_PersistSave가 주기마다)
+_tonUpdate(IN := q_bStartLogged AND NOT _tonUpdate.Q, PT := T#1S);
+IF _tonUpdate.Q AND _fbLocal.bValid THEN
+	iq_nLastAlive := _nNow;
+	iq_sLastAlive := SYSTEMTIME_TO_STRING(_fbLocal.systemTime);
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

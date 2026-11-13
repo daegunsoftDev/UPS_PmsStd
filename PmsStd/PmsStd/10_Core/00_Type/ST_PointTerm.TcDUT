@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_PointTerm" Id="{9f7abc16-7038-4476-8059-c59d6f8acd24}">
+    <Declaration><![CDATA[TYPE ST_PointTerm :
+STRUCT
+	nMeter		: UINT;				// 계측기 (GVL_SITE.g_aipMeter 칸). 0 = 빈 칸
+	fSign		: REAL := 1.0;		// +1 더함, -1 뺌
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

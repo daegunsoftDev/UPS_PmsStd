@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CmCommonSet" Id="{f8ad03cd-f1b2-4bd6-aab0-3fcb3352a207}">
+    <Declaration><![CDATA[TYPE ST_CmCommonSet :		// 요금제 기반 제어 모드 공통 설정 (스케줄·피크컷·통합이 같은 값을 씀)
+STRUCT
+	anSeasonOfMonth	: ARRAY[1..12] OF UINT := [2, 2, 1, 1, 1, 0, 0, 0, 1, 1, 2, 2];		// 월 → 계절 (0 여름, 1 봄·가을, 2 겨울). 기본 = 한전 계절
+	abHoliday		: ARRAY[1..12, 1..31] OF BOOL;		// [월, 일] 휴일: 하루 종일 0
+	stDis			: ST_CmDisWindow;	// 방전 허용 시간
+	stNoRev			: ST_CmNoReverse;	// 역송 방지
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

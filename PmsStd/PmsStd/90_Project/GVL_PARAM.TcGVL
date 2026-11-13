@@ -1,0 +1,72 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <GVL Name="GVL_PARAM" Id="{ab6c062f-7623-4f04-a600-63a0a996e0c4}">
+    <Declaration><![CDATA[VAR_GLOBAL CONSTANT
+	(* ================================================================
+	   대수·크기 (라이브러리로 나누면 라이브러리 파라미터 리스트가 됨)
+	   - 코어와 모듈은 GVL_SITE·GVL_PERSIST를 보지 않고 이 값만 쓴다.
+	   - 등록 칸 수는 최소 1. 비워 둔 칸은 "등록 안 함"으로 본다.
+	   - 값을 바꾸면 배열 크기가 바뀌므로 재빌드·액티베이트.
+	   ================================================================ *)
+
+	(* ---------- 장비 ---------- *)
+	INSTALLED_PCS_COUNT : UINT := 0; // no separate PCS in this UPS site; allocation slots remain below
+	PCS_COUNT		: UINT := 2;		// PCS 대수
+	MAX_SUB			: UINT := 1;		// PCS 1대 안에서 따로 제어하는 유닛 최대 수
+	UNIT_COUNT		: UINT := 2;		// 제어 유닛 수 (구성은 GVL_SITE.UNIT_CFG)
+	BMS_COUNT		: UINT := 1;		// BMS 장비 수 (현장 5: BAT 1대) (소속 배터리 그룹은 GVL_SITE.BMS_CFG)
+	BAT_COUNT		: UINT := 1;		// 배터리 그룹(DC 버스) 수 (현장 5: 1). 유닛 n : BMS m을 한 그룹으로 묶음
+	METER_COUNT		: UINT := 1;		// 계측기 수
+	AUX_COUNT		: UINT := 7;		// 보조 장비 칸 수 (GVL_SITE.g_aipAux: 1 온습도(오토닉스), 2 IMD(LS IMD1000), 3 원격 I/O, 4 온습도(ITGuard), 5 지락검출계전기, 6 벡호프 단자 I/O(TS-60), 7 ASD-57 감지기)
+	AUX_DI_MAX		: UINT := 16;		// FB_AuxIo 하나의 점 수: 디지털 입력
+	AUX_DO_MAX		: UINT := 16;		// 디지털 출력
+	AUX_AI_MAX		: UINT := 8;		// 아날로그 입력
+	AUX_AO_MAX		: UINT := 4;		// 아날로그 출력
+
+	(* ---------- 보고(MQTT)만 하는 장치 (제어하지 않음). PCS·BAT 보고 수는 PCS_COUNT·BMS_COUNT ---------- *)
+	UPS_ALGORITHM_ENABLED : BOOL := FALSE; // 충방전 로직 기본 차단
+	UPS_CONTROL_ENABLED : BOOL := FALSE; // code-only gate for ALL new UPS/BMS hardware writes
+	UPS_CFG_MAX_CURRENT_A : REAL := 100.0; // EMS 방전·펄스 전류 상한 (A). 시험값, 운전값 확정 시 변경
+	UPS_CFG_MAX_MINUTES : UDINT := 60; // EMS 주기적 방전 시간 상한 (분)
+	UPS_CFG_MAX_SECONDS : UDINT := 60; // EMS 펄스 시간 상한 (초)
+	UPS_CFG_MAX_CYCLES : UDINT := 1000; // EMS 펄스 횟수 상한
+	UPS_COUNT		: UINT := 1;		// UPS 대수 (현장 5: 1대). PCS와 별개이며 실제 드라이버는 미연결
+	RACKS_PER_BMS	: UINT := 8;		// 배터리 시스템 한 대당 랙 수 (현장 5: 8, 드라이버 최대 10)
+	MODULES_PER_RACK : UINT := 9;		// 랙 한 개당 배터리 모듈 수 (현장 5: 9, 맵 최대 17)
+	CELLS_PER_MODULE : UINT := 14;		// 모듈 한 개당 셀 수 (현장 5: 14). BMS 맵은 모듈당 셀 20칸, MQTT module 레코드도 CellVoltage1~20 그대로 (15~20은 0)
+	RACK_COUNT		: UINT := BMS_COUNT * RACKS_PER_BMS;	// MQTT rack 레코드 총 8개
+	BAT_MODULE_COUNT : UINT := RACK_COUNT * MODULES_PER_RACK;	// 배터리 모듈 총 72개 (PLC 기능 모듈 수 MODULE_MAX와 별개)
+	PV_COUNT		: UINT := 1;		// PV 수 (MQTT pv_meter 토픽)
+	ESS_COUNT		: UINT := 1;		// ESS 수 (MQTT ess_meter 토픽)
+	TEMP_COUNT		: UINT := 1;		// 온도 장치 수 (MQTT temperature_sensor 토픽)
+	IMD_COUNT		: UINT := 1;		// IMD(절연감시) 수 (MQTT imd 토픽). MAIN.A_Report가 칸마다 GVL_SITE.g_fbImdN을 연결
+	FIRE_COUNT		: UINT := 2;		// 화재감지기 수 (MQTT fire_detector 토픽, OffGas 양식). 1 = TS-60 연기 접점, 2 = ASD-57
+	AIR_CONDITIONER_COUNT	: UINT := 1;	// 공조기 수 (MQTT airconditioner 토픽)
+
+	(* ---------- 계측점 ---------- *)
+	POINT_COUNT		: UINT := 1;		// 계측점 수 (구성은 GVL_SITE.POINT_CFG)
+	POINT_TERM_MAX	: UINT := 3;		// 계측점 하나에 묶는 계측기 최대 수
+
+	(* ---------- 제어 그룹 ---------- *)
+	GROUP_COUNT		: UINT := 1;		// 제어 그룹 수 (접속점 1개 + 소속 유닛)
+
+	(* ---------- 모듈 등록 칸 수 ---------- *)
+	SOURCE_COUNT	: UINT := 3;		// 지령원. 1 = 시험, 2 = 제어 모드 관리자 (접속점 그룹 1), 3 = EMS [16번 수정 2026-11-09: 원래 4 (2 = 관리자 PCS1, 3 = 관리자 PCS2, 4 = EMS)]
+	LIMIT_COUNT		: UINT := 1;		// 출력 제한
+	PERMIT_COUNT	: UINT := 1;		// 기동 조건
+	COMP_COUNT		: UINT := 1;		// 보정
+	RULE_COUNT		: UINT := 7;		// 보호 규칙 (1~5 = 표준 보호 5종, 현장 보호는 6부터. 6 = 연기 TS-60, 7 = 연기 ASD-57)
+	OUTPUT_COUNT	: UINT := 1;	// 출력 규칙 (보조 장비 DO: 팬·경광등·트립 등)
+	UNIT_RULE_COUNT	: UINT := 1;	// 유닛 제한 (사용자 한도 등)
+	BAT_RULE_COUNT	: UINT := 1;	// 버스 제한 (SOC 감발 등)
+	CTRL_MODE_COUNT	: UINT := 5;	// 제어 모드 (FB_CtrlModeMgr 하나에 등록하는 모드 수. 한 번에 하나만 켬. 틀은 10_Core, 모드는 20_Module\ControlMode). 1 = 정출력, 2 = 스케줄, 3 = 피크컷, 4 = 통합, 5 = 스탠다드 스케줄(EMS 지령). 관리자는 PCS마다 하나 (GVL_SITE)
+	SCHED_SLOT_COUNT	: UINT := 10;	// 스케줄 모드 시간표 칸 수 (계절·요일마다)
+	MODULE_SET_BYTES	: UDINT := 8192;	// 현장 모듈 설정 묶음(GVL_PERSIST.g_stModuleSet) 최대 크기. 넘으면 바뀌어도 바로 저장 안 됨 (fbPersistSave.q_bModuleSetTooBig)
+
+	(* ---------- 계산값 (고치지 않음) ---------- *)
+	MODULE_MAX		: UINT := PCS_COUNT + BMS_COUNT + METER_COUNT + AUX_COUNT + SOURCE_COUNT + LIMIT_COUNT + PERMIT_COUNT + COMP_COUNT + 2 * RULE_COUNT + OUTPUT_COUNT + UNIT_RULE_COUNT + BAT_RULE_COUNT + 2 * GROUP_COUNT + 2;	// 뒤 = 그룹별 고르기·분배 정책, Auto·Manual Gate
+	PROT_TARGET_MAX	: UINT := UNIT_COUNT + BMS_COUNT + BAT_COUNT + GROUP_COUNT;	// 보호 규칙 하나가 보는 대상 번호 상한 (범위마다 대상 수가 달라 넉넉하게 합)
+	TRACE_STEP_MAX	: UINT := 8 + 2 * LIMIT_COUNT;		// 출력 추적표 줄 수: 요청·램프·보정·정격·배터리·분배 후·쓴 값 + 지령원 제한 + 제한 모듈마다 (접속점·설비)
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

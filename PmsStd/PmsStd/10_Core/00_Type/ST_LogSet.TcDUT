@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_LogSet" Id="{36d29e1a-458e-40d4-a115-77c523aae9fd}">
+    <Declaration><![CDATA[TYPE ST_LogSet :
+STRUCT
+	tHold			: TIME := T#10S;	// 출력 제한 이유가 이 시간 이상 유지될 때만 기록
+	tPersistSave	: TIME := T#60S;	// PERSISTENT 주기 저장 (재기동 기록 시각 포함. 설정 변경은 바로 저장)
+	bCmdRefused		: BOOL := TRUE;		// 무시한 지령 기록 (이상값·방향 반대·운전 모드 설정·보호 중 버린 요청)
+	bBatRefused		: BOOL := TRUE;		// 배터리 요청 거부 (잠금·버스 유닛 운전 중) 기록
+	(* 자세한 기록: 기본 끔 (시운전·문제 추적 때 켬) *)
+	bUnitLimited	: BOOL;
+	bReqRefused		: BOOL;
+	bSeqChange		: BOOL;
+	bModeChange		: BOOL;
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

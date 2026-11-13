@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_UnitLimitView" Id="{2b351eb9-e239-4e81-a05e-7759b009c66e}">
+    <Declaration><![CDATA[TYPE ST_UnitLimitView :	// 유닛 제한 모듈에 넘기는 유닛 요약 (읽기 전용)
+STRUCT
+	nUnit	: UINT;
+	eOpMode	: E_OpMode;	// 실제 운전 모드
+	bAvail	: BOOL;
+	eRunState	: E_RunState;
+	stP	: ST_Val;	// kW, 실측
+	stQ	: ST_Val;	// kvar, 실측
+	fPRated	: REAL;	// kW
+	fQRated	: REAL;	// kvar
+	nBatGroup	: UINT;	// 연결 배터리 그룹. 0 = 없음
+	stSoc	: ST_Val;	// %, 연결 배터리 그룹 평균
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

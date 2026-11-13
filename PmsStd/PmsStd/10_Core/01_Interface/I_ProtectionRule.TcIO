@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_ProtectionRule" Id="{9022b733-ba38-4fa2-bf98-5b9f2e0a903a}">
+    <Declaration><![CDATA[INTERFACE I_ProtectionRule EXTENDS I_Module]]></Declaration>
+    <Method Name="M_Evaluate" Id="{f1f02b3e-9f87-4b36-903b-2f08d35e3847}">
+      <Declaration><![CDATA[METHOD M_Evaluate : BOOL		// TRUE = 보호 조건 있음. 판단만 함 (조치는 같은 칸의 대응, 비우면 표준 대응. 지연은 없음: 떨림 방지가 필요하면 모듈 설정에). 대상 번호가 0이면 코어가 범위 안 대상마다 한 번씩 부름
+VAR_INPUT
+	i_stView	: ST_ProtView;	// 대상 하나의 정보 (범위·대상 번호·임계값·상태)
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

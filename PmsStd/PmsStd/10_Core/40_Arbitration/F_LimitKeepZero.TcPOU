@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_LimitKeepZero" Id="{9c17bb13-243b-4964-8f9c-a82facc6716a}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_LimitKeepZero : ST_Limit		// 제한은 줄이기만 함: 0은 항상 범위 안 (상한 < 0, 하한 > 0이면 0으로. 강제 출력은 지령으로). NaN은 그대로 (F_Range가 무시)
+VAR_INPUT
+	i_stLim		: ST_Limit;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_LimitKeepZero := i_stLim;
+IF F_LimitKeepZero.fMax < 0.0 THEN F_LimitKeepZero.fMax := 0.0; END_IF
+IF F_LimitKeepZero.fMin > 0.0 THEN F_LimitKeepZero.fMin := 0.0; END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

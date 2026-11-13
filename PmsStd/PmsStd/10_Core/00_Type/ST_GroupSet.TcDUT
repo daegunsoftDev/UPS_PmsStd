@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_GroupSet" Id="{dac7995d-3754-4bab-900d-d46d17740373}">
+    <Declaration><![CDATA[TYPE ST_GroupSet :
+STRUCT
+	eSelP		: E_SelectMode;		// 그룹 P 지령원 고르는 방식
+	eSelQ		: E_SelectMode;		// 그룹 Q 지령원 고르는 방식
+	bRamp		: BOOL;				// 램프 사용 (Auto·Manual 공통). FALSE = 램프율과 관계없이 바로 목표 (기본)
+	fRampUp		: REAL;				// kW/s, |P|가 커지는 쪽. 0 = 램프 없음
+	fRampDn		: REAL;				// kW/s, |P|가 작아지는 쪽. 0 = 램프 없음
+	fRampResume	: REAL;				// kW/s, 제한 모듈이 재개 중일 때 오르는 쪽. 0 = fRampUp 사용
+	tQFilter	: TIME;				// Q 응답 필터 시정수. T#0S = 필터 없음
+	eDistBasis	: E_DistBasis := E_DistBasis.Soc;	// 그룹 몫 나누는 기준. 기본 SOC (방전은 SOC 높은 쪽, 충전은 낮은 쪽이 많이. Q는 정격 비율). 현장에서 다른 기준을 쓰려면 GVL_PERSIST.g_astGroupSet 초기값에서
+	bQPriority	: BOOL;				// 피상전력 초과 시 TRUE = Q 우선, FALSE = P 우선
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

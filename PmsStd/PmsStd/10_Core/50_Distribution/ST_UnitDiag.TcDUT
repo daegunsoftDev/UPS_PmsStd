@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_UnitDiag" Id="{81393939-dc13-41f7-9f80-bb57375c0e27}">
+    <Declaration><![CDATA[TYPE ST_UnitDiag :
+STRUCT
+	eRole		: E_UnitRole;
+	fPReq		: REAL;				// kW, 그룹 안에서 나눈 직후 값 (배터리·S 확인 전)
+	fPOut		: REAL;				// kW, 최종
+	ePBy	: E_UnitLimitBy;	// P를 마지막으로 줄인 것
+	nPModule	: UINT;	// P를 줄인 모듈 (유닛 제한·버스 제한 모듈). 0 = 코어
+	fQReq		: REAL;
+	fQOut		: REAL;
+	eQBy		: E_UnitLimitBy;
+	(* 따라가기용 중간값 (P) *)
+	fPMax	: REAL;	// kW, 유닛 한도 = 설비 한도 (FB_EquipmentLimits. 운전 대상 아니면 0)
+	fPWeight	: REAL;				// 그룹 몫을 나눌 때 쓴 무게 (분배 기준: 정격·SOC·균등)
+	fPBat		: REAL;				// kW, 배터리 그룹 방향·한도 적용 후 (피상전력 전)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_UnitLimitBy" Id="{b51b850d-cea1-4b1a-abfc-17b859d3330b}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_UnitLimitBy :
+(
+	None		:= 0,
+	NotAvail	:= 1,	// 가용 아님 → 0
+	NotRun		:= 2,	// 장비가 활성(Run·대기)이 아니거나 정지 진행 중 → 0
+	Rating		:= 3,	// 유닛 정격
+	Derate		:= 4,	// 보호 Derate
+	Scaled		:= 5,	// 유닛별 값을 그룹 목표에 맞춰 비율로 줄임
+	BatDir		:= 6,	// 같은 배터리 그룹의 순 방향과 반대 → 0
+	BatLimit	:= 7,	// 배터리 버스 한도 (그 방향 한도 0, 버스 제한 모듈 포함)
+	SLimit		:= 8,	// 피상전력 정격
+	ModeSwitch	:= 9,	// 운전 모드 전환 중 → 0
+	WaitManualCmd	:= 10,	// Manual: Run에서 빠졌다 돌아옴 → 새 지령이 올 때까지 0
+	UnitRule	:= 11	// 유닛 제한 모듈 (I_UnitLimitRule)
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

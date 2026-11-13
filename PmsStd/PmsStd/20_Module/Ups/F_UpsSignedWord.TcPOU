@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<POU Name="F_UpsSignedWord" Id="{3332eb93-bedd-4662-9d1c-253a8424a0dc}"><Declaration><![CDATA[FUNCTION F_UpsSignedWord : REAL
+VAR_INPUT i_wRaw : WORD; END_VAR]]></Declaration><Implementation><ST><![CDATA[IF i_wRaw >= 16#8000 THEN
+ F_UpsSignedWord := DINT_TO_REAL(WORD_TO_DINT(i_wRaw) - 65536);
+ELSE
+ F_UpsSignedWord := WORD_TO_REAL(i_wRaw);
+END_IF]]></ST></Implementation></POU>
+</TcPlcObject>

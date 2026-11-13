@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_StateCmd" Id="{373f1f31-9142-4779-b400-d9cb5ca6f4fb}">
+    <Declaration><![CDATA[TYPE ST_StateCmd :
+STRUCT
+	eCmd		: E_StateCmd;
+	nSeq		: UDINT;		// 명령 번호. 바뀌면 새 명령 → 디스패처가 1회 전송
+	nOrigin		: UINT;			// 명령을 낸 모듈 ID. 보호·시퀀서 자체 명령은 0
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

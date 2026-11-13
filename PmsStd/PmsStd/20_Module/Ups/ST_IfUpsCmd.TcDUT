@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="ST_IfUpsCmd" Id="{cd5c9362-7f9b-4b8f-9584-eef02043a399}">
+    <Declaration><![CDATA[(* EMS UPS 명령 1건 (MqttTask → PlcTask 칸, GVL_IF.g_astUpsCmd). 2026-11-05. 명세: WR-UPS-01 *)
+TYPE ST_IfUpsCmd :
+STRUCT
+	nSeq	: UDINT;	// 새 명령마다 1씩 오름. 받는 쪽은 번호 변화로 새 명령을 안다
+	nType	: UDINT;	// 명령 비트 (EMS CommandType 그대로. 명세 WR-UPS-01 비트 표)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

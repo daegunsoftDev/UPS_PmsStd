@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_TraceStep" Id="{0b8e3a51-6c2f-4d7e-9a14-3f5b7c9d2e61}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_TraceStep :
+(
+	None		:= 0,
+	Request		:= 1,	// 요청: 그룹 지령 또는 유닛 지령 합 (접속점 기준)
+	Ramp		:= 2,	// 램프 후
+	PccLimit	:= 3,	// 접속점 제한: 지령원 P 제한 또는 접속점 기준 모듈 하나
+	Comp		:= 4,	// 보정을 더한 값 (여기부터 설비 기준)
+	DevRating	:= 5,	// 설비 제한: 가용 정격
+	DevBattery	:= 6,	// 설비 제한: 배터리 충·방전 한도
+	DevLimit	:= 7,	// 설비 제한: 설비 기준 모듈 하나
+	UnitDist	:= 8,	// 유닛 한도·분배 후 그룹 유닛 합
+	Written		:= 9	// 장비에 쓴 값 합
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

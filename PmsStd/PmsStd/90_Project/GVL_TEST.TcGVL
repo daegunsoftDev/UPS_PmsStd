@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <GVL Name="GVL_TEST" Id="{8bce1cea-5a50-491d-9e2d-03708c3d986e}">
+    <Declaration><![CDATA[VAR_GLOBAL
+	g_astVirtual	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_VirtualSet;	// 가상신호. 저장 안 함 (재기동 시 꺼짐)
+	g_bTestReset	: BOOL;		// 시험: 모든 PCS·BMS 고장 리셋 명령 + 유지 DO 풀기 (TEST_MODE에서만)
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

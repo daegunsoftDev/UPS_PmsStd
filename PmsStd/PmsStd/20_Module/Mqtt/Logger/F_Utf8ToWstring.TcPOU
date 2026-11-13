@@ -1,0 +1,77 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_Utf8ToWstring" Id="{02b3c777-c0ec-47c0-a35c-9a3a98891c6f}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_Utf8ToWstring : WSTRING(255)		// UTF-8 바이트(0에서 끝남) → WSTRING(UTF-16). 255자에서 자름. 4바이트 문자(이모지 등)·잘못된 바이트는 U+FFFD 한 글자
+(* 이벤트 로거 문구(FB_RequestEventText.GetString)는 UTF-8 STRING으로만 받을 수 있어서 쓴다.
+   한글(U+AC00~)은 UTF-8 3바이트 → UTF-16 한 칸 *)
+VAR_INPUT
+	i_pSrc		: PVOID;				// UTF-8 문자열 시작 주소 (STRING 변수의 ADR)
+	i_nSrcSize	: UDINT;				// 그 버퍼 크기 (byte, SIZEOF). 0을 만나면 그 앞에서 끝
+END_VAR
+VAR CONSTANT
+	MAX_SRC		: UDINT := 1024;		// 읽는 최대 바이트
+	MAX_CHARS	: UINT := 255;
+	BAD_CHAR	: WORD := 16#FFFD;
+END_VAR
+VAR
+	pSrc		: POINTER TO ARRAY[0..1023] OF BYTE;	// MAX_SRC
+	wsOut		: WSTRING(255);
+	pOut		: POINTER TO ARRAY[0..255] OF WORD;		// wsOut (MAX_CHARS + null)
+	nSize		: UDINT;
+	i			: UDINT;
+	nChars		: UINT;
+	nLen		: UDINT;
+	b0			: BYTE;
+	b1			: BYTE;
+	b2			: BYTE;
+	wChar		: WORD;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_Utf8ToWstring := "";
+IF i_pSrc = 0 THEN
+	RETURN;
+END_IF
+pSrc	:= i_pSrc;
+pOut	:= ADR(wsOut);
+nSize	:= MIN(i_nSrcSize, MAX_SRC);
+i		:= 0;
+nChars	:= 0;
+
+WHILE i < nSize AND nChars < MAX_CHARS DO
+	b0 := pSrc^[i];
+	IF b0 = 0 THEN
+		EXIT;
+	END_IF
+	wChar	:= BAD_CHAR;
+	nLen	:= 1;
+	IF b0 < 16#80 THEN							// 1바이트 (ASCII)
+		wChar := BYTE_TO_WORD(b0);
+	ELSIF (b0 AND 16#E0) = 16#C0 THEN			// 2바이트
+		IF i + 1 < nSize THEN
+			b1 := pSrc^[i + 1];
+			IF (b1 AND 16#C0) = 16#80 THEN
+				wChar	:= SHL(BYTE_TO_WORD(b0 AND 16#1F), 6) OR BYTE_TO_WORD(b1 AND 16#3F);
+				nLen	:= 2;
+			END_IF
+		END_IF
+	ELSIF (b0 AND 16#F0) = 16#E0 THEN			// 3바이트 (한글 등)
+		IF i + 2 < nSize THEN
+			b1 := pSrc^[i + 1];
+			b2 := pSrc^[i + 2];
+			IF (b1 AND 16#C0) = 16#80 AND (b2 AND 16#C0) = 16#80 THEN
+				wChar	:= SHL(BYTE_TO_WORD(b0 AND 16#0F), 12) OR SHL(BYTE_TO_WORD(b1 AND 16#3F), 6) OR BYTE_TO_WORD(b2 AND 16#3F);
+				nLen	:= 3;
+			END_IF
+		END_IF
+	ELSIF (b0 AND 16#F8) = 16#F0 THEN			// 4바이트 → U+FFFD 한 글자
+		nLen := 4;
+	END_IF
+	pOut^[nChars]	:= wChar;
+	nChars			:= nChars + 1;
+	i				:= i + nLen;
+END_WHILE
+pOut^[nChars] := 0;
+F_Utf8ToWstring := wsOut;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

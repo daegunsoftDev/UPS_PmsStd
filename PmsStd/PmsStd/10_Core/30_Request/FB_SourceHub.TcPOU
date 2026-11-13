@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_SourceHub" Id="{a091b0a2-878a-483d-abb2-c39a6d96e3e9}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_SourceHub		// 등록된 지령원을 부르고 출력을 모음 (고르는 일은 중재에서)
+VAR_IN_OUT
+	iq_aipSource	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF I_CommandSource;
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astReg		: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceReg;
+	iq_astView		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupView;
+END_VAR
+VAR_OUTPUT
+	q_astOut		: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceOutput;
+	q_anModule		: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF UINT;		// 칸별 모듈 ID. 0 = 빈 칸
+	q_bReset		: BOOL;			// 유효한 지령원이 PCS 리셋을 요청함 (1스캔). 유지 DO 풀기에만 씀 (장비 고장 리셋은 시퀀서가 요청을 장비별로 봄)
+END_VAR
+VAR_TEMP
+	i				: UINT;
+	g				: UINT;
+	stNone			: ST_SourceOutput;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[q_bReset := FALSE;
+FOR i := 1 TO GVL_PARAM.SOURCE_COUNT DO
+	IF iq_aipSource[i] <> 0 THEN
+		// 대상 그룹 값을 넘김 (모든 그룹 대상이거나 번호가 틀리면 그룹 1)
+		g := iq_astReg[i].nGroup;
+		IF g < 1 OR g > GVL_PARAM.GROUP_COUNT THEN
+			g := 1;
+		END_IF
+		iq_aipSource[i].M_Cycle(i_stReg := iq_astReg[i], i_stView := iq_astView[g]);
+		q_astOut[i]		:= iq_aipSource[i].Output;
+		q_anModule[i]	:= iq_aipSource[i].ModuleId;
+	ELSE
+		q_astOut[i]		:= stNone;
+		q_anModule[i]	:= 0;
+	END_IF
+
+	IF q_astOut[i].bValid AND q_astOut[i].stPcsReq.eCmd = E_PcsCmd.Reset THEN
+		q_bReset := TRUE;
+	END_IF
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

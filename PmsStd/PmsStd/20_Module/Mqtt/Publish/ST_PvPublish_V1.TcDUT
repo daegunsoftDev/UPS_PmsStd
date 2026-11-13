@@ -1,0 +1,47 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.9">
+  <DUT Name="ST_PvPublish_V1" Id="{1f4414de-a241-49a2-89b4-8965d3e583e3}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_PvPublish_V1 :
+STRUCT
+	DeviceIndex	:	UDINT;
+	Status		:	UDINT;
+	AcActivePower						:			REAL;
+	AcReactivePower                     :		    real;
+	AcVoltageR                          :		    real;
+	AcVoltageS                          :		    real;
+	AcVoltageT                          :		    real;
+	AcCurrentR                          :		    real;
+	AcCurrentS                          :		    real;
+	AcCurrentT                          :		    real;
+	Frequency                           :		    real;
+	PowerFactor                         :		    real;
+	EnergyActivePower                   :		    real;
+	EnergyReactivePower                 :		    real;
+	EnergyReverseActivePower            :		    real;
+	EnergyReverseReactivePower          :		    real;
+	Warning1                            :			UDINT;
+	Warning2                            :			UDINT;
+	Warning3                            :			UDINT;
+	Warning4                            :			UDINT;
+	Warning5                            :			UDINT;
+	Warning6                            :			UDINT;
+	Warning7                            :			UDINT;
+	Warning8                            :			UDINT;
+	Warning9                            :			UDINT;
+	Warning10                           :			UDINT;
+	Fault1                              :			UDINT;
+	Fault2                              :			UDINT;
+	Fault3                              :			UDINT;
+	Fault4                              :			UDINT;
+	Fault5                              :			UDINT;
+	Fault6                              :			UDINT;
+	Fault7                              :			UDINT;
+	Fault8                              :			UDINT;
+	Fault9                              :			UDINT;
+	Fault10                             :			UDINT;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

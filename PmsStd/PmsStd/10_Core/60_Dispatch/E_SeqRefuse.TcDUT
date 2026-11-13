@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_SeqRefuse" Id="{2871fd53-0afb-45bf-9e0b-a4fa2aa8f692}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_SeqRefuse :
+(
+	None		:= 0,
+	NotAvail	:= 1,	// 유닛이 가용 아님 (고장·통신·보호 등)
+	NoBattery	:= 2,	// 배터리 미투입
+	NoPermit	:= 4,	// 기동 조건 미충족
+	CommLost	:= 6,	// 통신 없음
+	UnitRunning	:= 8,	// 배터리 개방 요청인데 버스의 유닛이 정지 안 됨
+	StopInProgress	:= 9,	// 정지 쪽 명령(Standby·Stop·EStop) 진행 중: 끝날 때까지 기동 요청 안 받음
+	ConfigError	:= 10,	// 설정 오류로 장비 제어 중지 중
+	WriteDisabled	:= 11	// 장비 쓰기 불가 (GVL_SITE.DEVICE_WRITE 꺼짐 또는 대기 PLC)
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

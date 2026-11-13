@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="F_WordsToReal" Id="{4c685729-41ab-4794-bb09-9b889dd1b2f4}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_WordsToReal : REAL		// 레지스터 2개(IEEE754 float)를 REAL로. 앞 레지스터 = 상위 워드. 숫자가 아니면(NaN·무한) 0
+(* 기반: Helios FNC_OLD_IEEE754·FNC_TO_IEEE754 (Bender ISO685, ACURA3700에서 앞 레지스터가 상위 워드). 2026-11-09 *)
+VAR_INPUT
+	i_wHigh		: WORD;		// 앞 레지스터 (상위 16비트)
+	i_wLow		: WORD;		// 뒤 레지스터 (하위 16비트)
+END_VAR
+VAR
+	dwRaw		: DWORD;
+	fValue		: REAL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[dwRaw := SHL(WORD_TO_DWORD(i_wHigh), 16) OR WORD_TO_DWORD(i_wLow);
+IF (dwRaw AND 16#7F800000) = 16#7F800000 THEN	// 지수부가 모두 1 = NaN·무한
+	F_WordsToReal := 0.0;
+ELSE
+	MEMCPY(destAddr := ADR(fValue), srcAddr := ADR(dwRaw), n := 4);
+	F_WordsToReal := fValue;
+END_IF
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

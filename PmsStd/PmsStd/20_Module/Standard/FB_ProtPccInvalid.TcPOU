@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ProtPccInvalid" Id="{c0797203-df89-47cd-99bd-d0599403b60d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ProtPccInvalid EXTENDS FB_ModuleBase IMPLEMENTS I_ProtectionRule		// 표준 보호: 접속점 계측 무효 (범위 Group): 접속점 유효전력 값이 무효. 기본 등록. 빼면 이 보호 없음. 현장마다 다르면 복사해 이름을 바꿔 그 칸에 대신 등록
+VAR
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Evaluate" Id="{bca440f5-c902-486b-b9eb-4c10da8e88b5}">
+      <Declaration><![CDATA[METHOD M_Evaluate : BOOL		// 범위가 맞지 않게 등록되면 FALSE (보호 안 걸림)
+VAR_INPUT
+	i_stView	: ST_ProtView;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// [결함 7 수정 2026-11-03: 접속점이 없는 그룹(nPccPoint 0)은 판단 안 함. 원래 M_Evaluate := i_stView.eScope = E_ProtScope.Group AND NOT i_stView.stPcc.stMeas.stP.bValid;]
+M_Evaluate := i_stView.eScope = E_ProtScope.Group AND NOT i_stView.stPcc.bNoPoint AND NOT i_stView.stPcc.stMeas.stP.bValid;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_GroupCfg" Id="{c7b36565-2775-421c-a705-7ff552944a36}">
+    <Declaration><![CDATA[TYPE ST_GroupCfg :
+STRUCT
+	nPccPoint	: UINT := 1;		// 접속점 계측점 (GVL_SITE.POINT_CFG 칸). 0 = 없음
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

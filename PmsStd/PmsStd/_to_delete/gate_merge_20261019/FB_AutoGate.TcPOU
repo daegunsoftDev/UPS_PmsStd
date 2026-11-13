@@ -1,0 +1,61 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_AutoGate" Id="{22d0dd61-87e7-4a12-830c-c96d7884c290}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_AutoGate		// Auto 지령 거르기 자리: 등록한 Gate 모듈(i_ipGate), 비우면 코어 기본 FB_GateAutoPass (통과). 출력 모양은 고정 (뒤 단계는 이것만 봄)
+// 뒤 단계(성형·분배·보호·쓰기 허가)는 Gate와 관계없이 그대로 적용됨
+VAR_INPUT
+	i_ipGate		: I_Gate;			// GVL_SITE.g_ipAutoGate. 0 = 코어 기본
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astAutoUnitP	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;		// FB_Select 결과
+	iq_astAutoUnitQ	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	iq_astAutoGrpP	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_astAutoGrpQ	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+END_VAR
+VAR_OUTPUT
+	(* 거른 결과: 성형·분배는 이것을 씀 *)
+	q_astAutoUnitP	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	q_astAutoUnitQ	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	q_astAutoGrpP	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	q_astAutoGrpQ	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+END_VAR
+VAR
+	_fbStd		: FB_GateAutoPass;		// 코어 기본 Gate
+	_stOut		: ST_GateOut;
+END_VAR
+VAR_TEMP
+	u			: UINT;
+	stView		: ST_GateView;
+	stNone		: ST_Pick;
+	bManualPath	: BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[bManualPath		:= FALSE;
+stView.ePath	:= E_OpMode.Auto;
+IF i_ipGate <> 0 THEN
+	i_ipGate.M_Filter(i_stView := stView, iq_astUnitP := iq_astAutoUnitP, iq_astUnitQ := iq_astAutoUnitQ, iq_astGrpP := iq_astAutoGrpP, iq_astGrpQ := iq_astAutoGrpQ,
+		iq_aeOpMode := iq_aeOpMode, iq_astUnit := iq_astUnit, iq_astUnitCfg := iq_astUnitCfg, iq_stOut := _stOut);
+ELSE
+	_fbStd.M_Filter(i_stView := stView, iq_astUnitP := iq_astAutoUnitP, iq_astUnitQ := iq_astAutoUnitQ, iq_astGrpP := iq_astAutoGrpP, iq_astGrpQ := iq_astAutoGrpQ,
+		iq_aeOpMode := iq_aeOpMode, iq_astUnit := iq_astUnit, iq_astUnitCfg := iq_astUnitCfg, iq_stOut := _stOut);
+END_IF
+// 결과 내기 (다른 경로 유닛 값은 비움: Gate가 잘못 채워도 이 경로 밖으로 새지 않게)
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF (iq_aeOpMode[u] = E_OpMode.Manual) <> bManualPath THEN
+		_stOut.astUnitP[u]			:= stNone;
+		_stOut.astUnitQ[u]			:= stNone;
+		_stOut.abNew[u]				:= FALSE;
+		_stOut.abWaitNewCmd[u]		:= FALSE;
+		_stOut.aeRefuse[u]			:= E_CmdRefuse.None;
+	END_IF
+END_FOR
+q_astAutoUnitP	:= _stOut.astUnitP;
+q_astAutoUnitQ	:= _stOut.astUnitQ;
+q_astAutoGrpP	:= _stOut.astGrpP;
+q_astAutoGrpQ	:= _stOut.astGrpQ;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

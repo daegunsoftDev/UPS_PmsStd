@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BatCmdMode" Id="{e6f04d1d-b7af-4973-8f1f-b77f54d0dbcf}">
+    <Declaration><![CDATA[TYPE ST_BatCmdMode :		// 배터리(배터리 그룹) 요청을 명령마다 어느 운전 모드에서 받나 (기본 Manual)
+STRUCT
+	eClose		: E_SourceMode := E_SourceMode.Manual;	// 배터리 투입
+	eOpen		: E_SourceMode := E_SourceMode.Manual;	// 배터리 개방
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

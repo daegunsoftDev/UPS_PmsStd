@@ -1,0 +1,100 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ProtRespStd" Id="{92c346df-5821-48d9-8365-b6efd2d3c441}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ProtRespStd EXTENDS FB_ModuleBase IMPLEMENTS I_ProtResponse		// 표준 보호 대응 (기본 등록: GVL_SITE.g_aipResp 칸마다 같은 인스턴스): 칸 설정(ST_ProtCfg)의 조치를 범위 안 유닛·BMS에 한 단계로 요청
+// 유닛: 범위에 드는 유닛 중 그 운전 모드에 조치를 거는 것(bAuto·bManual)만. 모드 조치(ToManual)는 bAuto 항목이면 범위 안 유닛 전부
+// BMS: Bms·BatGroup 범위는 그 버스에 조치를 받는 유닛이 있을 때 (버스에 유닛이 없으면 그대로). Unit·Group·Site 범위는 조치를 받는 유닛의 배터리 그룹 BMS 전부
+// 현장 대응이 다르면 이 FB를 복사해 이름을 바꿔 그 칸에 대신 등록. 상태가 없어 인스턴스 하나를 모든 칸에 같이 등록함
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Respond" Id="{57a3242c-42a7-4a3f-adc5-1b9100003590}">
+      <Declaration><![CDATA[METHOD M_Respond		// 칸 설정(stProt)의 조치를 걸렸을 때만 요청
+// 코어가 매 스캔 범위 안 대상마다 부름 (조건이 없을 때도: 단계 대응의 타이머·상태를 풀 수 있게). 대상 번호가 0으로 등록되면 대상마다 상태를 따로 둠
+VAR_INPUT
+	i_bActive		: BOOL;			// 보호 조건 있음 (등록 bAuto·bManual 중 하나가 켜져 있고 조건 모듈이 TRUE)
+	i_tActive		: TIME;			// 조건이 이어진 시간 (조건 없으면 0)
+	i_nTarget		: UINT;			// 대상 번호 (범위는 i_stRule.eScope. Site면 1)
+	i_stRule		: ST_RuleCfg;		// 이 칸 설정 (범위·대상·임계값·표준 대응 설정)
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;	// 장비 상태 (이번 스캔 스냅샷, 읽기 전용)
+	iq_astBms		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatState;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;		// 소속 (제어 그룹·배터리 그룹)
+	iq_astBmsCfg	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsCfg;
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;		// 실제 운전 모드
+END_VAR
+VAR_IN_OUT
+	iq_stReq		: ST_ProtReq;		// 요청 (코어가 비워서 넘김)
+END_VAR
+VAR
+	u			: UINT;
+	m			: UINT;
+	nBus		: UINT;		// Bms·BatGroup 범위의 배터리 그룹
+	nBusUnits	: UINT;		// 그 버스의 유닛 수
+	bBusTakes	: BOOL;		// 그 버스에 조치를 받는 유닛이 있음
+	bIn			: BOOL;
+	bManual		: BOOL;
+	bTakes		: BOOL;
+	stCfg		: ST_ProtCfg;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT i_bActive THEN
+	RETURN;
+END_IF
+stCfg := i_stRule.stProt;
+nBus := 0;
+IF i_stRule.eScope = E_ProtScope.Bms AND i_nTarget >= 1 AND i_nTarget <= GVL_PARAM.BMS_COUNT THEN
+	nBus := iq_astBmsCfg[i_nTarget].nBatGroup;
+ELSIF i_stRule.eScope = E_ProtScope.BatGroup THEN
+	nBus := i_nTarget;
+END_IF
+(* 1) 유닛 *)
+nBusUnits := 0;
+bBusTakes := FALSE;
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	CASE i_stRule.eScope OF
+		E_ProtScope.Unit:					bIn := u = i_nTarget;
+		E_ProtScope.Bms, E_ProtScope.BatGroup:	bIn := nBus <> 0 AND iq_astUnitCfg[u].nBatGroup = nBus;
+		E_ProtScope.Group:					bIn := iq_astUnitCfg[u].nGroup = i_nTarget;
+		E_ProtScope.Site:					bIn := TRUE;
+	ELSE
+		bIn := FALSE;
+	END_CASE
+	IF bIn THEN
+		bManual	:= iq_aeOpMode[u] = E_OpMode.Manual;
+		bTakes	:= F_ModeApplies(stCfg.bAuto, stCfg.bManual, BOOL_TO_UINT(NOT bManual), BOOL_TO_UINT(bManual));
+		nBusUnits := nBusUnits + 1;
+		bBusTakes := bBusTakes OR bTakes;
+		// 모드 조치: Auto 유닛에 거는 항목이면 실제 모드와 관계없이 (이미 Manual이어도 Auto 재요청을 막음)
+		IF stCfg.bAuto AND stCfg.eModeAction = E_ModeAction.ToManual THEN
+			iq_stReq.abToManual[u] := TRUE;
+		END_IF
+		IF bTakes THEN
+			iq_stReq.aePcs[u]	:= stCfg.ePcsAction;
+			iq_stReq.afPPct[u]	:= stCfg.fPPct;
+			iq_stReq.afQPct[u]	:= stCfg.fQPct;
+			// 유닛·제어 그룹·사이트 범위: 그 유닛 배터리 그룹의 BMS 전부
+			IF stCfg.eBatAction <> E_BatAction.None AND nBus = 0 AND iq_astUnitCfg[u].nBatGroup <> 0 THEN
+				FOR m := 1 TO GVL_PARAM.BMS_COUNT DO
+					IF iq_astBmsCfg[m].nBatGroup = iq_astUnitCfg[u].nBatGroup THEN
+						iq_stReq.aeBat[m] := stCfg.eBatAction;
+					END_IF
+				END_FOR
+			END_IF
+		END_IF
+	END_IF
+END_FOR
+(* 2) Bms·BatGroup 범위의 배터리 조치: 버스에 조치를 받는 유닛이 있을 때 (버스에 유닛이 없으면 그대로) *)
+IF nBus <> 0 AND stCfg.eBatAction <> E_BatAction.None AND (bBusTakes OR nBusUnits = 0) THEN
+	FOR m := 1 TO GVL_PARAM.BMS_COUNT DO
+		IF (i_stRule.eScope = E_ProtScope.Bms AND m = i_nTarget) OR (i_stRule.eScope = E_ProtScope.BatGroup AND iq_astBmsCfg[m].nBatGroup = nBus) THEN
+			iq_stReq.aeBat[m] := stCfg.eBatAction;
+		END_IF
+	END_FOR
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

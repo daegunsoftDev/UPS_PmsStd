@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_VirtualSet" Id="{c2ee78e3-c9f5-494c-8c72-7313cd937636}">
+    <Declaration><![CDATA[TYPE ST_VirtualSet :
+STRUCT
+	bVEna		: BOOL;		// 가상 전압 사용
+	fV			: REAL;		// V, 상전압 (평균·A·B·C 모두 이 값)
+	bPEna		: BOOL;		// 가상 유효전력 사용
+	fP			: REAL;		// kW
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

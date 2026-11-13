@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_ProtResponse" Id="{57e5a533-e36a-43a3-a6fa-01fc06ca15e4}">
+    <Declaration><![CDATA[INTERFACE I_ProtResponse EXTENDS I_Module		// 보호 대응: 조건이 걸리면 무엇을, 누구에게, 어떤 순서로 요청할지. 칸을 비우면 표준 대응 (FB_ProtRespStd, ST_ProtCfg)]]></Declaration>
+    <Method Name="M_Respond" Id="{7c162b6f-14ad-4790-9839-2df0c3a95b6f}">
+      <Declaration><![CDATA[METHOD M_Respond		// 보호 칸 하나·대상 하나의 대응: 무엇을, 누구에게 요청할지 iq_stReq에 씀. 장비에 직접 쓰지 않음
+// 코어가 매 스캔 범위 안 대상마다 부름 (조건이 없을 때도: 단계 대응의 타이머·상태를 풀 수 있게). 대상 번호가 0으로 등록되면 대상마다 상태를 따로 둠
+VAR_INPUT
+	i_bActive		: BOOL;			// 보호 조건 있음 (등록 bAuto·bManual 중 하나가 켜져 있고 조건 모듈이 TRUE)
+	i_tActive		: TIME;			// 조건이 이어진 시간 (조건 없으면 0)
+	i_nTarget		: UINT;			// 대상 번호 (범위는 i_stRule.eScope. Site면 1)
+	i_stRule		: ST_RuleCfg;		// 이 칸 설정 (범위·대상·임계값·표준 대응 설정)
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;	// 장비 상태 (이번 스캔 스냅샷, 읽기 전용)
+	iq_astBms		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatState;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;		// 소속 (제어 그룹·배터리 그룹)
+	iq_astBmsCfg	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsCfg;
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;		// 실제 운전 모드
+END_VAR
+VAR_IN_OUT
+	iq_stReq		: ST_ProtReq;		// 요청 (코어가 비워서 넘김)
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

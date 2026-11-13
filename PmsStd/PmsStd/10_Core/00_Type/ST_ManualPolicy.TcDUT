@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_ManualPolicy" Id="{6698167e-f3ff-4f6d-9bd9-9d7dab9407c4}">
+    <Declaration><![CDATA[TYPE ST_ManualPolicy :		// 제어 그룹마다 Manual 경로에 적용할 단계 (TRUE = 적용). Auto 경로는 항상 전부 적용
+STRUCT
+	(* 운전 정책 *)
+	bRamp		: BOOL := TRUE;		// P 램프·Q 응답 필터 (그룹 설정 bRamp·tQFilter를 따름)
+	bSrcLimit	: BOOL := TRUE;		// 지령원이 낸 P 제한
+	bPccLimit	: BOOL := TRUE;		// 접속점 기준 제한 모듈 (모듈 등록의 bManual = TRUE인 것만)
+	bComp		: BOOL := FALSE;	// 보정 (같은 그룹에 Auto 유닛이 있으면 Auto 쪽에만 더함: 두 번 더하지 않게)
+	bDevLimit	: BOOL := TRUE;		// 설비 기준 제한 모듈 (P·Q)
+	(* 장비 한도 — 끄면 이 그룹 Manual 유닛은 PMS가 이 한도로 막지 않음 (장비 자체 보호는 그대로) *)
+	bRating		: BOOL := TRUE;		// 유닛 정격·Derate·피상전력
+	bBatLimit	: BOOL := TRUE;		// BMS 충방전 한도 (유닛·배터리 버스)
+	(* 보호는 보호 항목마다 ST_ProtCfg.bManual로 켜고 끔 *)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

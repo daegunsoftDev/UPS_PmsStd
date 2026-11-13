@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_UnitLimitRule" Id="{40addec0-30c6-43a7-9c84-d8d611ecf8c5}">
+    <Declaration><![CDATA[INTERFACE I_UnitLimitRule EXTENDS I_Module]]></Declaration>
+    <Method Name="M_Evaluate" Id="{4b4a50f7-ffc1-4881-ae6d-9093336fe5f8}">
+      <Declaration><![CDATA[METHOD M_Evaluate : ST_LimitOut	// 유닛 P·Q 한도 (사용자 한도 등). bActive = FALSE면 제한 없음. 범위를 좁히기만 함 (0은 항상 허용)
+VAR_INPUT
+	i_stView	: ST_UnitLimitView;
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

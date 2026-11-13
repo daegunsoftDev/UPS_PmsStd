@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BmsCfg" Id="{0b6b77c4-5a94-459a-8b03-248e2e25f20b}">
+    <Declaration><![CDATA[TYPE ST_BmsCfg :
+STRUCT
+	nBatGroup	: UINT := 1;		// 소속 배터리 그룹(DC 버스). 유닛은 UNIT_CFG.nBatGroup으로 같은 그룹을 가리킴
+	fCapacity	: REAL;				// kWh. SOC 가중 평균의 무게 (0 = 설정 안 함 → 무게 1)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BatLimitView" Id="{9d641601-27ad-4284-90b7-cba8365d0c1f}">
+    <Declaration><![CDATA[TYPE ST_BatLimitView :	// 버스 제한 모듈에 넘기는 배터리 그룹(DC 버스) 요약 (읽기 전용)
+STRUCT
+	nBatGroup	: UINT;
+	bUsable	: BOOL;	// 쓸 수 있는 BMS가 하나 이상
+	stSoc	: ST_Val;	// %, 용량 가중 평균
+	stSocMin	: ST_Val;	// %
+	stSocMax	: ST_Val;	// %
+	fPChgMax	: REAL;	// kW, BMS 충전 한도 합 (양수)
+	fPDisMax	: REAL;	// kW, BMS 방전 한도 합 (양수)
+	fPOut	: REAL;	// kW, 이 버스 유닛 출력 합 (실측)
+	nUnitAuto	: UINT;	// 이 버스의 Auto 유닛 수
+	nUnitManual	: UINT;	// 이 버스의 Manual 유닛 수
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

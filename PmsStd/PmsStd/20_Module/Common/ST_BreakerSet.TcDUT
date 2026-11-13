@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BreakerSet" Id="{dd41638b-28b4-490f-a38a-90f0741e3060}">
+    <Declaration><![CDATA[TYPE ST_BreakerSet :	// FB_BreakerCtrl 설정 (운전 중 HMI로 바꿈. GVL_PERSIST.g_stModuleSet 칸 → MAIN A_PassModuleSet이 넘김)
+STRUCT
+	tPulse		: TIME := T#1S;		// 코일 펄스 폭 (투입·개방)
+	tConfirm	: TIME := T#5S;		// 지령 뒤 이 시간 안에 상태 접점이 바뀌어야 함 (아니면 실패)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

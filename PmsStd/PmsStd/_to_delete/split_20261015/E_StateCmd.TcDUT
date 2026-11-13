@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_StateCmd" Id="{1fa3e140-5797-41fc-979f-ef5c77126047}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_StateCmd :
+(
+	None		:= 0,
+	Run			:= 1,
+	Standby		:= 2,
+	Stop		:= 3,
+	Reset		:= 4,	// 고장 리셋
+	EStop		:= 5,	// 비상정지
+	BatClose	:= 6,	// 배터리 DC 접촉기 투입
+	BatOpen		:= 7	// 배터리 DC 접촉기 개방
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

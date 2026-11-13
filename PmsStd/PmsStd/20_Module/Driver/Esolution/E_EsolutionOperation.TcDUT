@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<DUT Name="E_EsolutionOperation" Id="{c51d4506-e3cf-4b6b-b0bd-8adc7a1bc467}"><Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_EsolutionOperation : (
+	EmergencyStart := 0,
+	PeriodicStart := 1,
+	PulseStart := 2,
+	DischargeCancel := 3,
+	TrickleStart := 4,
+	TrickleCancel := 5,
+	TemperatureStart := 6,
+	TemperatureCancel := 7,
+	EcoStart := 8,
+	EcoCancel := 9
+) INT;
+END_TYPE]]></Declaration></DUT>
+</TcPlcObject>

@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_ModeSet" Id="{08aecaa2-88c6-4cae-bb35-5834a0e6d4d6}">
+    <Declaration><![CDATA[TYPE ST_ModeSet :		// 운전 모드 전환 설정
+STRUCT
+	eToManual		: E_ModeSwitch := E_ModeSwitch.Standby;	// Auto → Manual 때 어디까지
+	eToAuto			: E_ModeSwitch := E_ModeSwitch.Zero;		// Manual → Auto 때 어디까지
+	tDelay			: TIME := T#400MS;						// 출력 0으로 둔 뒤 다음 단계까지
+	bKeepOnRestart	: BOOL;		// FALSE(기본) = PMS가 다시 켜지면 모든 유닛을 Manual로 시작 (요청 모드도 Manual로 씀. 정전 뒤 장비 투입은 운전원이 확인하고 함). TRUE = 저장된 요청 모드를 그대로 씀
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

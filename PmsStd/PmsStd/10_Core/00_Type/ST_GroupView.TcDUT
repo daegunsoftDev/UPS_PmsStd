@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_GroupView" Id="{45fecf1c-3ae2-4232-96ee-6b80a1f130d5}">
+    <Declaration><![CDATA[TYPE ST_GroupView :
+STRUCT
+	nGroup			: UINT;				// 제어 그룹 번호
+	eState			: E_GroupState;
+	stPcc			: ST_PccMeas;		// 접속점 계측
+	fPRatedSum		: REAL;				// kW, 그룹 유닛 정격 합 (가용과 관계없이 전부)
+	fQRatedSum		: REAL;				// kvar
+	nUnitAvail		: UINT;				// 가용 유닛 수
+	fPRatedAvail	: REAL;	// kW, 가용 유닛 P 한도 합 (정격 × Derate ∩ 유닛 제한 모듈. FB_EquipmentLimits 그룹 정격 줄)
+	fQRatedAvail	: REAL;	// kvar, 가용 유닛 Q 한도 합
+	fSRatedAvail	: REAL;	// kVA, 가용 유닛 피상전력 한도 합
+	fPChgMax	: REAL;	// kW, 배터리 기준 그룹 충전 한도 (양수. 버스 한도·버스 제한 모듈 반영, FB_EquipmentLimits 배터리 줄)
+	fPDisMax	: REAL;	// kW, 배터리 기준 그룹 방전 한도 (양수)
+	stSocMin		: ST_Val;			// %
+	stSocMax		: ST_Val;			// %
+	stSocAvg		: ST_Val;			// %
+	fCapacity		: REAL;				// kWh, 가용 유닛이 쓰는 배터리 그룹 용량 합 (BMS_CFG.fCapacity. 0 = 설정 안 함)
+	fPOut			: REAL;				// kW, 유닛 출력 합 (실측)
+	fQOut			: REAL;				// kvar
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

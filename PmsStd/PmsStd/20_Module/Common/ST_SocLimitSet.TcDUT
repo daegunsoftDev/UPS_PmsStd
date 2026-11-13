@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_SocLimitSet" Id="{564f38d5-c370-48f1-aa56-2740a7899808}">
+    <Declaration><![CDATA[TYPE ST_SocLimitSet :	// FB_SocLimit 설정 (운전 중 HMI로 바꿈. GVL_PERSIST.g_stModuleSet 칸 → MAIN이 매 스캔 넘김)
+STRUCT
+	fSocMax	: REAL := 95.0;	// %, 이 값 이상이면 충전 막음
+	fSocMin	: REAL := 5.0;	// %, 이 값 이하면 방전 막음
+	fBand	: REAL := 5.0;	// %, 한계 앞 이 폭에서 한도를 선형으로 줄임. 0 = 줄이지 않고 한계에서 막기만
+	fResumeMargin	: REAL := 2.0;	// %, 막은 뒤 한계에서 이만큼 돌아와야 다시 허용 (재개 마진)
+	bBlockOnInvalid	: BOOL := TRUE;	// SOC 무효면 충·방전 모두 막음
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

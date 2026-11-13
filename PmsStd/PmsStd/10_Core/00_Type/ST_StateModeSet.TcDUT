@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_StateModeSet" Id="{50b2045c-a83a-49b2-97fa-355633807c50}">
+    <Declaration><![CDATA[TYPE ST_StateModeSet :		// 지령원의 상태 요청을 명령마다 어느 운전 모드에서 받나 (Auto / Manual / Both / None). 리셋은 항상 받음
+STRUCT
+	stPcs		: ST_PcsCmdMode;	// PCS(유닛): Run·Standby·Stop·EStop
+	stBat		: ST_BatCmdMode;	// 배터리 그룹: 투입·개방
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

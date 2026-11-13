@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_RedSet" Id="{10106856-197e-4468-a809-b04ebb240acb}">
+    <Declaration><![CDATA[TYPE ST_RedSet :		// 이중화 설정 (GVL_SITE.RED_SET). 두 PLC에 같은 프로그램을 넣고, 역할은 이 PLC의 AMS Net ID로 정함
+STRUCT
+	bUse			: BOOL;			// FALSE(기본) = 이중화 안 씀: 이 PLC가 Primary이고 항상 장비에 씀
+	sPrimaryNetId	: T_AmsNetId;	// Primary PLC의 AMS Net ID (예 '5.69.107.242.1.1')
+	sSecondaryNetId	: T_AmsNetId;	// Secondary PLC의 AMS Net ID
+	tEapTimeout		: TIME := T#500MS;	// EAP 하트비트 카운터가 안 바뀌거나 Quality(갱신 안 된 시간)가 이 시간을 넘으면 EAP 끊김 (FB_RedPeerMonitor)
+	tWireTimeout	: TIME := T#500MS;	// 상대 접점(alive) 신호가 이 시간 안 바뀌면 접점 끊김
+	tTakeoverDelay	: TIME := T#500MS;	// 절체 안전 지연: 상대가 Lost로 판정된 뒤 Secondary가 이 시간 더 기다렸다가 Active가 됨
+	tFailbackStable	: TIME := T#10S;	// 복귀 조건: 상대(Secondary)와 통신이 이 시간 동안 계속 정상이어야 Primary가 Active를 넘겨받기 시작
+	tHandoverTimeout: TIME := T#3S;		// 넘겨받기를 시작한 뒤 이 시간 안에 상대가 Active를 내려놓지 않으면 포기하고 Standby로 돌아감
+	tWriteHold		: TIME := T#1S;		// Active가 된 뒤 이 시간이 지나야 장비에 씀 (승격 직후 값이 안정되기를 기다림)
+	tStartGrace		: TIME := T#3S;		// 시작 직후 이 시간 안에는 상대 신호를 못 봐도 Unknown (끊김으로 보지 않음)
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

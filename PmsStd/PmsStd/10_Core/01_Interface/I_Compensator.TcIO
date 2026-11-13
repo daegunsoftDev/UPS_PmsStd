@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_Compensator" Id="{773f04a9-ad59-43f9-9abd-8e0598413510}">
+    <Declaration><![CDATA[INTERFACE I_Compensator EXTENDS I_Module]]></Declaration>
+    <Method Name="M_Calc" Id="{22f575b0-1991-4edb-9b44-5ca76b8fa76d}">
+      <Declaration><![CDATA[METHOD M_Calc : ST_PQ			// 목표에 더할 보정량
+VAR_INPUT
+	i_stView	: ST_GroupView;
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

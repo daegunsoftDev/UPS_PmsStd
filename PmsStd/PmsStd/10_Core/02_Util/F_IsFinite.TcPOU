@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_IsFinite" Id="{999d8dc3-15ee-463b-833c-5ed39362049a}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_IsFinite : BOOL		// 실수가 보통 숫자인가 (NaN·무한대가 아님). 비트로만 봄
+// NaN을 크기 비교(<, >, <=, >=)하면 부동소수점 예외(SSE invalid operation)로 PLC가 멈춤 → 바깥에서 온 실수는 비교하기 전에 이것으로 먼저 거름
+VAR_INPUT
+	i_fValue	: REAL;
+END_VAR
+VAR
+	pBits		: POINTER TO DWORD;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[pBits := ADR(i_fValue);
+F_IsFinite := (pBits^ AND 16#7F800000) <> 16#7F800000;		// 지수 비트가 모두 1이면 NaN 또는 무한대]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

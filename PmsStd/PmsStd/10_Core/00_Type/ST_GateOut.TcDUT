@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_GateOut" Id="{3f305b63-abe9-4ad5-be89-bfabd449d337}">
+    <Declaration><![CDATA[TYPE ST_GateOut :	// Gate 결과: 성형·분배는 지령 값을, 디스패처·로그는 새 지령·거부·대기를 씀
+STRUCT
+	astUnitP		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;		// 거른 유닛별 값
+	astUnitQ		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	astGrpP			: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;		// 거른 그룹 값
+	astGrpQ			: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	abNew			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 새 지령을 받아들임 (Manual: 디스패처가 이 스캔에 바로 씀)
+	aeRefuse		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_CmdRefuse;	// 마지막으로 무시한 이유 (받아들이면 None)
+	anRefuseModule	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;		// 무시한 지령을 낸 모듈 ID
+	abWaitNewCmd	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 새 지령이 올 때까지 출력 0 (Manual)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

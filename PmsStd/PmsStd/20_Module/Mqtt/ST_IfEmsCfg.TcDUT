@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_IfEmsCfg" Id="{be26101c-a07c-4da6-bdcf-e01ced1affef}">
+    <Declaration><![CDATA[TYPE ST_IfEmsCfg :		// MQTT → MAIN config 칸 (GVL_IF.g_stEmsCfg). 쓰는 곳: PRG_Mqtt, 읽는 곳: FB_EmsConfigApply [9-21 수정 2026-11-04: 추가]
+STRUCT
+	astPcs		: ARRAY[1..GVL_PARAM.PCS_COUNT] OF ST_PcsConfig_Rx;	// 마지막으로 받은 config/pcs 레코드 (칸 = PCS 번호 = DeviceId + 1)
+	anPcsSeq	: ARRAY[1..GVL_PARAM.PCS_COUNT] OF UDINT;			// 그 칸에 새 레코드가 들어올 때마다 1 올림 (0 = 한 번도 못 받음)
+	astBat		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatConfig_Rx;	// 마지막으로 받은 config/bat 레코드 (칸 = BMS 번호 = DeviceId + 1)
+	anBatSeq	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF UDINT;
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

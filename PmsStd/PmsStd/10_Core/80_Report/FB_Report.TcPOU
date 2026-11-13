@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_Report" Id="{081a6557-4ba7-405d-8d79-766dd1897094}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Report		// 보고 자리: 코어 결과 → 상위 인터페이스(토탈 인터페이스) 매핑. 보고 전용, 제어는 이 값을 읽지 않음 (R6)
+VAR_IN_OUT CONSTANT
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	iq_astBms		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatState;
+	iq_astView		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupView;
+	iq_astAutoPDiag	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_OutputDiag;
+	iq_aeUnitSeq	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_UnitSeq;
+	iq_astWritten	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_PQ;
+END_VAR
+(* 출력: 인터페이스 구조체가 정해지면 VAR_IN_OUT으로 받아서 채움 *)]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* TODO: 인터페이스 매핑 (인터페이스 버전 확정 후) *)
+;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

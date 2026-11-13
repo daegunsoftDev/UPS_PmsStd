@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_LogAlarm" Id="{1629b1d9-3539-44aa-b6dc-719518bf74c8}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_LogAlarm		// 알람 하나: 켜질 때 발생 1회, 꺼질 때 해소 1회. 인자는 발생할 때 한 번 넣음
+VAR_INPUT
+	i_stEntry		: TcEventEntry;		// 등록한 이벤트 (TC_EVENTS.클래스.이벤트). 심각도는 처음 만들 때 값
+	i_bActive		: BOOL;
+	i_nArgs			: UINT;				// 인자 수 (0~6)
+	i_asArg			: ARRAY[1..6] OF WSTRING(63);
+END_VAR
+VAR_OUTPUT
+	q_bRaised		: BOOL;				// 지금 발생 중 (호출 전에 이 값과 i_bActive가 다를 때만 인자를 만들면 됨)
+END_VAR
+VAR
+	_fbAlarm		: FB_TcAlarm;
+	_bInit			: BOOL;
+END_VAR
+VAR_TEMP
+	k				: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF NOT _bInit THEN
+	_fbAlarm.CreateEx(stEventEntry := i_stEntry, bWithConfirmation := FALSE, ipSourceInfo := 0);
+	_bInit := TRUE;
+END_IF
+
+IF i_bActive AND NOT q_bRaised THEN
+	_fbAlarm.ipArguments.Clear();
+	FOR k := 1 TO MIN(i_nArgs, 6) DO
+		_fbAlarm.ipArguments.AddWString(i_asArg[k]);
+	END_FOR
+	_fbAlarm.Raise(0);
+	q_bRaised := TRUE;
+ELSIF NOT i_bActive AND q_bRaised THEN
+	_fbAlarm.Clear(0, FALSE);
+	q_bRaised := FALSE;
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

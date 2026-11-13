@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Task Name="MqttTask" Id="{2f881ef1-257c-4f5d-b008-4ab7ae90f80a}">
+    <!--CycleTime in micro seconds.-->
+    <CycleTime>10000</CycleTime>
+    <Priority>30</Priority>
+    <PouCall>
+      <Name>PRG_Mqtt</Name>
+    </PouCall>
+    <TaskFBGuid>{1cf83427-df4d-4222-8324-3aed1ecad242}</TaskFBGuid>
+    <Fb_init>{c34f1a2f-ac26-4065-bbee-86bed2424edd}</Fb_init>
+    <Fb_exit>{9cbb5a78-46ab-4235-b2fd-7a288024839b}</Fb_exit>
+    <CycleUpdate>{c648a98d-b1a5-47bc-bcd7-e54f6d848cef}</CycleUpdate>
+    <PostCycleUpdate>{e0f809ec-79f2-469a-a5ad-6ec09567150b}</PostCycleUpdate>
+  </Task>
+</TcPlcObject>

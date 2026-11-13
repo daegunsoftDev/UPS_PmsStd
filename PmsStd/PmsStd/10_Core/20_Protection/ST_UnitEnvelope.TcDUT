@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_UnitEnvelope" Id="{dc75b295-3ccd-42ce-8aff-4450fb8e91c2}">
+    <Declaration><![CDATA[TYPE ST_UnitEnvelope :	// 유닛 설비 한도 (FB_EquipmentLimits). 가용·운전 상태와 관계없는 장비 한도
+STRUCT
+	stP	: ST_Range;	// kW. 정격 × Derate ∩ 유닛 제한 모듈 (모듈 0 = 코어). 0은 항상 범위 안
+	stQ	: ST_Range;	// kvar
+	stPRule	: ST_Range;	// kW. 유닛 제한 모듈만 (Manual 정책 bRating을 끈 유닛에 씀)
+	stQRule	: ST_Range;	// kvar
+	fSMax	: REAL;	// kVA, 피상전력 한도 = MIN(정격 S, √(보호 P 상한² + 보호 Q 상한²))
+	bDerated	: BOOL;	// 보호 Derate 걸림
+	ePMaxBy	: E_UnitLimitBy;	// P 상한을 정한 것: Rating / Derate / UnitRule
+	ePMinBy	: E_UnitLimitBy;	// P 하한을 정한 것
+	eQMaxBy	: E_UnitLimitBy;
+	eQMinBy	: E_UnitLimitBy;
+	bResume	: BOOL;	// 유닛 제한 모듈이 재개 중
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

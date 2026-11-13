@@ -1,0 +1,264 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="PRG_TestUnitLive" Id="{fd9f1d61-e8c0-4e01-a1d0-2c4c3d3c6e0b}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_TestUnitLive		// PCS별 제어 모드 실제 경로 시험 (시험 모드, MAIN이 부름): PCS1·PCS2에 서로 다른 시간표·모드를 넣고 가상 PCS 실제 출력을 PCS마다 판정
+// bStart := TRUE로 시작. 두 PCS Auto → 배터리 투입 → Run → 둘 다 스케줄 모드. 부하 모델 1000 kW (접속점 P = 그룹 출력 - 1000)
+// 두 PCS가 같은 배터리 그룹(DC 버스)을 쓰므로 모두 방전 쪽 값으로 시험 (한 버스에서 충전·방전이 섞이면 코어가 순 방향 반대쪽을 0으로 둠)
+// A: PCS1 시간표 +200, PCS2 시간표 +100 (같은 시각, 다른 시간표)
+// B: PCS2만 정출력 +150으로 바꿈 → PCS1은 그대로 +200
+// C: PCS2 시간표 +600, 접속점 몫 ByRating (부하 1000 × 0.5 = 500) → 역송 방지 (500 - 10) × 0.95 = 465.5
+// D: PCS2 접속점 Actual (실측: 부하 = PCS2 출력 - 접속점 P = 1000 - PCS1 출력 = 800 → 상한 750.5) → 시간표 +600 그대로
+// 조건이 5 s 이어지면 통과. 시험 동안만 방전 허용 시간 끔 (PLC 시계가 UTC). 끝나면 설정·모드를 되돌리고 PCS 정지
+VAR
+	bStart		: BOOL;				// TRUE로 쓰면 시작
+	bDone		: BOOL;
+	bPass		: BOOL;
+	nStep		: UINT;
+	wsStep		: WSTRING(80);
+	wsFail		: WSTRING(80);
+	(* 지금 값 *)
+	stNow		: ST_LocalTime;
+	nAct1		: UINT;				// PCS1 관리자 켜진 모드 (1 정출력, 2 스케줄)
+	nAct2		: UINT;
+	fMgr1		: REAL;				// PCS1 관리자 지령 (유닛 1 칸, kW)
+	fMgr2		: REAL;
+	fPcc1		: REAL;				// PCS1 모드가 본 접속점 P (kW)
+	fPcc2		: REAL;
+	fU1			: REAL;				// 가상 PCS1 실제 출력 (kW, 방전 +)
+	fU2			: REAL;
+	eRun1		: E_RunState;
+	eRun2		: E_RunState;
+	fPccReal	: REAL;				// 접속점 P (부하 모델, 공급 +)
+	fLoadSim	: REAL := 1000.0;	// kW, 부하 모델
+	bLoadSim	: BOOL;
+	(* 판정 (구간마다 통과 때 값) *)
+	bA			: BOOL;
+	bB			: BOOL;
+	bC			: BOOL;
+	bD			: BOOL;
+	fA1			: REAL;
+	fA2			: REAL;
+	fB1			: REAL;
+	fB2			: REAL;
+	fC1			: REAL;
+	fC2			: REAL;
+	fD1			: REAL;
+	fD2			: REAL;
+	(* 내부 *)
+	nU2			: UINT := 2;		// 유닛 2 번호 (변수로 둠: UNIT_COUNT가 1이어도 빌드되게, 실행 때 검사)
+	nSeason		: UINT;
+	nMin		: UINT;
+	nWinStart	: UINT;
+	nWinEnd		: UINT;
+	k			: UINT;
+	bCond		: BOOL;
+	nLastStep	: UINT;
+	tonStep		: TON;
+	tonOk		: TON;
+	bBackedUp	: BOOL;
+	stCommonBak	: ST_CmCommonSet;
+	stSch1Bak	: ST_CmScheduleSet;
+	stSch2Bak	: ST_CmScheduleSet;
+	stCm1Bak	: ST_CtrlModeSet;
+	stCm2Bak	: ST_CtrlModeSet;
+	stConst2Bak	: ST_CmConstPowerSet;
+	stVirtBak	: ST_VirtualSet;
+	stOut1		: ST_SourceOutput;
+	stOut2		: ST_SourceOutput;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// 지금 값
+stNow	:= MAIN.fbClock.q_stTime;
+nAct1	:= GVL_SITE.g_fbCtrlMode1.q_nActive;
+nAct2	:= GVL_SITE.g_fbCtrlMode2.q_nActive;
+fPcc1	:= GVL_SITE.g_fbCtrlMode1.q_fPccP;
+fPcc2	:= GVL_SITE.g_fbCtrlMode2.q_fPccP;
+stOut1	:= GVL_SITE.g_fbCtrlMode1.Output;
+stOut2	:= GVL_SITE.g_fbCtrlMode2.Output;
+fMgr1	:= stOut1.astUnit[1].fPSet;
+fU1		:= MAIN.fbSnapshot.q_astUnit[1].stP.fValue;
+eRun1	:= MAIN.fbSnapshot.q_astUnit[1].eRunState;
+IF nU2 >= 1 AND nU2 <= GVL_PARAM.UNIT_COUNT THEN
+	fMgr2	:= stOut2.astUnit[nU2].fPSet;
+	fU2		:= MAIN.fbSnapshot.q_astUnit[nU2].stP.fValue;
+	eRun2	:= MAIN.fbSnapshot.q_astUnit[nU2].eRunState;
+END_IF
+// 부하 모델: 접속점 P (공급 +) = 그룹 출력 - 부하
+fPccReal := MAIN.fbGroupView.q_astView[1].fPOut - fLoadSim;
+IF bLoadSim THEN
+	GVL_TEST.g_astVirtual[1].bPEna	:= TRUE;
+	GVL_TEST.g_astVirtual[1].fP		:= fPccReal;
+END_IF
+nMin		:= stNow.nHour * 60 + stNow.nMinute;
+
+tonStep(IN := nStep >= 20 AND nStep < 900, PT := T#120S);
+bCond := FALSE;
+
+CASE nStep OF
+	0:
+		IF bStart THEN
+			bStart := FALSE;	bDone := FALSE;	bPass := FALSE;	wsFail := "";
+			bA := FALSE;	bB := FALSE;	bC := FALSE;	bD := FALSE;
+			nStep := 10;
+		ELSIF NOT bDone THEN
+			wsStep := "대기: bStart := TRUE로 시작";
+		END_IF
+
+	10:	// 준비: 두 PCS 시간표 (지금 ~ +20분), 공통 설정, 부하 모델, Auto
+		wsStep := "설정 준비";
+		IF nU2 > GVL_PARAM.UNIT_COUNT THEN
+			wsFail := "유닛(PCS)이 2개 이상이어야 함";
+			nStep := 900;
+		ELSIF NOT stNow.bValid OR stNow.nMonth < 1 OR stNow.nMonth > 12 OR stNow.nDay < 1 OR stNow.nDay > 31 OR stNow.nDayOfWeek > 6 THEN
+			wsFail := "PLC 시각 무효";
+			nStep := 900;
+		ELSIF nMin + 20 >= 1440 THEN
+			wsFail := "자정 가까움: 20분 뒤 다시";
+			nStep := 900;
+		ELSE
+			stCommonBak	:= GVL_PERSIST.g_stModuleSet.stCmCommon;
+			stSch1Bak	:= GVL_PERSIST.g_stModuleSet.stCmSchedule1;
+			stSch2Bak	:= GVL_PERSIST.g_stModuleSet.stCmSchedule2;
+			stCm1Bak	:= GVL_PERSIST.g_stModuleSet.stCtrlMode1;
+			stCm2Bak	:= GVL_PERSIST.g_stModuleSet.stCtrlMode2;
+			stConst2Bak	:= GVL_PERSIST.g_stModuleSet.stCmConstP2;
+			stVirtBak	:= GVL_TEST.g_astVirtual[1];
+			bBackedUp	:= TRUE;
+			GVL_PERSIST.g_stModuleSet.stCmCommon.stDis.bUse := FALSE;
+			GVL_PERSIST.g_stModuleSet.stCmCommon.abHoliday[stNow.nMonth, stNow.nDay] := FALSE;
+			GVL_PERSIST.g_stModuleSet.stCtrlMode1.ePccShare	:= E_PccShare.ByRating;
+			GVL_PERSIST.g_stModuleSet.stCtrlMode2.ePccShare	:= E_PccShare.ByRating;
+			GVL_PERSIST.g_stModuleSet.stCmConstP2.fPSet		:= 150.0;
+			GVL_PERSIST.g_stModuleSet.stCmConstP2.bQSet		:= FALSE;
+			GVL_PERSIST.g_stModuleSet.stCmConstP2.tDuration	:= T#0S;
+			nSeason := GVL_PERSIST.g_stModuleSet.stCmCommon.anSeasonOfMonth[stNow.nMonth];
+			IF nSeason > 2 THEN
+				nSeason := 0;
+			END_IF
+			nWinStart	:= (nMin / 60) * 100 + nMin MOD 60;
+			nWinEnd		:= ((nMin + 20) / 60) * 100 + (nMin + 20) MOD 60;
+			FOR k := 1 TO GVL_PARAM.SCHED_SLOT_COUNT DO
+				GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, k].nStart	:= 0;
+				GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, k].nEnd		:= 0;
+				GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, k].fP		:= 0.0;
+				GVL_PERSIST.g_stModuleSet.stCmSchedule2.astSlot[nSeason, stNow.nDayOfWeek, k].nStart	:= 0;
+				GVL_PERSIST.g_stModuleSet.stCmSchedule2.astSlot[nSeason, stNow.nDayOfWeek, k].nEnd		:= 0;
+				GVL_PERSIST.g_stModuleSet.stCmSchedule2.astSlot[nSeason, stNow.nDayOfWeek, k].fP		:= 0.0;
+			END_FOR
+			GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, 1].nStart	:= nWinStart;
+			GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, 1].nEnd		:= nWinEnd;
+			GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, 1].fP		:= 200.0;
+			GVL_PERSIST.g_stModuleSet.stCmSchedule2.astSlot[nSeason, stNow.nDayOfWeek, 1].nStart	:= nWinStart;
+			GVL_PERSIST.g_stModuleSet.stCmSchedule2.astSlot[nSeason, stNow.nDayOfWeek, 1].nEnd		:= nWinEnd;
+			GVL_PERSIST.g_stModuleSet.stCmSchedule2.astSlot[nSeason, stNow.nDayOfWeek, 1].fP		:= 100.0;
+			fLoadSim	:= 1000.0;
+			bLoadSim	:= TRUE;
+			GVL_PERSIST.g_aeOpMode[1]	:= E_OpMode.Auto;
+			GVL_PERSIST.g_aeOpMode[nU2]	:= E_OpMode.Auto;
+			nStep := 20;
+		END_IF
+
+	20:
+		wsStep := "Auto 전환 대기 (PCS1·PCS2)";
+		IF MAIN.fbModeSwitch.q_aeOpMode[1] = E_OpMode.Auto AND MAIN.fbModeSwitch.q_aeOpMode[nU2] = E_OpMode.Auto THEN
+			GVL_SITE.g_fbSrcTest.i_nBatGroup	:= 0;
+			GVL_SITE.g_fbSrcTest.i_eBatReq		:= E_BatCmd.Close;
+			nStep := 30;
+		END_IF
+	30:
+		wsStep := "배터리 투입 대기";
+		IF MAIN.fbBatGroup.q_astBatGroup[1].bReady THEN
+			GVL_SITE.g_fbSrcTest.i_nPcsUnit	:= 0;
+			GVL_SITE.g_fbSrcTest.i_ePcsReq	:= E_PcsCmd.Run;
+			nStep := 40;
+		END_IF
+	40:
+		wsStep := "PCS1·PCS2 Run 대기";
+		IF eRun1 = E_RunState.Run AND eRun2 = E_RunState.Run THEN
+			GVL_SITE.g_fbCtrlMode1.i_nModeReq := 2;
+			GVL_SITE.g_fbCtrlMode2.i_nModeReq := 2;
+			nStep := 50;
+		END_IF
+	50:
+		wsStep := "두 PCS 스케줄 모드 켜는 중";
+		IF nAct1 = 2 AND nAct2 = 2 THEN
+			nStep := 100;
+		END_IF
+
+	100: // A: 같은 시각, PCS마다 다른 시간표
+		wsStep := "A: PCS1 시간표 +200, PCS2 시간표 +100";
+		bCond := nAct1 = 2 AND nAct2 = 2 AND ABS(fMgr1 - 200.0) < 0.5 AND ABS(fMgr2 - 100.0) < 0.5 AND ABS(fU1 - 200.0) < 5.0 AND ABS(fU2 - 100.0) < 5.0;
+		IF tonOk.Q THEN
+			bA := TRUE;	fA1 := fU1;	fA2 := fU2;
+			GVL_SITE.g_fbCtrlMode2.i_nModeReq := 1;
+			nStep := 110;
+		END_IF
+	110: // B: PCS2만 정출력
+		wsStep := "B: PCS2 정출력 +150, PCS1 그대로 +200";
+		bCond := nAct1 = 2 AND nAct2 = 1 AND ABS(fMgr2 - 150.0) < 0.5 AND ABS(fU2 - 150.0) < 5.0 AND ABS(fU1 - 200.0) < 5.0;
+		IF tonOk.Q THEN
+			bB := TRUE;	fB1 := fU1;	fB2 := fU2;
+			GVL_PERSIST.g_stModuleSet.stCmSchedule2.astSlot[nSeason, stNow.nDayOfWeek, 1].fP := 600.0;
+			GVL_SITE.g_fbCtrlMode2.i_nModeReq := 2;
+			nStep := 120;
+		END_IF
+	120: // C: 접속점 몫 (ByRating) → 역송 방지 상한
+		wsStep := "C: PCS2 +600, 몫 부하 500 → 465.5";
+		bCond := nAct1 = 2 AND nAct2 = 2 AND ABS(fMgr2 - 465.5) < 1.0 AND ABS(fU2 - 465.5) < 5.0 AND ABS(fU1 - 200.0) < 5.0;
+		IF tonOk.Q THEN
+			bC := TRUE;	fC1 := fU1;	fC2 := fU2;
+			GVL_PERSIST.g_stModuleSet.stCtrlMode2.ePccShare := E_PccShare.Actual;
+			nStep := 130;
+		END_IF
+	130: // D: 접속점 실측 (Actual)
+		wsStep := "D: PCS2 접속점 실측 → +600";
+		bCond := nAct1 = 2 AND nAct2 = 2 AND ABS(fMgr2 - 600.0) < 0.5 AND ABS(fU2 - 600.0) < 5.0 AND ABS(fU1 - 200.0) < 5.0;
+		IF tonOk.Q THEN
+			bD := TRUE;	fD1 := fU1;	fD2 := fU2;
+			nStep := 900;
+		END_IF
+
+	900: // 정리
+		GVL_SITE.g_fbCtrlMode1.i_nModeReq	:= 0;
+		GVL_SITE.g_fbCtrlMode2.i_nModeReq	:= 0;
+		GVL_SITE.g_fbSrcTest.i_nPcsUnit		:= 0;
+		GVL_SITE.g_fbSrcTest.i_ePcsReq		:= E_PcsCmd.Stop;
+		bLoadSim := FALSE;
+		IF bBackedUp THEN
+			GVL_PERSIST.g_stModuleSet.stCmCommon	:= stCommonBak;
+			GVL_PERSIST.g_stModuleSet.stCmSchedule1	:= stSch1Bak;
+			GVL_PERSIST.g_stModuleSet.stCmSchedule2	:= stSch2Bak;
+			GVL_PERSIST.g_stModuleSet.stCtrlMode1	:= stCm1Bak;
+			GVL_PERSIST.g_stModuleSet.stCtrlMode2	:= stCm2Bak;
+			GVL_PERSIST.g_stModuleSet.stCmConstP2	:= stConst2Bak;
+			GVL_TEST.g_astVirtual[1]				:= stVirtBak;
+			bBackedUp := FALSE;
+		END_IF
+		GVL_PERSIST.g_aeOpMode[1] := E_OpMode.Manual;
+		IF nU2 <= GVL_PARAM.UNIT_COUNT THEN
+			GVL_PERSIST.g_aeOpMode[nU2] := E_OpMode.Manual;
+		END_IF
+		bPass := bA AND bB AND bC AND bD AND wsFail = "";
+		bDone := TRUE;
+		IF bPass THEN
+			wsStep := "끝: 통과";
+		ELSE
+			wsStep := "끝: 실패 (wsFail·구간 결과 확인)";
+		END_IF
+		nStep := 0;
+END_CASE
+
+// 조건이 5 s 이어지면 통과 (단계가 바뀌면 다시 셈)
+tonOk(IN := bCond AND nStep = nLastStep, PT := T#5S);
+IF tonStep.Q AND nStep >= 20 AND nStep < 900 THEN
+	wsFail	:= WCONCAT("시간 초과: ", wsStep);
+	nStep	:= 900;
+END_IF
+IF nStep <> nLastStep THEN
+	tonStep(IN := FALSE);
+	tonOk(IN := FALSE);
+	nLastStep := nStep;
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

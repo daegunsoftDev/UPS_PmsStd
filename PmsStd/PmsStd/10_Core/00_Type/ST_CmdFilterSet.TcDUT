@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CmdFilterSet" Id="{77dbfb56-e40b-4667-8553-4fc73bc5b235}">
+    <Declaration><![CDATA[TYPE ST_CmdFilterSet :		// 명령 필터 설정 (FB_Select, Auto·Manual 공통). Manual 전용은 ST_ManualCmdSet
+STRUCT
+	(* 이상값: NaN·무한대는 항상 무시. 켜면 정격 × 배수를 넘는 값도 무시 (Auto·Manual) *)
+	bBadValue		: BOOL := TRUE;
+	fBadFactor		: REAL := 1.5;			// 그룹 값은 그룹 유닛 정격 합, 유닛별 값은 유닛 정격 기준
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

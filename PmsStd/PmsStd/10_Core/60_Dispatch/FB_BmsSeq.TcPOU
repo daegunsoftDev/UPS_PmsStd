@@ -1,0 +1,145 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_BmsSeq" Id="{fd01772f-3ad0-46d6-828c-18d187f1cb5e}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_BmsSeq		// BMS 하나의 접촉기: 투입은 요청·기동이 있을 때만, 개방·비상정지는 버스 유닛 정지 뒤. 보호 명령만 재시도, 실패는 알람만 (잠그지 않음)
+VAR_INPUT
+	i_bWantClose	: BOOL;			// 자동 투입 조건 (순서 기동 중인 유닛 있음, 투입 시점 OnStart)
+	i_bCloseReq		: BOOL;			// 지령원 BatClose 요청 (이번 스캔)
+	i_bOpenReq		: BOOL;			// 지령원 BatOpen 또는 정지 시 개방 (FB_BatRequest가 버스 유닛 정지를 이미 확인)
+	i_eProtAction	: E_BatAction;	// 보호 조치
+	i_bUnitsStopped	: BOOL;			// 같은 버스 유닛이 모두 정지 (보호 기준: Stop·Fault 보고 또는 통신 끊김)
+	i_bUsable		: BOOL;			// 통신·고장·시스템 정지·보호 이상 없음
+	i_stBms			: ST_BatState;
+	i_bReset		: BOOL;			// 고장 리셋: 상승 에지에 BMS가 고장이면 고장 리셋 명령 1회 (PMS 상태는 바꾸지 않음)
+	i_stSet			: ST_BatSeqSet;
+	i_bCmdEnable	: BOOL := TRUE;	// FALSE = 설정 오류: 명령을 만들지 않음
+END_VAR
+VAR_OUTPUT
+	q_stCmd			: ST_BatCmd;
+	q_bClosed		: BOOL;
+	q_eFailCmd		: E_BatCmd;		// 확인되지 않은 명령 (투입, 또는 재시도를 다 쓴 보호 개방·비상정지). 알람만. 투입 요청·새 기동·보호 변경으로 지움. None = 실패 없음
+END_VAR
+VAR
+	_nCmdSeq		: UDINT;
+	_ePending		: E_BatCmd;		// 확인 중인 명령
+	_bRetry			: BOOL;			// 확인 중인 명령을 재시도함 (보호 명령)
+	_nTries			: UINT;
+	_tonConfirm		: TON;
+	_eLastProt		: E_BatAction;
+	_bProtNoComm	: BOOL;			// 보호가 걸린 동안 통신이 끊긴 적 있음: 통신이 돌아오면 1회만 보냄 (재시도 없음)
+	_rtWantClose	: R_TRIG;		// 새 기동 (투입 실패 뒤 다시 투입할 수 있음)
+	_rtReset		: R_TRIG;
+	_bResetReq		: BOOL;			// 고장 리셋 보낼 차례 기다림 (같은 스캔 다른 명령·진행 중인 개방이 먼저)
+END_VAR
+VAR_TEMP
+	bOpened			: BOOL;			// 개방 확인: 통신이 있고 접촉기 열림 (통신 끊김은 개방 확인 아님)
+	eProtCmd		: E_BatCmd;		// 보호 조치를 명령으로
+	nSeqBefore		: UDINT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[q_bClosed	:= i_stBms.bComm AND i_stBms.bContactorClosed;
+bOpened		:= i_stBms.bComm AND NOT i_stBms.bContactorClosed;
+_rtReset(CLK := i_bReset);
+_rtWantClose(CLK := i_bWantClose);
+CASE i_eProtAction OF
+	E_BatAction.Stop:	eProtCmd := E_BatCmd.Open;
+	E_BatAction.EStop:	eProtCmd := E_BatCmd.EStop;
+ELSE
+	eProtCmd := E_BatCmd.None;
+END_CASE
+IF eProtCmd = E_BatCmd.None THEN
+	_bProtNoComm := FALSE;
+ELSIF NOT i_stBms.bComm THEN
+	_bProtNoComm := TRUE;
+END_IF
+// 실패 표시 지우기: 투입 요청, 새 기동, 보호 조치가 바뀌면 (다시 보낼 수 있음)
+IF i_bCloseReq OR _rtWantClose.Q OR i_eProtAction <> _eLastProt THEN
+	q_eFailCmd := E_BatCmd.None;
+END_IF
+_eLastProt := i_eProtAction;
+IF NOT i_bCmdEnable THEN
+	_ePending := E_BatCmd.None;		// 설정 오류: 명령을 만들지 않음
+	_tonConfirm(IN := FALSE);
+	_bResetReq := FALSE;
+ELSE
+nSeqBefore := _nCmdSeq;
+(* 1) 보낸 명령 확인: 바뀌면 끝. 안 바뀌면 보호 명령만 재시도, 나머지는 실패 알람 *)
+IF _ePending <> E_BatCmd.None THEN
+	IF (_ePending = E_BatCmd.Close AND q_bClosed) OR (_ePending <> E_BatCmd.Close AND bOpened) THEN
+		_ePending	:= E_BatCmd.None;
+		_nTries		:= 0;
+	ELSE
+		IF _ePending = E_BatCmd.Close THEN
+			_tonConfirm(IN := TRUE, PT := i_stSet.tConfirm);
+		ELSE
+			_tonConfirm(IN := TRUE, PT := i_stSet.tOpenRetry);
+		END_IF
+		IF _ePending = eProtCmd AND NOT _bProtNoComm THEN
+			_bRetry := TRUE;		// 보호가 같은 명령을 원하면 재시도로 바꿈
+		END_IF
+		IF _tonConfirm.Q THEN
+			IF _bRetry AND _nTries < i_stSet.nOpenRetry THEN
+				IF i_stBms.bComm THEN		// 통신이 끊기면 기다렸다가 이어서 보냄
+					M_SendCmdAndStartConfirm(_ePending, TRUE);
+				END_IF
+			ELSE
+				q_eFailCmd	:= _ePending;		// 실패 알람만 (잠그지 않음). 같은 명령은 실패를 지울 때까지 다시 보내지 않음
+				_ePending	:= E_BatCmd.None;
+			END_IF
+		END_IF
+	END_IF
+END_IF
+(* 2) 보내기 *)
+IF eProtCmd <> E_BatCmd.None THEN
+	// 보호 개방·비상정지: 버스 유닛이 멈춘 뒤 (비상정지도 같음). 보호 중에는 투입하지 않음
+	IF q_bClosed AND i_bUnitsStopped AND _ePending <> eProtCmd AND q_eFailCmd <> eProtCmd THEN
+		M_SendCmdAndStartConfirm(eProtCmd, NOT _bProtNoComm);
+	END_IF
+ELSIF i_bOpenReq THEN
+	IF q_bClosed AND _ePending <> E_BatCmd.Open AND q_eFailCmd <> E_BatCmd.Open THEN
+		M_SendCmdAndStartConfirm(E_BatCmd.Open, FALSE);
+	END_IF
+ELSIF (i_bWantClose OR i_bCloseReq) AND NOT q_bClosed AND i_bUsable
+		AND _ePending = E_BatCmd.None AND q_eFailCmd <> E_BatCmd.Close THEN
+	M_SendCmdAndStartConfirm(E_BatCmd.Close, FALSE);
+END_IF
+(* 3) 고장 리셋: BMS가 고장이면 고장 리셋 명령 1회 (확인·재시도 없음)
+   보호가 걸려 있어도 보냄. 단, 이번 스캔에 다른 명령을 보냈거나 개방이 진행 중이면 그게 끝난 뒤 보냄 *)
+IF _rtReset.Q THEN
+	_bResetReq := TRUE;
+END_IF
+IF _bResetReq THEN
+	IF NOT i_stBms.bComm OR NOT i_stBms.bFault THEN
+		_bResetReq := FALSE;		// 리셋할 고장 없음 (또는 통신 없음)
+	ELSIF _nCmdSeq = nSeqBefore AND (_ePending = E_BatCmd.None OR _ePending = E_BatCmd.Close) THEN
+		_nCmdSeq		:= _nCmdSeq + 1;
+		q_stCmd.eCmd	:= E_BatCmd.Reset;
+		q_stCmd.nSeq	:= _nCmdSeq;
+		_bResetReq		:= FALSE;
+	END_IF
+END_IF
+END_IF		// i_bCmdEnable]]></ST>
+    </Implementation>
+    <Method Name="M_SendCmdAndStartConfirm" Id="{07425e33-cf8d-4e76-aafd-106e8ec899df}">
+      <Declaration><![CDATA[METHOD PRIVATE M_SendCmdAndStartConfirm	// 명령 1회 보내고 확인 시작
+VAR_INPUT
+	i_eCmd		: E_BatCmd;
+	i_bRetry	: BOOL;		// 확인되지 않으면 재시도 (보호 명령)
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_eCmd = _ePending THEN
+	_nTries := _nTries + 1;
+ELSE
+	_nTries := 0;
+END_IF
+_nCmdSeq		:= _nCmdSeq + 1;
+q_stCmd.eCmd	:= i_eCmd;
+q_stCmd.nSeq	:= _nCmdSeq;
+_ePending		:= i_eCmd;
+_bRetry			:= i_bRetry;
+_tonConfirm(IN := FALSE);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

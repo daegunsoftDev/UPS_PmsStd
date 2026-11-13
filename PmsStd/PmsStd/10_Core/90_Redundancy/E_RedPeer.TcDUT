@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_RedPeer" Id="{7d8ec77e-daed-4da9-bb40-c130010afc92}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_RedPeer :		// 상대 PLC 상태 (EAP 하트비트 + 접점 신호로 판정. FB_RedPeerMonitor)
+(
+	Unknown		:= 0,	// 시작 직후: 아직 어느 쪽 신호도 못 봤고 시작 대기(tStartGrace) 안
+	Alive		:= 1,	// EAP·접점 둘 다 살아 있음
+	EapLost		:= 2,	// 접점만 살아 있음 = 통신(EAP) 고장. 상대는 살아 있음 (절체 조건 아님)
+	WireLost	:= 3,	// EAP만 살아 있음 = 접점(배선) 고장. 상대는 살아 있음 (절체 조건 아님)
+	Lost		:= 4	// 둘 다 끊김 = 상대 정지로 봄 (절체 조건)
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

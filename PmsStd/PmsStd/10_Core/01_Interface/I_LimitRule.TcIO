@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_LimitRule" Id="{d84dd1d2-3765-40db-b311-784681c8bb38}">
+    <Declaration><![CDATA[INTERFACE I_LimitRule EXTENDS I_Module]]></Declaration>
+    <Property Name="Basis" Id="{7e2e51b1-be04-4b42-8fc9-efb5dd7a9906}">
+      <Declaration><![CDATA[PROPERTY Basis : E_LimitBasis]]></Declaration>
+      <Get Name="Get" Id="{f2074f08-94cc-4dfa-a33f-1fe1209e96a3}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="M_Evaluate" Id="{52682d66-04cd-4425-827f-c4a657b815a7}">
+      <Declaration><![CDATA[METHOD M_Evaluate : ST_LimitOut
+VAR_INPUT
+	i_stView	: ST_GroupView;
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

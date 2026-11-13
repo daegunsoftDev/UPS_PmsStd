@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_TxtBatAction" Id="{cfed389d-75ae-454c-aeef-0bf0e95a18a9}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_TxtBatAction : WSTRING(31)		// 배터리 조치 문구
+VAR_INPUT
+	i_e		: E_BatAction;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_e OF
+	E_BatAction.None:	F_TxtBatAction := "조치 없음";
+	E_BatAction.Stop:	F_TxtBatAction := "개방";
+	E_BatAction.EStop:	F_TxtBatAction := "비상정지";
+ELSE
+	F_TxtBatAction := "?";
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

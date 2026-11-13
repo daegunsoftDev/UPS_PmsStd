@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_UnitState" Id="{15ff7a9e-6b59-4f4c-8ea2-d8a80484f087}">
+    <Declaration><![CDATA[TYPE ST_UnitState :
+STRUCT
+	bComm		: BOOL;			// 통신 정상
+	eRunState	: E_RunState;
+	bCtrlReady	: BOOL := TRUE;	// PMS 제어를 받을 수 있는 상태 (리모트). 리모트 신호가 없는 장비는 드라이버가 건드리지 않음 → 리모트로 봄
+	bFault		: BOOL;
+	bWriteFail	: BOOL;			// 장비 쓰기(명령·지령)가 잇달아 실패함 (드라이버가 FB_DeviceBase.M_MarkWriteResult로 판단해 채움)
+	stP			: ST_Val;		// kW
+	stQ			: ST_Val;		// kvar
+	eGridMode	: E_GridMode := E_GridMode.Gfl;	// 계통 제어 방식 (드라이버가 채움, 화면·로그용). 모르는 장비는 드라이버가 건드리지 않음 → GFL로 봄
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

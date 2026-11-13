@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ReadTimer" Id="{76738fa1-4b02-49cb-b86c-c4be7ba424c9}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ReadTimer		// 읽기 주기 타이머: 읽을 때가 되면 그 스캔만 q_bDue = TRUE. 처음 호출 때 바로 TRUE
+VAR_INPUT
+	i_tPeriod		: TIME := T#200MS;	// 읽기 주기. T#0S면 매 스캔
+END_VAR
+VAR_OUTPUT
+	q_bDue			: BOOL;
+END_VAR
+VAR
+	_bStarted		: BOOL;
+	_tonWait		: TON;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// 스캔당 한 번만 호출할 것
+_tonWait(IN := _bStarted, PT := i_tPeriod);
+q_bDue := NOT _bStarted OR _tonWait.Q;
+
+IF q_bDue THEN
+	_bStarted := TRUE;
+	_tonWait(IN := FALSE, PT := i_tPeriod);	// 이번 스캔부터 다시 셈
+	_tonWait(IN := TRUE, PT := i_tPeriod);
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

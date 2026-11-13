@@ -1,0 +1,82 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
+  <GVL Name="GVL_MQTT" Id="{0255978f-5645-4d48-8442-257d7225bb87}">
+    <Declaration><![CDATA[VAR_GLOBAL CONSTANT
+	(* ================================================================
+	   MQTT 보고·명령 (PMS ↔ EMS 토탈 인터페이스)
+	   - 장치 수는 GVL_PARAM (PCS_COUNT, BMS_COUNT, RACK_COUNT, PV_COUNT, ESS_COUNT, TEMP_COUNT, AIR_CONDITIONER_COUNT)
+	   - 토픽: 발행 dgspms/{SOLUTION_NAME}/{사이트}/{장치} , config echo dgspms/.../config/{장치}
+	           구독 dgsems/{SOLUTION_NAME}/{사이트}/{command|config}/{장치}
+	           로거 dgspms/{SOLUTION_NAME}/{사이트}/pms_log (이벤트 로그, 발생할 때 1건씩. 20_Module/Mqtt/Logger)
+	   - 접속 설정(사이트 번호·브로커 주소·포트·계정)은 GVL_SITE.MQTT_SET
+	   ================================================================ *)
+	DEVICE_TOPIC_COUNT	: UINT := 12;		// 발행 장치 토픽 수: pms pcs bat rack pv ess temp airconditioner ups module imd fire_detector
+	CONFIG_TOPIC_COUNT	: UINT := 4;		// config 토픽 수: pcs bat protection ups (구독, 받은 값 echo 발행)
+	COMMAND_TOPIC_COUNT	: UINT := 3;		// command 토픽 수: pcs bat ups (구독). ups는 2026-11-05 추가 (명세 WR-UPS-01)
+	UPS_REPORT_ENABLED : BOOL := TRUE; // FB_RptSebangUps 매핑 연결됨
+	IMD_REPORT_ENABLED : BOOL := TRUE; // FB_RptLsImd1000 매핑 연결됨 (인터페이스 22. IMD)
+	FIRE_REPORT_ENABLED : BOOL := TRUE; // 화재감지기 보고 (fire_detector, 토픽 이름 잠정. 인터페이스 20. OffGas 양식)
+	MODULE_REPORT_ENABLED : BOOL := TRUE; // 시험: BMS1 시뮬레이터. 모듈 레코드에 유효 표시가 없어 무효 데이터는 0, Rack Status b0로 구분
+	SOLUTION_NAME		: STRING(15) := 'ups';		// 토픽 두 번째 칸 (모든 토픽에 들어감)
+
+	HEADER_VERSION		: UDINT := 1;
+	DEVICE_VERSION		: UDINT := 1;
+	COMMAND_VERSION		: UDINT := 2;
+
+	(* 로거 (이벤트 로그 → pms_log 토픽). 메시지 1건 = 이벤트 1건 (ST_LoggerPublish_V1) *)
+	LOGGER_TOPIC		: STRING(15) := 'pms_log';
+	LOGGER_VERSION		: UDINT := 1;		// 로거 패킷 헤더 DeviceVersion
+	LOGGER_QUEUE		: UINT := 64;		// 이벤트 큐 칸 수 (브로커가 끊기거나 접속 전인 동안 이만큼 보관. 한 스캔에 생길 수 있는 로그 수보다 커야 함: PRG_TestLogger.bSendAll은 스캔마다 32건)
+	LOGGER_TEXT_MAX		: INT := 100;		// Contents 글자 수. ST_LoggerPublish_V1.Contents·ST_LoggerSlot.wsText의 WSTRING(100)과 같게 (로그 문구 규칙 95자 + 해소 표시 5자)
+	LOGGER_LANG_ID		: DINT := 1033;		// 이벤트 문구를 요청할 언어. 문구는 기본 언어 하나뿐이라 이 값으로 그 문구가 옴 (시험 때 확인)
+END_VAR
+
+VAR_GLOBAL
+	(* ---------- 발행 패킷 (헤더 + 장치 배열). 장치 배열은 0부터 = 레코드 DeviceIndex(RACK DeviceID) = DB 장치키 ---------- *)
+	g_stPmsPublish			: ST_PmsPublishData;
+	g_stPcsPublish			: ST_PcsPublishData;
+	g_stBatPublish			: ST_BatPublishData;
+	g_stRackPublish			: ST_RackPublishData;
+	g_stUpsPublish : ST_UpsPublishData;
+	g_stModulePublish : ST_ModulePublishData;
+	g_stImdPublish			: ST_ImdPublishData;		// IMD (절연감시)
+	g_stFirePublish			: ST_FirePublishData;		// 화재감지기 (연기)
+	g_stPvPublish			: ST_PvPublishData;
+	g_stEssPublish			: ST_EssPublishData;
+	g_stTempPublish			: ST_TempPublishData;
+	g_stAirConditionerPublish	: ST_AirConditionerPublishData;	// 공조기
+
+	(* ---------- 구독 수신 (받은 레코드를 장치 번호 칸에 넣음. 받은 DeviceIndex 0 → 칸 0, F_MqttDistribute.DEVICE_ID_BASE) ---------- *)
+	g_astPcsCommand			: ARRAY[0..GVL_PARAM.PCS_COUNT-1] OF ST_MqttCommand_Rx;	// command/pcs. FB_EmsCommand가 처리 후 CommandType을 0으로 지움
+	g_astBatCommand			: ARRAY[0..GVL_PARAM.BMS_COUNT-1] OF ST_MqttCommand_Rx;	// command/bat
+	g_astUpsCommand			: ARRAY[0..GVL_PARAM.UPS_COUNT-1] OF ST_MqttCommand_Rx;	// command/ups (DeviceIndex 1부터). PRG_Mqtt가 GVL_IF.g_astUpsCmd로 넘기고 CommandType을 0으로 지움
+	g_astPcsConfig			: ARRAY[0..GVL_PARAM.PCS_COUNT-1] OF ST_PcsConfig_Rx;		// config/pcs
+	g_astBatConfig			: ARRAY[0..GVL_PARAM.BMS_COUNT-1] OF ST_BatConfig_Rx;		// config/bat
+	g_astUpsConfig : ARRAY[0..GVL_PARAM.UPS_COUNT-1] OF ST_UpsConfig_Rx; // received values only, not approved settings
+	g_stUpsConfigWireIn : ST_UpsConfigWirePacket;
+	g_stUpsConfigEcho : ST_UpsConfigWirePacket; // receipt echo, NEVER means device applied
+	g_stProtectionConfig	: ST_ProtectionConfig_Rx;										// config/protection
+
+	(* config 수신 버퍼 (헤더 + 레코드). 헤더의 Location·UserName을 echo에 그대로 씀 *)
+	g_stPcsConfigWireIn			: ST_PcsConfigWirePacket;
+	g_stBatConfigWireIn			: ST_BatConfigWirePacket;
+	g_stProtectionConfigWireIn	: ST_ProtectionConfigWirePacket;
+
+	(* config echo 발행 패킷 *)
+	g_stPcsConfigEcho		: ST_PcsConfigWirePacket;
+	g_stBatConfigEcho		: ST_BatConfigWirePacket;
+	g_stProtectionConfigEcho	: ST_ProtectionConfigWirePacket;	// [결함 12 수정 2026-11-04: 추가. 원래 g_stProtectionConfigWireIn을 그대로 발행했는데 아무도 안 채워 0으로 나감]
+
+	(* 수신 기록 (3개 브로커 합산) *)
+	g_asCmdRxTime			: ARRAY[1..GVL_MQTT.COMMAND_TOPIC_COUNT] OF STRING(23);	// 토픽별 마지막 command 헤더 TimeStamp
+	g_asCfgRxTime			: ARRAY[1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF STRING(23);
+	g_anCmdRxCount			: ARRAY[1..GVL_MQTT.COMMAND_TOPIC_COUNT] OF UDINT;		// 토픽별 새 command 수신 횟수
+	g_anCfgRxCount			: ARRAY[1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF UDINT;
+	g_anCfgRxRecords		: ARRAY[1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF UDINT;	// 토픽별 마지막 새 메시지에서 실제로 받은 레코드 수 (PRG_Mqtt가 빈 칸과 '모두 is_available 0' 레코드를 구분) [21번 수정 2026-11-09: 추가]
+	(* 실제 반영된 config (MAIN → GVL_IF → PRG_Mqtt). FB_MqttMain이 echo로 발행. 아직 못 받았으면(g_bConfigApplied FALSE) 받은 값을 echo [9-21 수정 2026-11-04: 추가] *)
+	g_astPcsConfigApplied	: ARRAY[0..GVL_PARAM.PCS_COUNT-1] OF ST_PcsConfig_Rx;
+	g_astBatConfigApplied	: ARRAY[0..GVL_PARAM.BMS_COUNT-1] OF ST_BatConfig_Rx;
+	g_bConfigApplied		: BOOL;
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

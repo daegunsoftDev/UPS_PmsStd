@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BatEnvelope" Id="{aa33fe6e-6d02-45e9-a572-e01768c11170}">
+    <Declaration><![CDATA[TYPE ST_BatEnvelope :	// 배터리 그룹(DC 버스) 한도 (FB_EquipmentLimits)
+STRUCT
+	stP	: ST_Range;	// kW. fMax = 방전 한도(0 이상), fMin = -충전 한도(0 이하). BMS 한도 합 ∩ 버스 제한 모듈 (모듈 0 = BMS 한도)
+	bResume	: BOOL;	// 버스 제한 모듈이 재개 중
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_RangeAnd" Id="{9aa0742c-8007-4eaf-a966-47b2dc37aef1}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_RangeAnd : ST_Range	// 두 범위의 겹치는 부분 (좁은 쪽이 이김. 상·하한마다 정한 주체를 같이 가져감)
+VAR_INPUT
+	i_stA	: ST_Range;
+	i_stB	: ST_Range;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_RangeAnd := i_stA;
+IF i_stB.fMax < F_RangeAnd.fMax THEN
+	F_RangeAnd.fMax	:= i_stB.fMax;
+	F_RangeAnd.nMaxModule	:= i_stB.nMaxModule;
+	F_RangeAnd.nMaxReason	:= i_stB.nMaxReason;
+END_IF
+IF i_stB.fMin > F_RangeAnd.fMin THEN
+	F_RangeAnd.fMin	:= i_stB.fMin;
+	F_RangeAnd.nMinModule	:= i_stB.nMinModule;
+	F_RangeAnd.nMinReason	:= i_stB.nMinReason;
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

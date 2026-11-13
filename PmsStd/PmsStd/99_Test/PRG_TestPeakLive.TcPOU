@@ -1,0 +1,297 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="PRG_TestPeakLive" Id="{65d04a37-d6fa-48e3-9db2-fe2ae68555f7}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_TestPeakLive		// 피크컷(3)·통합(4) 모드 실제 경로 시험 (시험 모드, MAIN이 부름). bStart := TRUE로 시작, 약 10~15분
+// 부하 모델: 가상 접속점 P = ESS 출력 − 부하 (수전 = 부하 − ESS 방전). 목표 피크 300 kW, 방전 허용 시간 끔 (PLC 시계 UTC)
+// 피크컷: P1 부하 500 → 피크 방전, P2 부하 200 → 0, P3 자동 충전 시간 → 충전, P4 잔량 방전 시간 → 방전 (역송 방지 상한)
+// 통합:   I1 부하 200·시간표 +100 → 100, I2 부하 600 → 피크·시간표 중 큰 값, I3 부하 200·시간표 −200 → 충전, I4 잔량 방전
+// 구간마다 조건이 5 s 이어지면 통과·기록. 끝나면 설정·가상신호·운전 모드 되돌리고 PCS 정지
+VAR
+	bStart		: BOOL;				// TRUE로 쓰면 시작
+	bDone		: BOOL;
+	bPass		: BOOL;				// 8구간 모두 통과
+	nStep		: UINT;
+	wsStep		: WSTRING(80);		// 지금 단계
+	wsFail		: WSTRING(80);
+	(* 지금 값 *)
+	fLoadSim	: REAL;				// kW, 모의 부하
+	fImport		: REAL;				// kW, 수전 (= 부하 − ESS 출력)
+	nActiveMode	: UINT;				// 3 = 피크컷, 4 = 통합
+	nState		: UINT;				// 켜진 모드 상태 (GVL_CM_RSN: 0 정상, 11 피크, 12 피크 필요 없음, 13 자동 충전, 14 잔량 방전, 15 스케줄·피크, 6 역송 방지)
+	fModeP		: REAL;				// 모드가 낸 값 (kW, 방전 +)
+	fMgrP		: REAL;				// 관리자 지령
+	fUnitP		: REAL;				// 가상 PCS 실제 출력
+	fPeakCtrl	: REAL;				// 피크 제어량
+	nRemainMin	: UINT;				// 15분 구간 남은 분
+	fSoc		: REAL;				// %
+	eRun		: E_RunState;
+	stNow		: ST_LocalTime;
+	(* 구간 결과 (통과 때 실제 출력 kW) *)
+	bP1Peak		: BOOL;		fP1		: REAL;		// 피크컷: 부하 500 → 피크 방전
+	bP2Below	: BOOL;		fP2		: REAL;		// 피크컷: 부하 200 → 0
+	bP3AutoChg	: BOOL;		fP3		: REAL;		// 피크컷: 자동 충전
+	bP4Remain	: BOOL;		fP4		: REAL;		// 피크컷: 잔량 방전
+	bI1Sched	: BOOL;		fI1		: REAL;		// 통합: 시간표 +100
+	bI2Peak		: BOOL;		fI2		: REAL;		// 통합: 피크·시간표 중 큰 값
+	bI3Chg		: BOOL;		fI3		: REAL;		// 통합: 시간표 충전 −200
+	bI4Remain	: BOOL;		fI4		: REAL;		// 통합: 잔량 방전
+	(* 내부 *)
+	bLoadSim	: BOOL;
+	nLastStep	: UINT;
+	tonStep		: TON;
+	tonOk		: TON;
+	bCond		: BOOL;
+	bBackedUp	: BOOL;
+	stCommonBak	: ST_CmCommonSet;
+	stSchedBak	: ST_CmScheduleSet;
+	stPeakBak	: ST_CmPeakCutSet;
+	stSPBak		: ST_CmSchedPeakSet;
+	stVirtBak	: ST_VirtualSet;
+	stCmBak		: ST_CtrlModeSet;
+	stMgrOut	: ST_SourceOutput;
+	nMin		: UINT;
+	nSeason		: UINT;
+	k			: UINT;
+	nWinStart	: UINT;		// HHMM
+	nWinEnd		: UINT;		// HHMM (지금 + 3분)
+	nSlotEnd	: UINT;		// HHMM (지금 + 30분)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// 지금 값
+stNow		:= MAIN.fbClock.q_stTime;
+nActiveMode	:= GVL_SITE.g_fbCtrlMode1.q_nActive;
+stMgrOut	:= GVL_SITE.g_fbCtrlMode1.Output;
+fMgrP		:= stMgrOut.fPSet;	// [16번 수정 2026-11-09: 관리자가 접속점 그룹 단위 → 접속점 그룹 지령 칸. 원래 stMgrOut.astUnit[1].fPSet (PCS2는 Manual이라 접속점 그룹 지령이 유닛 1로 감)]
+fUnitP		:= MAIN.fbSnapshot.q_astUnit[1].stP.fValue;
+eRun		:= MAIN.fbSnapshot.q_astUnit[1].eRunState;
+fSoc		:= MAIN.fbGroupView.q_astView[1].stSocAvg.fValue;
+IF nActiveMode = 4 THEN
+	nState		:= GVL_SITE.g_fbCmSchedPeak1.q_nState;
+	fModeP		:= GVL_SITE.g_fbCmSchedPeak1.q_fOutP;
+	fPeakCtrl	:= GVL_SITE.g_fbCmSchedPeak1.q_fPeakCtrl;
+	nRemainMin	:= GVL_SITE.g_fbCmSchedPeak1.q_nRemainMin;
+ELSE
+	nState		:= GVL_SITE.g_fbCmPeakCut1.q_nState;
+	fModeP		:= GVL_SITE.g_fbCmPeakCut1.q_fOutP;
+	fPeakCtrl	:= GVL_SITE.g_fbCmPeakCut1.q_fPeakCtrl;
+	nRemainMin	:= GVL_SITE.g_fbCmPeakCut1.q_nRemainMin;
+END_IF
+// 부하 모델: 접속점 P (공급 +) = ESS 출력 − 부하
+IF bLoadSim THEN
+	GVL_TEST.g_astVirtual[1].bPEna	:= TRUE;
+	GVL_TEST.g_astVirtual[1].fP		:= MAIN.fbGroupView.q_astView[1].fPOut - fLoadSim;	// 그룹 출력 (PCS2는 Manual 0)
+END_IF
+fImport := fLoadSim - fUnitP;
+// 시간 구간 (지금 분 ~ +3분, 시간표 칸은 +30분)
+nMin		:= stNow.nHour * 60 + stNow.nMinute;
+nWinStart	:= (nMin / 60) * 100 + nMin MOD 60;
+nWinEnd		:= (((nMin + 3) MOD 1440) / 60) * 100 + ((nMin + 3) MOD 1440) MOD 60;
+nSlotEnd	:= (((nMin + 30) MOD 1440) / 60) * 100 + ((nMin + 30) MOD 1440) MOD 60;
+
+tonStep(IN := nStep >= 20 AND nStep < 900, PT := T#240S);
+bCond := FALSE;
+
+CASE nStep OF
+	0:
+		IF bStart THEN
+			bStart := FALSE;	bDone := FALSE;	bPass := FALSE;	wsFail := "";
+			bP1Peak := FALSE;	bP2Below := FALSE;	bP3AutoChg := FALSE;	bP4Remain := FALSE;
+			bI1Sched := FALSE;	bI2Peak := FALSE;	bI3Chg := FALSE;	bI4Remain := FALSE;
+			nStep := 10;
+		ELSIF NOT bDone THEN
+			wsStep := "대기: bStart := TRUE로 시작";
+		END_IF
+
+	10:	// 준비
+		wsStep := "설정 준비";
+		IF NOT stNow.bValid OR stNow.nMonth < 1 OR stNow.nMonth > 12 OR stNow.nDay < 1 OR stNow.nDay > 31 OR stNow.nDayOfWeek > 6 THEN
+			wsFail := "PLC 시각 무효";
+			nStep := 900;
+		ELSIF nMin + 40 >= 1440 THEN
+			wsFail := "자정 가까움: 40분 뒤 다시";
+			nStep := 900;
+		ELSE
+			stCommonBak	:= GVL_PERSIST.g_stModuleSet.stCmCommon;
+			stSchedBak	:= GVL_PERSIST.g_stModuleSet.stCmSchedule1;
+			stPeakBak	:= GVL_PERSIST.g_stModuleSet.stCmPeakCut1;
+			stSPBak		:= GVL_PERSIST.g_stModuleSet.stCmSchedPeak1;
+			stVirtBak	:= GVL_TEST.g_astVirtual[1];
+			stCmBak		:= GVL_PERSIST.g_stModuleSet.stCtrlMode1;
+			GVL_PERSIST.g_stModuleSet.stCtrlMode1.ePccShare := E_PccShare.Actual;	// PCS1이 접속점 실측 그대로 (PCS2는 Manual 0)
+			bBackedUp	:= TRUE;
+			GVL_PERSIST.g_stModuleSet.stCmCommon.stDis.bUse := FALSE;
+			GVL_PERSIST.g_stModuleSet.stCmCommon.abHoliday[stNow.nMonth, stNow.nDay] := FALSE;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stPeak.fTarget	:= 300.0;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stAutoChg.bUse	:= FALSE;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stRemain.bUse		:= FALSE;
+			GVL_PERSIST.g_stModuleSet.stCmSchedPeak1.stPeak.fTarget	:= 300.0;
+			GVL_PERSIST.g_stModuleSet.stCmSchedPeak1.stRemain.bUse	:= FALSE;
+			nSeason := GVL_PERSIST.g_stModuleSet.stCmCommon.anSeasonOfMonth[stNow.nMonth];
+			IF nSeason > 2 THEN
+				nSeason := 0;
+			END_IF
+			FOR k := 1 TO GVL_PARAM.SCHED_SLOT_COUNT DO
+				GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, k].nStart	:= 0;
+				GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, k].nEnd	:= 0;
+				GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, k].fP		:= 0.0;
+			END_FOR
+			fLoadSim	:= 500.0;
+			bLoadSim	:= TRUE;
+			GVL_PERSIST.g_aeOpMode[1] := E_OpMode.Auto;
+			nStep := 20;
+		END_IF
+
+	20:
+		wsStep := "Auto 전환 대기";
+		IF MAIN.fbModeSwitch.q_aeOpMode[1] = E_OpMode.Auto THEN
+			GVL_SITE.g_fbSrcTest.i_nBatGroup	:= 0;
+			GVL_SITE.g_fbSrcTest.i_eBatReq		:= E_BatCmd.Close;
+			nStep := 30;
+		END_IF
+	30:
+		wsStep := "배터리 투입 대기";
+		IF MAIN.fbBatGroup.q_astBatGroup[1].bReady THEN
+			GVL_SITE.g_fbSrcTest.i_nPcsUnit	:= 0;
+			GVL_SITE.g_fbSrcTest.i_ePcsReq	:= E_PcsCmd.Run;
+			nStep := 40;
+		END_IF
+	40:
+		wsStep := "PCS Run 대기";
+		IF eRun = E_RunState.Run THEN
+			GVL_SITE.g_fbCtrlMode1.i_nModeReq := 3;
+			nStep := 50;
+		END_IF
+	50:
+		wsStep := "피크컷 모드 켜는 중";
+		IF nActiveMode = 3 THEN
+			nStep := 100;
+		END_IF
+
+	100: // P1 부하 500 > 목표 300 → 피크 방전
+		wsStep := "P1 피크컷: 부하 500 > 목표 300";
+		bCond := nActiveMode = 3 AND nState = GVL_CM_RSN.PEAK AND fPeakCtrl > 0.0 AND fModeP > 0.0 AND ABS(fUnitP - fModeP) < 5.0;
+		IF tonOk.Q THEN
+			bP1Peak := TRUE;	fP1 := fUnitP;
+			fLoadSim := 200.0;
+			nStep := 110;
+		END_IF
+	110: // P2 부하 200 < 목표 → 0
+		wsStep := "P2 피크컷: 부하 200 < 목표 300";
+		bCond := nState = GVL_CM_RSN.BELOW_PEAK AND ABS(fUnitP) < 5.0;
+		IF tonOk.Q THEN
+			bP2Below := TRUE;	fP2 := fUnitP;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stAutoChg.nStart	:= nWinStart;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stAutoChg.nEnd	:= nWinEnd;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stAutoChg.fSoc	:= 100.0;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stAutoChg.bUse	:= TRUE;
+			nStep := 120;
+		END_IF
+	120: // P3 자동 충전 시간
+		wsStep := "P3 피크컷: 자동 충전 시간";
+		bCond := nState = GVL_CM_RSN.AUTO_CHG AND fModeP < -5.0 AND fUnitP < -5.0;
+		IF tonOk.Q THEN
+			bP3AutoChg := TRUE;	fP3 := fUnitP;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stAutoChg.bUse	:= FALSE;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stRemain.nStart	:= nWinStart;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stRemain.nEnd		:= nWinEnd;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stRemain.fSoc		:= 10.0;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stRemain.bUse		:= TRUE;
+			fLoadSim := 500.0;
+			nStep := 130;
+		END_IF
+	130: // P4 잔량 방전 시간 (역송 방지 상한)
+		wsStep := "P4 피크컷: 잔량 방전 시간";
+		bCond := (nState = GVL_CM_RSN.REMAIN_DIS OR nState = GVL_CM_RSN.REV_LIMIT) AND fModeP > 5.0 AND ABS(fUnitP - fModeP) < 5.0 AND fUnitP < fLoadSim;
+		IF tonOk.Q THEN
+			bP4Remain := TRUE;	fP4 := fUnitP;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1.stRemain.bUse := FALSE;
+			// 통합 준비: 시간표 +100 (지금 ~ +30분), 부하 200
+			GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, 1].nStart	:= nWinStart;
+			GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, 1].nEnd	:= nSlotEnd;
+			GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, 1].fP		:= 100.0;
+			fLoadSim := 200.0;
+			GVL_SITE.g_fbCtrlMode1.i_nModeReq := 4;
+			nStep := 200;
+		END_IF
+
+	200:
+		wsStep := "통합 모드 켜는 중";
+		IF nActiveMode = 4 THEN
+			nStep := 210;
+		END_IF
+	210: // I1 부하 200 (피크 아님) → 시간표 +100
+		wsStep := "I1 통합: 부하 200, 시간표 +100";
+		bCond := nState = 0 AND ABS(fModeP - 100.0) < 0.5 AND ABS(fUnitP - 100.0) < 5.0;
+		IF tonOk.Q THEN
+			bI1Sched := TRUE;	fI1 := fUnitP;
+			fLoadSim := 600.0;
+			nStep := 220;
+		END_IF
+	220: // I2 부하 600 > 목표 → 피크 제어량과 시간표 중 큰 값
+		wsStep := "I2 통합: 부하 600 > 목표 300";
+		bCond := nState = GVL_CM_RSN.SCHED_PEAK AND fPeakCtrl > 0.0 AND fModeP >= 99.9 AND ABS(fModeP - MAX(fPeakCtrl, 100.0)) < 0.5 AND ABS(fUnitP - fModeP) < 5.0;
+		IF tonOk.Q THEN
+			bI2Peak := TRUE;	fI2 := fUnitP;
+			GVL_PERSIST.g_stModuleSet.stCmSchedule1.astSlot[nSeason, stNow.nDayOfWeek, 1].fP := -200.0;
+			fLoadSim := 200.0;
+			nStep := 230;
+		END_IF
+	230: // I3 부하 200, 시간표 충전 −200
+		wsStep := "I3 통합: 부하 200, 시간표 -200";
+		bCond := nState = 0 AND ABS(fModeP + 200.0) < 0.5 AND ABS(fUnitP + 200.0) < 5.0;
+		IF tonOk.Q THEN
+			bI3Chg := TRUE;	fI3 := fUnitP;
+			GVL_PERSIST.g_stModuleSet.stCmSchedPeak1.stRemain.nStart	:= nWinStart;
+			GVL_PERSIST.g_stModuleSet.stCmSchedPeak1.stRemain.nEnd	:= nWinEnd;
+			GVL_PERSIST.g_stModuleSet.stCmSchedPeak1.stRemain.fSoc	:= 10.0;
+			GVL_PERSIST.g_stModuleSet.stCmSchedPeak1.stRemain.bUse	:= TRUE;
+			fLoadSim := 500.0;
+			nStep := 240;
+		END_IF
+	240: // I4 잔량 방전
+		wsStep := "I4 통합: 잔량 방전 시간";
+		bCond := (nState = GVL_CM_RSN.REMAIN_DIS OR nState = GVL_CM_RSN.REV_LIMIT) AND fModeP > 5.0 AND ABS(fUnitP - fModeP) < 5.0 AND fUnitP < fLoadSim;
+		IF tonOk.Q THEN
+			bI4Remain := TRUE;	fI4 := fUnitP;
+			nStep := 900;
+		END_IF
+
+	900: // 정리
+		GVL_SITE.g_fbCtrlMode1.i_nModeReq	:= 0;
+		GVL_SITE.g_fbSrcTest.i_nPcsUnit		:= 0;
+		GVL_SITE.g_fbSrcTest.i_ePcsReq		:= E_PcsCmd.Stop;
+		bLoadSim := FALSE;
+		IF bBackedUp THEN
+			GVL_PERSIST.g_stModuleSet.stCmCommon	:= stCommonBak;
+			GVL_PERSIST.g_stModuleSet.stCmSchedule1	:= stSchedBak;
+			GVL_PERSIST.g_stModuleSet.stCmPeakCut1	:= stPeakBak;
+			GVL_PERSIST.g_stModuleSet.stCmSchedPeak1	:= stSPBak;
+			GVL_TEST.g_astVirtual[1]				:= stVirtBak;
+			GVL_PERSIST.g_stModuleSet.stCtrlMode1	:= stCmBak;
+			bBackedUp := FALSE;
+		END_IF
+		GVL_PERSIST.g_aeOpMode[1] := E_OpMode.Manual;
+		bPass := bP1Peak AND bP2Below AND bP3AutoChg AND bP4Remain AND bI1Sched AND bI2Peak AND bI3Chg AND bI4Remain AND wsFail = "";
+		bDone := TRUE;
+		IF bPass THEN
+			wsStep := "끝: 통과";
+		ELSE
+			wsStep := "끝: 실패 (wsFail·구간 결과 확인)";
+		END_IF
+		nStep := 0;
+END_CASE
+
+// 조건이 5 s 이어지면 통과 (단계가 바뀌면 다시 셈)
+tonOk(IN := bCond AND nStep = nLastStep, PT := T#5S);
+IF tonStep.Q AND nStep >= 20 AND nStep < 900 THEN
+	wsFail	:= WCONCAT("시간 초과: ", wsStep);
+	nStep	:= 900;
+END_IF
+IF nStep <> nLastStep THEN
+	tonStep(IN := FALSE);
+	tonOk(IN := FALSE);
+	nLastStep := nStep;
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

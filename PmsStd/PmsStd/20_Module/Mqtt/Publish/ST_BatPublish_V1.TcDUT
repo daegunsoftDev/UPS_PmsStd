@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.9">
+  <DUT Name="ST_BatPublish_V1" Id="{7807cefc-16e5-4de9-b694-7ef3e14a7353}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_BatPublish_V1 :
+STRUCT
+ DeviceIndex : UDINT; // 배터리 식별 번호
+ Status : UDINT; // 배터리 전체 상태 비트
+ OnlineRackCount : UDINT; // 통신 정상으로 판단한 랙 수
+ TotalRackCount : UDINT; // 설치된 전체 랙 수
+ MaxCellVoltageLocationFromRack : UDINT; // 최대 셀 전압 발생 위치의 랙 번호
+ MaxCellVoltageLocationFromModule : UDINT; // 최대 셀 전압 발생 위치의 모듈 번호
+ MaxCellVoltageLocationFromCell : UDINT; // 최대 셀 전압 발생 위치의 셀 번호
+ MinCellVoltageLocationFromRack : UDINT; // 최소 셀 전압 발생 위치의 랙 번호
+ MinCellVoltageLocationFromModule : UDINT; // 최소 셀 전압 발생 위치의 모듈 번호
+ MinCellVoltageLocationFromCell : UDINT; // 최소 셀 전압 발생 위치의 셀 번호
+ MaxModuleTempLocationFromRack : UDINT; // 모듈 최고 온도 발생 위치의 랙 번호
+ MaxModuleTempLocationFromModule : UDINT; // 모듈 최고 온도 발생 위치의 모듈 번호
+ MaxModuleTempLocationFromCell : UDINT; // 모듈 최고 온도 발생 위치의 셀 번호
+ MinModuleTempLocationFromRack : UDINT; // 모듈 최저 온도 발생 위치의 랙 번호
+ MinModuleTempLocationFromModule : UDINT; // 모듈 최저 온도 발생 위치의 모듈 번호
+ MinModuleTempLocationFromCell : UDINT; // 모듈 최저 온도 발생 위치의 셀 번호
+ Heartbeat : UDINT; // BMS 데이터 갱신 카운터
+ Soc : REAL; // 배터리 충전 상태
+ Soh : REAL; // 배터리 건강 상태
+ Eol : REAL; // 배터리 수명 종료 관련 값
+ DcVoltage : REAL; // 배터리 전체 직류 전압
+ DcCurrent : REAL; // 배터리 전체 직류 전류
+ ChargeCurrentLimit : REAL; // 배터리 전체 충전 허용 전류
+ DischargeCurrentLimit : REAL; // 배터리 전체 방전 허용 전류
+ ChargePowerLimit : REAL; // 배터리 전체 충전 허용 전력
+ DischargePowerLimit : REAL; // 배터리 전체 방전 허용 전력
+ MaxCellVoltage : REAL; // 전체 셀 중 최대 전압
+ MinCellVoltage : REAL; // 전체 셀 중 최소 전압
+ MaxModuleTemperature : REAL; // 전체 모듈 중 최고 온도
+ MinModuleTemperature : REAL; // 전체 모듈 중 최저 온도
+ Warning1 : UDINT; // 배터리 경보 비트 묶음 1
+ Warning2 : UDINT; // 배터리 경보 비트 묶음 2
+ Warning3 : UDINT; // 배터리 경보 비트 묶음 3
+ Warning4 : UDINT; // 배터리 경보 비트 묶음 4
+ Warning5 : UDINT; // 배터리 경보 비트 묶음 5
+ Warning6 : UDINT; // 배터리 경보 비트 묶음 6
+ Warning7 : UDINT; // 배터리 경보 비트 묶음 7
+ Warning8 : UDINT; // 배터리 경보 비트 묶음 8
+ Warning9 : UDINT; // 배터리 경보 비트 묶음 9
+ Warning10 : UDINT; // 배터리 경보 비트 묶음 10
+ Fault1 : UDINT; // 배터리 고장 비트 묶음 1
+ Fault2 : UDINT; // 배터리 고장 비트 묶음 2
+ Fault3 : UDINT; // 배터리 고장 비트 묶음 3
+ Fault4 : UDINT; // 배터리 고장 비트 묶음 4
+ Fault5 : UDINT; // 배터리 고장 비트 묶음 5
+ Fault6 : UDINT; // 배터리 고장 비트 묶음 6
+ Fault7 : UDINT; // 배터리 고장 비트 묶음 7
+ Fault8 : UDINT; // 배터리 고장 비트 묶음 8
+ Fault9 : UDINT; // 배터리 고장 비트 묶음 9
+ Fault10 : UDINT; // 배터리 고장 비트 묶음 10
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

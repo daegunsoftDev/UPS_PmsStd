@@ -1,0 +1,89 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_GroupView" Id="{8ddf845e-d898-40f7-8a6a-5af5b5b4113d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_GroupView	// 제어 그룹마다 모듈에 넘길 요약을 모음 (읽기 전용)
+// 가용 한도(정격·배터리)는 FB_EquipmentLimits 결과를 그대로 옮김 (여기서 다시 세지 않음). 여기서 세는 것: 정격 합(전체), 출력 합, 가용 유닛 수, SOC
+VAR_IN_OUT CONSTANT
+	iq_astPcc		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_PccMeas;
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	iq_astAvail		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitAvail;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astBatGroup	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatGroupState;
+	iq_aeGroupState	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF E_GroupState;	// 시퀀서 그룹 상태 (지난 스캔)
+	iq_astGroupEnv	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupEnvelope;	// 그룹 설비 범위 (FB_EquipmentLimits)
+END_VAR
+VAR_OUTPUT
+	q_astView		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupView;
+END_VAR
+VAR_TEMP
+	g				: UINT;
+	u				: UINT;
+	b				: UINT;
+	bSocFirst		: BOOL;
+	fSocW			: REAL;
+	fWSum			: REAL;
+	abBatIn			: ARRAY[1..GVL_PARAM.BAT_COUNT] OF BOOL;	// 이 제어 그룹의 가용 유닛이 쓰는 배터리 그룹
+	stView				: ST_GroupView;
+	stNone			: ST_GroupView;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	stView			:= stNone;
+	stView.nGroup	:= g;
+	stView.eState	:= iq_aeGroupState[g];
+	stView.stPcc	:= iq_astPcc[g];
+	FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+		abBatIn[b] := FALSE;
+	END_FOR
+
+	// 유닛: 정격 합·출력 합(실측)은 전부, 가용 유닛 수
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		IF iq_astUnitCfg[u].nGroup = g THEN
+			stView.fPRatedSum	:= stView.fPRatedSum + iq_astUnitCfg[u].fPRated;
+			stView.fQRatedSum	:= stView.fQRatedSum + iq_astUnitCfg[u].fQRated;
+			IF iq_astUnit[u].stP.bValid THEN stView.fPOut := stView.fPOut + iq_astUnit[u].stP.fValue; END_IF
+			IF iq_astUnit[u].stQ.bValid THEN stView.fQOut := stView.fQOut + iq_astUnit[u].stQ.fValue; END_IF
+			IF iq_astAvail[u].bAvail THEN
+				stView.nUnitAvail	:= stView.nUnitAvail + 1;
+				b := iq_astUnitCfg[u].nBatGroup;
+				IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT THEN
+					abBatIn[b] := TRUE;
+				END_IF
+			END_IF
+		END_IF
+	END_FOR
+
+	// SOC: 가용 유닛이 쓰는 배터리 그룹만, 여러 유닛이 같은 그룹을 써도 한 번만 셈 (용량 가중)
+	bSocFirst	:= TRUE;
+	fSocW		:= 0;
+	fWSum		:= 0;
+	FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+		IF abBatIn[b] AND iq_astBatGroup[b].bUsable THEN
+			stView.fCapacity := stView.fCapacity + iq_astBatGroup[b].fCapacity;
+			IF iq_astBatGroup[b].stSoc.bValid THEN
+				IF bSocFirst OR iq_astBatGroup[b].stSocMin.fValue < stView.stSocMin.fValue THEN stView.stSocMin.fValue := iq_astBatGroup[b].stSocMin.fValue; END_IF
+				IF bSocFirst OR iq_astBatGroup[b].stSocMax.fValue > stView.stSocMax.fValue THEN stView.stSocMax.fValue := iq_astBatGroup[b].stSocMax.fValue; END_IF
+				fSocW		:= fSocW + iq_astBatGroup[b].stSoc.fValue * iq_astBatGroup[b].fSocWeight;
+				fWSum		:= fWSum + iq_astBatGroup[b].fSocWeight;
+				bSocFirst	:= FALSE;
+			END_IF
+		END_IF
+	END_FOR
+	IF fWSum > 0 THEN
+		stView.stSocAvg.fValue	:= fSocW / fWSum;
+		stView.stSocAvg.bValid	:= TRUE;
+		stView.stSocMin.bValid	:= TRUE;
+		stView.stSocMax.bValid	:= TRUE;
+	END_IF
+
+	// 가용 한도는 설비 한도 결과 (FB_EquipmentLimits)
+	stView.fPRatedAvail	:= iq_astGroupEnv[g].stRating.fMax;
+	stView.fQRatedAvail	:= iq_astGroupEnv[g].stQ.fMax;
+	stView.fSRatedAvail	:= iq_astGroupEnv[g].fSMax;
+	stView.fPDisMax	:= iq_astGroupEnv[g].stBattery.fMax;
+	stView.fPChgMax	:= -iq_astGroupEnv[g].stBattery.fMin;
+	q_astView[g] := stView;
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

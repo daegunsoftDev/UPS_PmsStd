@@ -1,0 +1,150 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_AutonicsThd" Id="{b90fd7ca-16af-4cfe-9230-07cf485afc64}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_AutonicsThd EXTENDS FB_DeviceBase IMPLEMENTS I_AuxDevice		// 오토닉스 THD 온습도계 (Modbus RTU, 한 줄에 국번 1..n), 읽기 전용
+(* ---------------------------------------------------------------
+   기반: Helios FB_ThdAutonics_Chain (PRG_Sensor에서 쓰던 것). 동작만 옮기고 PmsStd 드라이버 형식으로 다시 씀. 2026-11-09
+   통신: 시리얼 단자(EL6022 채널 하나, 사용자 2026-11-09 회사 표준)를 ModbusRtuMaster_KL6x22B로. 단자 연결(InData·OutData)은 XAE I/O 화면에서 사람이 함
+   읽기: 읽기 주기마다 센서 하나씩 돌아가며 Input Register(FC4)
+     @MAP IR 0 S16 0.01 ℃  온도
+     @MAP IR 1 S16 0.01 %  습도
+   점 (I_AuxDevice)
+     AI 2n-1 = 센서 n 온도 (℃), AI 2n = 센서 n 습도 (%). 센서 n이 i_tCommTimeout 동안 응답 없으면 bValid FALSE
+     DI n    = 센서 n 통신 이상 (TRUE = 이상. Helios SensorStatus 1과 같음)
+   센서는 GVL_PARAM.AUX_AI_MAX / 2개까지. 쓰기(DO·AO) 없음
+   맵 미확보: Helios 현장 기종 기준. 실제 기종이 정해지면 주소·배율 확인
+   --------------------------------------------------------------- *)
+VAR_INPUT
+	i_bEnable		: BOOL;					// FALSE면 통신하지 않음 (장비 미설치)
+	i_nSensorCount	: UINT := 1;			// 국번 1..n 연속 (1..SENSOR_MAX)
+	i_tTimeout		: TIME := T#1S;			// 응답 기다림 (Helios 5 s)
+END_VAR
+VAR
+	_fbRtu			: ModbusRtuMaster_KL6x22B;
+	_awRaw			: ARRAY[0..1] OF WORD;
+	_bReadDue		: BOOL;					// 읽을 때가 됨 (매 스캔 M_IsReadTime)
+	_bReading		: BOOL;
+	_nUnit			: UINT;					// 지금 읽는 국번
+	_nCount			: UINT;					// 쓰는 센서 수 (범위로 자른 i_nSensorCount)
+	_afTemp			: ARRAY[1..SENSOR_MAX] OF REAL;
+	_afHum			: ARRAY[1..SENSOR_MAX] OF REAL;
+	_abReadOk		: ARRAY[1..SENSOR_MAX] OF BOOL;	// 이번 스캔에 응답 받음
+	_abEverOk		: ARRAY[1..SENSOR_MAX] OF BOOL;	// 한 번이라도 응답 받음
+	_abSensorOk		: ARRAY[1..SENSOR_MAX] OF BOOL;	// 센서 통신 정상
+	_atonLoss		: ARRAY[1..SENSOR_MAX] OF TON;
+	_nIdx			: UINT;
+END_VAR
+VAR CONSTANT
+	SENSOR_MAX		: UINT := GVL_PARAM.AUX_AI_MAX / 2;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[
+]]></ST>
+    </Implementation>
+    <Method Name="M_Cycle" Id="{d365f479-f732-4898-bbfc-3e46ecf4dc1d}">
+      <Declaration><![CDATA[METHOD M_Cycle
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_nCount := LIMIT(1, i_nSensorCount, SENSOR_MAX);
+
+_bReadDue := M_IsReadTime();
+IF NOT _bReading THEN
+	IF i_bEnable AND _bReadDue THEN
+		IF _nUnit >= _nCount THEN _nUnit := 1; ELSE _nUnit := _nUnit + 1; END_IF
+		_fbRtu.ReadInputRegs(UnitID := UINT_TO_BYTE(_nUnit), Quantity := 2, MBAddr := 0,
+			cbLength := SIZEOF(_awRaw), pMemoryAddr := ADR(_awRaw), Timeout := i_tTimeout, Execute := TRUE);
+		_bReading := TRUE;
+	END_IF
+ELSE
+	_fbRtu.ReadInputRegs(Execute := FALSE);	// 시작한 읽기는 끝까지 부름 (Helios와 같음)
+	IF NOT _fbRtu.BUSY THEN
+		IF NOT _fbRtu.Error AND i_bEnable THEN
+			_afTemp[_nUnit]		:= INT_TO_REAL(WORD_TO_INT(_awRaw[0])) * 0.01;	// @MAP IR 0 S16 0.01 ℃
+			_afHum[_nUnit]		:= INT_TO_REAL(WORD_TO_INT(_awRaw[1])) * 0.01;	// @MAP IR 1 S16 0.01 %
+			_abReadOk[_nUnit]	:= TRUE;
+			_abEverOk[_nUnit]	:= TRUE;
+			M_MarkAlive();
+		END_IF
+		_bReading := FALSE;
+	END_IF
+END_IF
+
+FOR _nIdx := 1 TO SENSOR_MAX DO
+	_atonLoss[_nIdx](IN := NOT _abReadOk[_nIdx], PT := i_tCommTimeout);
+	_abSensorOk[_nIdx]	:= i_bEnable AND _nIdx <= _nCount AND _abEverOk[_nIdx] AND NOT _atonLoss[_nIdx].Q;
+	_abReadOk[_nIdx]	:= FALSE;
+END_FOR
+M_UpdateComm();
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetBit" Id="{1f00a5d7-6dce-4397-958c-efa0a66428b8}">
+      <Declaration><![CDATA[METHOD M_GetBit : BOOL		// DI n = 센서 n 통신 이상
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nPoint >= 1 AND i_nPoint <= _nCount THEN
+	M_GetBit := NOT _abSensorOk[i_nPoint];
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetValue" Id="{939f7701-2827-44df-a3bb-fbbb1a78b775}">
+      <Declaration><![CDATA[METHOD M_GetValue : ST_Val		// AI 2n-1 = 센서 n 온도 (℃), AI 2n = 센서 n 습도 (%)
+VAR_INPUT
+	i_nPoint	: UINT;
+END_VAR
+VAR
+	nSensor		: UINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[nSensor := (i_nPoint + 1) / 2;
+IF i_nPoint >= 1 AND nSensor <= _nCount THEN
+	M_GetValue.fValue := SEL(i_nPoint MOD 2 = 1, _afHum[nSensor], _afTemp[nSensor]);
+	M_GetValue.bValid := _abSensorOk[nSensor];
+END_IF
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetBit" Id="{429e12ad-7f2c-404f-881e-69bef7fec521}">
+      <Declaration><![CDATA[METHOD M_SetBit		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_bValue	: BOOL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetValue" Id="{864b925e-3507-4d11-9744-76a24837c13f}">
+      <Declaration><![CDATA[METHOD M_SetValue		// 출력 없음
+VAR_INPUT
+	i_nPoint	: UINT;
+	i_fValue	: REAL;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Comm" Id="{f3866445-4910-4d90-b0c4-9002c4461101}">
+      <Declaration><![CDATA[PROPERTY Comm : BOOL]]></Declaration>
+      <Get Name="Get" Id="{051e77a6-f208-4b25-b2c5-e591f7972661}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Comm := _bComm AND i_bEnable;
+]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

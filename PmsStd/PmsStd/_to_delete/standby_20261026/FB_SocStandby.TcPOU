@@ -1,0 +1,152 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_SocStandby" Id="{d22a52f8-f2fd-4218-8e18-0d6cad85021f}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_SocStandby EXTENDS FB_ModuleBase IMPLEMENTS I_StandbyRule	// 배터리 한계가 이어지면 Standby 요청 (유닛마다). Auto·Manual에 인스턴스를 따로 둠 (등록 bAuto·bManual)
+// Run 중 지령이 방전이면 연결 버스 최소 SOC ≤ 하한 또는 방전 한도 0, 충전이면 최대 SOC ≥ 상한 또는 충전 한도 0이 i_stSet.tDelay 이어지면 1스캔 요청 (설정 i_stSet)
+// 방향은 실제 출력이 아니라 지령으로 판단 (한도가 0이면 출력이 먼저 0으로 잘려 실제 출력으로는 알 수 없음)
+// 요청 뒤에는 조건이 풀려야 다시 요청. Run 뒤 새 지령 대기는 Manual Gate(FB_GateManual)가 맡음 (이 모듈은 요청만)
+// 자동 재개 (방향별 bResumeChg·bResumeDis): 이 모듈이 건 Standby를 코어가 들고 있는 동안, 막힌 방향의 SOC가 fResumeMargin만큼 돌아오고 그 방향 한도 > 0이
+//   tResumeDelay 이어지면 Run 다시 요청. 접수가 거부돼 대기가 이어지면 같은 간격으로 다시 요청. SOC 무효면 재개 안 함
+// nTarget 0 = 모든 유닛을 한 인스턴스가 봄 (유닛마다 상태를 따로 가짐)
+VAR_INPUT
+	i_stSet	: ST_SocStandbySet;	// 설정: 한계·지연·방향별 자동 재개 (MAIN이 GVL_PERSIST.g_stModuleSet 칸을 매 스캔 넘김. 안 넘기면 기본값: 재개 안 함)
+END_VAR
+VAR
+	_atonCond	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF TON;
+	_abSent	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 요청함 (조건이 풀릴 때까지 다시 안 보냄)
+	_anCond	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;	// 진단: 지금 조건 이유 (0 = 없음, 지연 전)
+	_nReason	: UINT;	// 마지막 M_Evaluate가 요청한 이유
+	_anWaitCond	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;	// 마지막으로 Standby를 건 이유 (재개 방향 판단)
+	_atonResume	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF TON;
+	_abResumeOk	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 진단: 지금 재개 조건 맞음 (유지 시간 전)
+END_VAR
+VAR CONSTANT
+	RSN_DIS_SOC	: UINT := 1;	// 방전 지령 중 SOC 하한
+	RSN_DIS_LIMIT	: UINT := 2;	// 방전 지령 중 방전 한도 0
+	RSN_CHG_SOC	: UINT := 3;	// 충전 지령 중 SOC 상한
+	RSN_CHG_LIMIT	: UINT := 4;	// 충전 지령 중 충전 한도 0
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Evaluate" Id="{939fd40a-18b7-4dc4-bd5a-52ed894fc097}">
+      <Declaration><![CDATA[METHOD M_Evaluate : BOOL
+VAR_INPUT
+	i_stView	: ST_StandbyView;
+END_VAR
+VAR
+	u	: UINT;
+	fBand	: REAL;
+	nCond	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_nReason := 0;
+u := i_stView.nUnit;
+IF u < 1 OR u > GVL_PARAM.UNIT_COUNT THEN
+	RETURN;
+END_IF
+fBand := i_stView.fPRated * i_stSet.fDirBand / 100.0;
+nCond := 0;
+IF i_stView.bInScope AND i_stView.eRunState = E_RunState.Run AND i_stView.bCmdP AND i_stView.nBatGroup <> 0 THEN
+	IF i_stView.fCmdP > fBand THEN
+		IF i_stView.stSocMin.bValid AND i_stView.stSocMin.fValue <= i_stSet.fSocMin THEN
+			nCond := RSN_DIS_SOC;
+		ELSIF i_stView.fPDisMax <= 0 THEN
+			nCond := RSN_DIS_LIMIT;
+		END_IF
+	ELSIF i_stView.fCmdP < -fBand THEN
+		IF i_stView.stSocMax.bValid AND i_stView.stSocMax.fValue >= i_stSet.fSocMax THEN
+			nCond := RSN_CHG_SOC;
+		ELSIF i_stView.fPChgMax <= 0 THEN
+			nCond := RSN_CHG_LIMIT;
+		END_IF
+	END_IF
+END_IF
+_anCond[u] := nCond;
+_atonCond[u](IN := nCond <> 0 AND NOT _abSent[u], PT := i_stSet.tDelay);
+IF _atonCond[u].Q THEN
+	M_Evaluate	:= TRUE;
+	_abSent[u]	:= TRUE;
+	_nReason	:= nCond;
+	_anWaitCond[u]	:= nCond;
+END_IF
+IF nCond = 0 THEN
+	_abSent[u] := FALSE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckResume" Id="{ad493356-a64a-492f-b3dc-33399ed16bd1}">
+      <Declaration><![CDATA[METHOD M_CheckResume : BOOL	// 이 모듈이 건 Standby의 재개: 막힌 방향의 재개가 켜져 있고(bResumeChg·bResumeDis), 그 방향 SOC가 재개 마진만큼 돌아오고 한도 > 0이 tResumeDelay 이어지면 TRUE (1스캔)
+VAR_INPUT
+	i_stView	: ST_StandbyView;
+END_VAR
+VAR
+	u	: UINT;
+	bOk	: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[u := i_stView.nUnit;
+IF u < 1 OR u > GVL_PARAM.UNIT_COUNT THEN
+	RETURN;
+END_IF
+bOk := FALSE;
+IF i_stView.bResumeWait AND i_stView.bInScope AND i_stView.nBatGroup <> 0 THEN
+	CASE _anWaitCond[u] OF
+		RSN_DIS_SOC, RSN_DIS_LIMIT:		// 방전 쪽이 막혀 Standby
+			bOk := i_stSet.bResumeDis AND i_stView.stSocMin.bValid AND i_stView.stSocMin.fValue >= i_stSet.fSocMin + i_stSet.fResumeMargin AND i_stView.fPDisMax > 0;
+		RSN_CHG_SOC, RSN_CHG_LIMIT:		// 충전 쪽이 막혀 Standby
+			bOk := i_stSet.bResumeChg AND i_stView.stSocMax.bValid AND i_stView.stSocMax.fValue <= i_stSet.fSocMax - i_stSet.fResumeMargin AND i_stView.fPChgMax > 0;
+	END_CASE
+END_IF
+_abResumeOk[u] := bOk;
+_atonResume[u](IN := bOk, PT := i_stSet.tResumeDelay);
+IF _atonResume[u].Q THEN
+	M_CheckResume := TRUE;
+	_atonResume[u](IN := FALSE);		// 다시 요청하려면 tResumeDelay를 새로 기다림
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Reason" Id="{e02a7bf7-603e-47f0-a278-0f6655c8ca92}">
+      <Declaration><![CDATA[PROPERTY Reason : UINT]]></Declaration>
+      <Get Name="Get" Id="{b457ba08-3821-4e91-a319-3f37b0e619d8}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Reason := _nReason;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="M_ReasonText" Id="{ce586967-f3ed-4fc1-9d9a-05db8b50c7aa}">
+      <Declaration><![CDATA[METHOD M_ReasonText : WSTRING(63)
+VAR_INPUT
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE i_nReason OF
+	RSN_DIS_SOC:	M_ReasonText := "방전 중 SOC 하한";
+	RSN_DIS_LIMIT:	M_ReasonText := "방전 중 방전 한도 0";
+	RSN_CHG_SOC:	M_ReasonText := "충전 중 SOC 상한";
+	RSN_CHG_LIMIT:	M_ReasonText := "충전 중 충전 한도 0";
+ELSE
+	M_ReasonText := WCONCAT("이유 ", TO_WSTRING(i_nReason));
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckSet" Id="{3b9eeca3-ee54-44e0-bac4-07596f8014f3}">
+      <Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)		// 설정 점검: SOC 상·하한, 방향 판단 폭, 재개 마진, 재개 유지 시간]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckSet := "";
+IF i_stSet.fSocMin < 0.0 OR i_stSet.fSocMax > 100.0 OR i_stSet.fSocMin >= i_stSet.fSocMax THEN
+	M_CheckSet := "SOC 상·하한 (0 ≤ 하한 < 상한 ≤ 100)";
+ELSIF i_stSet.fDirBand < 0.0 OR i_stSet.fDirBand > 100.0 THEN
+	M_CheckSet := "방향 판단 폭 fDirBand (0~100 %)";
+ELSIF i_stSet.fResumeMargin < 0.0 OR i_stSet.fSocMin + i_stSet.fResumeMargin >= i_stSet.fSocMax - i_stSet.fResumeMargin THEN
+	M_CheckSet := "재개 마진 fResumeMargin (0 이상, 상·하한 사이)";
+ELSIF (i_stSet.bResumeChg OR i_stSet.bResumeDis) AND i_stSet.tResumeDelay = T#0S THEN
+	M_CheckSet := "재개 유지 시간 tResumeDelay 0";
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

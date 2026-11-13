@@ -1,0 +1,239 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_Select" Id="{bd7405eb-bcd1-4f97-98b0-ef9236c86570}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Select		// 지령원 중에서 유닛별 값과 그룹 값을 고름 (지령원 P·Q 제한은 모두 겹침). Auto 경로·Manual 경로로 나눠 냄 (고르는 규칙은 같음)
+// 이상값을 뺀 후보를 고르기 정책(그룹마다 I_SelectPolicy, 비우면 코어 기본 FB_SelectStd)에 넘김. 정책이 낸 값도 이상값이면 버림
+VAR_IN_OUT
+	iq_aipSelPolicy	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF I_SelectPolicy;	// 그룹별 고르기 정책 (GVL_SITE.g_aipSelectPolicy)
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astSrcOut	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceOutput;
+	iq_anSrcModule	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF UINT;
+	iq_astReg		: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF ST_SourceReg;
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astGroupSet	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupSet;
+	iq_astView		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupView;	// 그룹 유닛 정격 합 (이상값 한도)
+	iq_stFilter		: ST_CmdFilterSet;
+END_VAR
+VAR_OUTPUT
+	(* Auto 경로 *)
+	q_astAutoUnitP	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;		// Auto 유닛의 유닛별 P 값 (kW, 유닛 출력). Manual 유닛은 비활성
+	q_astAutoUnitQ	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	q_astAutoGrpP	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;		// kW, 접속점 기준
+	q_astAutoGrpQ	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	q_astAutoGrpPLim: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Range;		// Auto 지령원들이 낸 P 제한 (접속점 기준)
+	(* Manual 경로 *)
+	q_astManualUnitP: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;		// Manual 유닛의 유닛별 P 값. Auto 유닛은 비활성
+	q_astManualUnitQ: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	q_astManualGrpP	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;		// kW, 그룹 값 (그룹의 Manual 유닛에 나눔)
+	q_astManualGrpQ	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	q_astManualGrpPLim: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Range;	// Manual 지령원들이 낸 P 제한
+	q_astAutoGrpQLim: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Range;		// Auto 지령원들이 낸 Q 제한 (접속점 기준)
+	q_astManualGrpQLim: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Range;	// Manual 지령원들이 낸 Q 제한
+	(* 이상값으로 무시한 지령원 *)
+	q_abBadValue	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF BOOL;		// 이번 스캔에 이상값이 있었음
+	q_afBadValue	: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF REAL;		// 그 값 (진단용)
+	q_anPolicyBad	: UINT;		// 이번 스캔에 정책이 이상값을 내 버린 수 (진단)
+END_VAR
+VAR
+	_fbSelStd		: FB_SelectStd;		// 코어 기본 고르기 정책
+	_aipSelPolicy	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF I_SelectPolicy;	// 사본 (메서드에서 씀)
+END_VAR
+VAR_TEMP
+	u				: UINT;
+	g				: UINT;
+	i				: UINT;
+	k				: UINT;
+	eMode			: E_OpMode;
+	stPickP			: ST_Pick;
+	stPickQ			: ST_Pick;
+	stViewP			: ST_SelectView;	// 고르기 후보 (P)
+	stViewQ			: ST_SelectView;
+	stViewNone		: ST_SelectView;
+	stRng			: ST_Range;		// 지령원 P 제한 모음
+	stQRng			: ST_Range;		// 지령원 Q 제한 모음
+	stLim			: ST_Limit;
+	stNone			: ST_Pick;
+	fLimP			: REAL;			// 이상값 한도 (0 = 검사 안 함)
+	fLimQ			: REAL;
+	stUnitP			: ST_Pick;		// 이번 유닛에서 고른 값 (운전 모드에 맞는 경로로 보냄)
+	stUnitQ			: ST_Pick;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[_aipSelPolicy := iq_aipSelPolicy;
+q_anPolicyBad := 0;
+(* 0) 이상값 한도 준비 *)
+FOR i := 1 TO GVL_PARAM.SOURCE_COUNT DO
+	q_abBadValue[i] := FALSE;
+END_FOR
+
+(* 1) 유닛별 값: 이 유닛의 운전 모드에 맞는 지령원 후보 (이상값은 뺌) → 정책 (기본: 등급이 가장 높은 것) *)
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	stViewP			:= stViewNone;
+	stViewP.nGroup	:= iq_astUnitCfg[u].nGroup;
+	stViewP.nUnit	:= u;
+	stViewP.eOpMode	:= iq_aeOpMode[u];
+	stViewQ			:= stViewP;
+	stViewQ.bForQ	:= TRUE;
+	fLimP			:= SEL(iq_stFilter.bBadValue, 0.0, iq_astUnitCfg[u].fPRated * iq_stFilter.fBadFactor);
+	fLimQ			:= SEL(iq_stFilter.bBadValue, 0.0, iq_astUnitCfg[u].fQRated * iq_stFilter.fBadFactor);
+	FOR i := 1 TO GVL_PARAM.SOURCE_COUNT DO
+		IF iq_astSrcOut[i].bValid
+			AND (iq_astReg[i].nGroup = 0 OR iq_astReg[i].nGroup = iq_astUnitCfg[u].nGroup)
+			AND F_SourceAllowed(iq_astReg[i].ePowerMode, iq_aeOpMode[u]) THEN
+			IF iq_astSrcOut[i].astUnit[u].bPSetActive AND NOT F_CmdOk(iq_astSrcOut[i].astUnit[u].fPSet, fLimP) THEN
+				q_abBadValue[i] := TRUE;
+				q_afBadValue[i] := iq_astSrcOut[i].astUnit[u].fPSet;
+			ELSIF iq_astSrcOut[i].astUnit[u].bPSetActive THEN
+				M_AddCand(stViewP, i, iq_anSrcModule[i], iq_astReg[i].nGrade, iq_astSrcOut[i].astUnit[u].fPSet, iq_astSrcOut[i].bNewSet);
+			END_IF
+			IF iq_astSrcOut[i].astUnit[u].bQSetActive AND NOT F_CmdOk(iq_astSrcOut[i].astUnit[u].fQSet, fLimQ) THEN
+				q_abBadValue[i] := TRUE;
+				q_afBadValue[i] := iq_astSrcOut[i].astUnit[u].fQSet;
+			ELSIF iq_astSrcOut[i].astUnit[u].bQSetActive THEN
+				M_AddCand(stViewQ, i, iq_anSrcModule[i], iq_astReg[i].nGrade, iq_astSrcOut[i].astUnit[u].fQSet, iq_astSrcOut[i].bNewSet);
+			END_IF
+		END_IF
+	END_FOR
+	stUnitP := M_Pick(stViewP, fLimP);
+	stUnitQ := M_Pick(stViewQ, fLimQ);
+	// 운전 모드에 맞는 경로로
+	q_astAutoUnitP[u]	:= stNone;
+	q_astAutoUnitQ[u]	:= stNone;
+	q_astManualUnitP[u]	:= stNone;
+	q_astManualUnitQ[u]	:= stNone;
+	IF iq_aeOpMode[u] = E_OpMode.Manual THEN
+		q_astManualUnitP[u]	:= stUnitP;
+		q_astManualUnitQ[u]	:= stUnitQ;
+	ELSE
+		q_astAutoUnitP[u]	:= stUnitP;
+		q_astAutoUnitQ[u]	:= stUnitQ;
+	END_IF
+END_FOR
+
+(* 2) 그룹 값: 운전 모드(Auto / Manual)마다 따로 후보를 모아 정책으로 고름 (기본: eSelP·eSelQ). 지령원 P·Q 제한은 모두 모음 *)
+FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	FOR k := 1 TO 2 DO
+		IF k = 1 THEN
+			eMode := E_OpMode.Auto;
+		ELSE
+			eMode := E_OpMode.Manual;
+		END_IF
+		stViewP			:= stViewNone;
+		stViewP.nGroup	:= g;
+		stViewP.eOpMode	:= eMode;
+		stViewP.eSel	:= iq_astGroupSet[g].eSelP;
+		stViewQ			:= stViewP;
+		stViewQ.bForQ	:= TRUE;
+		stViewQ.eSel	:= iq_astGroupSet[g].eSelQ;
+		stRng	:= F_RangeOpen();
+		stQRng	:= F_RangeOpen();
+		fLimP	:= SEL(iq_stFilter.bBadValue, 0.0, iq_astView[g].fPRatedSum * iq_stFilter.fBadFactor);
+		fLimQ	:= SEL(iq_stFilter.bBadValue, 0.0, iq_astView[g].fQRatedSum * iq_stFilter.fBadFactor);
+
+		FOR i := 1 TO GVL_PARAM.SOURCE_COUNT DO
+			IF iq_astSrcOut[i].bValid
+				AND (iq_astReg[i].nGroup = 0 OR iq_astReg[i].nGroup = g)
+				AND F_SourceAllowed(iq_astReg[i].ePowerMode, eMode) THEN
+				IF iq_astSrcOut[i].bPSetActive AND NOT F_CmdOk(iq_astSrcOut[i].fPSet, fLimP) THEN
+					q_abBadValue[i] := TRUE;
+					q_afBadValue[i] := iq_astSrcOut[i].fPSet;
+				ELSIF iq_astSrcOut[i].bPSetActive THEN
+					M_AddCand(stViewP, i, iq_anSrcModule[i], iq_astReg[i].nGrade, iq_astSrcOut[i].fPSet, iq_astSrcOut[i].bNewSet);
+				END_IF
+				IF iq_astSrcOut[i].bQSetActive AND NOT F_CmdOk(iq_astSrcOut[i].fQSet, fLimQ) THEN
+					q_abBadValue[i] := TRUE;
+					q_afBadValue[i] := iq_astSrcOut[i].fQSet;
+				ELSIF iq_astSrcOut[i].bQSetActive THEN
+					M_AddCand(stViewQ, i, iq_anSrcModule[i], iq_astReg[i].nGrade, iq_astSrcOut[i].fQSet, iq_astSrcOut[i].bNewSet);
+				END_IF
+				// [결함 13 수정 2026-11-04: 지령원 P·Q 제한값이 숫자가 아니면 이상값으로 보고 그 제한은 안 씀 (범위 계산 비교에서 FPU 예외)]
+				IF iq_astSrcOut[i].bPLimActive AND NOT (F_RealOk(iq_astSrcOut[i].fPMax) AND F_RealOk(iq_astSrcOut[i].fPMin)) THEN
+					q_abBadValue[i] := TRUE;
+					q_afBadValue[i] := SEL(F_RealOk(iq_astSrcOut[i].fPMax), iq_astSrcOut[i].fPMax, iq_astSrcOut[i].fPMin);
+				ELSIF iq_astSrcOut[i].bPLimActive THEN
+					stLim.bActive	:= TRUE;
+					stLim.fMax		:= iq_astSrcOut[i].fPMax;
+					stLim.fMin		:= iq_astSrcOut[i].fPMin;
+					stLim			:= F_LimitKeepZero(stLim);		// 0은 항상 범위 안
+					stLim.nReason	:= 0;
+					stRng := F_RangeAdd(stRng, stLim, iq_anSrcModule[i]);
+				END_IF
+				IF iq_astSrcOut[i].bQLimActive AND NOT (F_RealOk(iq_astSrcOut[i].fQMax) AND F_RealOk(iq_astSrcOut[i].fQMin)) THEN	// [결함 13 수정 2026-11-04]
+					q_abBadValue[i] := TRUE;
+					q_afBadValue[i] := SEL(F_RealOk(iq_astSrcOut[i].fQMax), iq_astSrcOut[i].fQMax, iq_astSrcOut[i].fQMin);
+				ELSIF iq_astSrcOut[i].bQLimActive THEN
+					stLim.bActive	:= TRUE;
+					stLim.fMax		:= iq_astSrcOut[i].fQMax;
+					stLim.fMin		:= iq_astSrcOut[i].fQMin;
+					stLim			:= F_LimitKeepZero(stLim);
+					stLim.nReason	:= 0;
+					stQRng := F_RangeAdd(stQRng, stLim, iq_anSrcModule[i]);
+				END_IF
+			END_IF
+		END_FOR
+
+		stPickP := M_Pick(stViewP, fLimP);
+		stPickQ := M_Pick(stViewQ, fLimQ);
+		IF k = 1 THEN
+			q_astAutoGrpP[g]		:= stPickP;
+			q_astAutoGrpQ[g]		:= stPickQ;
+			q_astAutoGrpPLim[g]		:= stRng;
+			q_astAutoGrpQLim[g]		:= stQRng;
+		ELSE
+			q_astManualGrpP[g]		:= stPickP;
+			q_astManualGrpQ[g]		:= stPickQ;
+			q_astManualGrpPLim[g]	:= stRng;
+			q_astManualGrpQLim[g]	:= stQRng;
+		END_IF
+	END_FOR
+END_FOR]]></ST>
+    </Implementation>
+    <Method Name="M_AddCand" Id="{257c933e-fe22-4874-9e8c-5a60db9f9f87}">
+      <Declaration><![CDATA[METHOD PRIVATE M_AddCand		// 후보 하나 추가 (지령원 칸 순서)
+VAR_IN_OUT
+	iq_stView	: ST_SelectView;
+END_VAR
+VAR_INPUT
+	i_nSource	: UINT;
+	i_nModule	: UINT;
+	i_nGrade	: UINT;
+	i_fValue	: REAL;
+	i_bNew		: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF iq_stView.nCand >= GVL_PARAM.SOURCE_COUNT THEN
+	RETURN;
+END_IF
+iq_stView.nCand := iq_stView.nCand + 1;
+iq_stView.astCand[iq_stView.nCand].nSource	:= i_nSource;
+iq_stView.astCand[iq_stView.nCand].nModule	:= i_nModule;
+iq_stView.astCand[iq_stView.nCand].nGrade	:= i_nGrade;
+iq_stView.astCand[iq_stView.nCand].fValue	:= i_fValue;
+iq_stView.astCand[iq_stView.nCand].bNew		:= i_bNew;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Pick" Id="{c2a7c2fc-da42-45ef-be22-e348fddb7307}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Pick : ST_Pick		// 후보를 정책에 넘겨 하나로. 그룹에 정책이 없으면 코어 기본. 후보가 없으면 값 없음, 정책이 낸 값이 이상값이면 버림
+VAR_INPUT
+	i_stView	: ST_SelectView;
+	i_fLim		: REAL;			// 이상값 한도 (0 = 크기 검사 안 함)
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_stView.nCand = 0 THEN
+	RETURN;
+END_IF
+IF i_stView.nGroup >= 1 AND i_stView.nGroup <= GVL_PARAM.GROUP_COUNT AND_THEN _aipSelPolicy[i_stView.nGroup] <> 0 THEN
+	M_Pick := _aipSelPolicy[i_stView.nGroup].M_Select(i_stView := i_stView);
+ELSE
+	M_Pick := _fbSelStd.M_Select(i_stView := i_stView);
+END_IF
+IF M_Pick.bActive AND NOT F_CmdOk(M_Pick.fValue, i_fLim) THEN
+	M_Pick.bActive	:= FALSE;
+	q_anPolicyBad	:= q_anPolicyBad + 1;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

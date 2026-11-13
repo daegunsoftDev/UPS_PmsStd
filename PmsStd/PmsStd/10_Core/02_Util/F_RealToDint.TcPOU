@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_RealToDint" Id="{b5ec8bd0-eed1-4335-acbd-0276ead22093}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_RealToDint : DINT		// REAL → DINT, NaN·무한대는 0, 범위 밖은 끝값으로 (REAL_TO_DINT는 NaN·범위 밖이면 FPU 예외) [결함 13 수정 2026-11-04: 추가]
+VAR_INPUT
+	i_fValue	: REAL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF NOT F_RealOk(i_fValue) THEN
+	F_RealToDint := 0;
+ELSIF i_fValue >= 2147483520.0 THEN		// REAL로 나타낼 수 있는 DINT 최댓값 근처
+	F_RealToDint := 2147483520;
+ELSIF i_fValue <= -2147483520.0 THEN
+	F_RealToDint := -2147483520;
+ELSE
+	F_RealToDint := REAL_TO_DINT(i_fValue);
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

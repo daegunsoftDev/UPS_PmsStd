@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_Meter" Id="{9db91630-56a0-4318-8827-292990481b53}">
+    <Declaration><![CDATA[INTERFACE I_Meter EXTENDS I_Module]]></Declaration>
+    <Method Name="M_Cycle" Id="{03c77236-44e6-4291-97c3-44eeda3cafa6}">
+      <Declaration><![CDATA[METHOD M_Cycle]]></Declaration>
+    </Method>
+    <Property Name="MeterState" Id="{082455e6-f72c-4a1f-8b92-f21d4ad7afa3}">
+      <Declaration><![CDATA[PROPERTY MeterState : ST_MeterState]]></Declaration>
+      <Get Name="Get" Id="{5844bdbe-7fb4-40b2-9186-60f735e69965}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

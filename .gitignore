@@ -1,0 +1,23 @@
+# Visual Studio / TwinCAT XAE
+.vs/
+*.suo
+*.user
+*.~u
+*.tmp
+*.bak
+*.orig
+
+# TwinCAT boot / build output
+_Boot/
+**/_CompileInfo/
+*.tpy
+*.tmc.bak
+*.compileinfo
+*.bootinfo
+*.tizip
+*.tpzip
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

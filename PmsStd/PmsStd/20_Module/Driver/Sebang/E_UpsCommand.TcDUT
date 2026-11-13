@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<DUT Name="E_UpsCommand" Id="{5bdc902e-0f37-4275-bc26-51ffa71418ce}"><Declaration><![CDATA[// 세방 UPS 명령 주소. 해당 주소에 0x55를 쓰면 실행된다.
+// BMS 명령 레지스터에 0x55를 쓰면 안 된다 (방식이 다름).
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_UpsCommand : (
+	Reset := 100, // 리셋
+	BuzzerStop := 101, // 부저 정지
+	RectifierOn := 102, // 정류기 ON
+	RectifierOff := 103, // 정류기 OFF
+	InverterOn := 104, // 인버터 ON
+	InverterOff := 105, // 인버터 OFF
+	BbcOn := 106, // BBC ON
+	BbcOff := 107, // BBC OFF
+	ToInverter := 108, // 인버터 절체
+	ToBypass := 109, // 바이패스 절체 (BBC 대기 아님)
+	FloatCharge := 110, // 부동충전
+	EqualCharge := 111, // 균등충전
+	AutoOn := 112, // 자동운전 ON
+	AutoOff := 113, // 자동운전 OFF
+	EmergencyDischarge := 114, // 비상 방전 시작
+	PeriodicDischarge := 115, // 주기적 방전 시작
+	PulseDischarge := 116, // 펄스 방전 시작
+	CancelDischarge := 117, // 비상·주기적·펄스 방전 취소
+	TrickleOn := 118, // 간헐충전 시작
+	TrickleOff := 119, // 간헐충전 취소
+	TemperatureOn := 120, // 온도보상 시작
+	TemperatureOff := 121, // 온도보상 취소
+	EcoOn := 122, // ECO ON
+	EcoOff := 123, // ECO OFF
+	PrltOn := 124, // PRLT ON
+	PrltOff := 125 // PRLT OFF
+) INT;
+END_TYPE]]></Declaration></DUT>
+</TcPlcObject>

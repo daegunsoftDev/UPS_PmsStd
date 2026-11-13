@@ -1,0 +1,345 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
+  <POU Name="FB_PlaspoPcs" Id="{24e05a2e-6492-47e3-821a-af0b9b7e6982}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_PlaspoPcs EXTENDS FB_DeviceBase IMPLEMENTS I_Pcs		// 플라스포 PCS (Modbus TCP, 유닛 1개). 레지스터 맵은 Helios FB_PlaspoPcs와 같음
+(* ---------------------------------------------------------------
+   상태 (읽기 맵 → ST_UnitState)
+   - 고장 비트 → Fault, 인버터 정지 → Stop
+   - 운전 중이면서 마지막 상태 명령이 Standby → Standby, 그 밖의 운전 중 → Run
+     (플라스포에는 Standby 상태가 따로 없어서 "운전 중 + 대기 모드(103 = 0)"를 Standby로 봄)
+   명령 (레지스터: 값)
+   - 기동    101: 55, 105: 1       - 정지·비상정지 101: 99, 105: 1 (비상정지 명령이 따로 없음)
+   - 리셋    102: 33, 105: 1       - Standby  (정지 중이면 기동 먼저) 106: 1, 103: 0, 107: 0
+   - 출력    P > 0 방전 103: 2, P < 0 충전 103: 1, 107: |P| × i_fPScale. 방향이 같으면 107만 씀
+   - Q 지령은 이 맵에 없음 → 무시
+   쓰기: 한 번에 레지스터 하나, 사이 간격 i_tWriteGap. 상태 명령이 출력보다 먼저.
+         출력은 가장 최근 값만 보냄 (밀려 있으면 덮어씀)
+   현장 확인: 유효전력 부호(i_bPInvert), 출력 레지스터 단위(i_fPScale)
+   --------------------------------------------------------------- *)
+VAR_INPUT
+	i_sIpAddr		: STRING(15);
+	i_nPort			: UINT := 502;
+	i_nUnitId		: BYTE := 1;
+	i_fPScale		: REAL := 1.0;		// 출력 레지스터(107) = kW × 배율
+	i_bPInvert		: BOOL := TRUE;		// 읽은 유효전력 부호 뒤집기 (Helios: -acActive → 방전 +)
+	i_tWriteGap		: TIME := T#300MS;	// 레지스터 쓰기 사이 간격 (Helios 300 ms)
+	i_tTimeout		: TIME := T#1S;
+END_VAR
+VAR
+	(* 읽기 *)
+	_fbMbRead			: FB_MBReadRegs;
+	_stReadMap			: ST_PlaspoPcsRaw;
+	_bReadDue		: BOOL;
+	_bReading		: BOOL;
+	_bReadError		: BOOL;
+	_nReadErrId		: UDINT;
+	_stUnit			: ST_UnitState;
+	_bStandbyMode	: BOOL;				// 마지막 상태 명령이 Standby
+	(* 보낼 목록 (대기): 상태 명령은 가장 최근 것만, 출력은 가장 최근 값만 *)
+	_anCmdRegAddr		: ARRAY[1..5] OF UINT;	// 보낼 상태 명령 (가장 최근 것만)
+	_anCmdRegValue		: ARRAY[1..5] OF INT;
+	_nCmdRegCount		: UINT;				// 0 = 없음
+	_bPowerPending	: BOOL;
+	_nPowerDir		: INT;				// 보낼 방향 (103 값): 0 그대로, 1 충전, 2 방전
+	_nPowerAbs	: INT;				// 107
+	_nDirWritten	: INT;				// 마지막으로 쓴 103
+	(* 지금 보내는 목록 *)
+	_fbMbWrite		: FB_MBWriteRegs;
+	_anSendAddr		: ARRAY[1..5] OF UINT;
+	_anSendValue		: ARRAY[1..5] OF INT;
+	_nSendCount		: UINT;
+	_nSendIdx		: UINT;
+	_nWriteStep		: UINT;				// 0 다음 일 고르기, 1 쓰기 시작, 2 끝나기 기다림, 3 간격
+	_bWriteError	: BOOL;
+	_nWriteErrId	: UDINT;
+	_tonWriteGap			: TON;
+	_nCopyIdx			: UINT;				// 액션에서 쓰는 반복 변수
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Action Name="A_MapToUnitState" Id="{9069cbbb-43f0-4dec-9880-dc0cccb578d5}">
+      <Implementation>
+        <ST><![CDATA[_stUnit.bComm		:= _bComm AND NOT _stReadMap.nPcsStatus.5;
+_stUnit.bFault		:= _stReadMap.nPcsStatus.1;
+_stUnit.bCtrlReady	:= _stReadMap.nRemoteMode = 1;
+
+IF NOT _stUnit.bComm THEN
+	_stUnit.eRunState := E_RunState.Unknown;
+ELSIF _stUnit.bFault THEN
+	_stUnit.eRunState := E_RunState.Fault;
+ELSIF NOT _stReadMap.nPcsStatus.0 THEN
+	_stUnit.eRunState := E_RunState.Stop;
+ELSIF _bStandbyMode THEN
+	_stUnit.eRunState := E_RunState.Standby;
+ELSE
+	_stUnit.eRunState := E_RunState.Run;
+END_IF
+
+_stUnit.stP.fValue	:= INT_TO_REAL(_stReadMap.nAcActive) * 0.1 * SEL(i_bPInvert, 1.0, -1.0);
+_stUnit.stP.bValid	:= _stUnit.bComm;
+_stUnit.stQ.fValue	:= INT_TO_REAL(_stReadMap.nAcReactive) * 0.1;
+_stUnit.stQ.bValid	:= _stUnit.bComm;]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_ReadRegisters" Id="{f04a3e3c-ee99-4d91-a8c6-ad971218c27e}">
+      <Implementation>
+        <ST><![CDATA[// 읽기 주기마다 한 번 (Helios A_ReadPcsData와 같은 순서)
+IF NOT _bReading THEN
+	IF _bReadDue THEN
+		_fbMbRead(sIPAddr := i_sIpAddr, nTCPPort := i_nPort, nUnitID := i_nUnitId,
+				nQuantity := SIZEOF(_stReadMap) / 2, nMBAddr := 1, cbLength := SIZEOF(_stReadMap),
+				pDestAddr := ADR(_stReadMap), tTimeout := i_tTimeout, bExecute := TRUE);
+		_bReading := TRUE;
+	END_IF
+ELSE
+	_fbMbRead(bExecute := FALSE);
+	IF NOT _fbMbRead.bBusy THEN
+		_bReadError	:= _fbMbRead.bError;
+		_nReadErrId	:= _fbMbRead.nErrId;
+		IF NOT _fbMbRead.bError THEN
+			M_MarkAlive();
+		END_IF
+		_bReading := FALSE;
+	END_IF
+END_IF]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_WriteQueue" Id="{66ffa015-50c4-425c-a943-35fb3451b4b3}">
+      <Implementation>
+        <ST><![CDATA[CASE _nWriteStep OF
+	0:	// 다음 일: 상태 명령이 먼저, 그다음 출력
+		_nSendCount := 0;
+		IF _nCmdRegCount > 0 THEN
+			FOR _nCopyIdx := 1 TO _nCmdRegCount DO
+				_anSendAddr[_nCopyIdx]	:= _anCmdRegAddr[_nCopyIdx];
+				_anSendValue[_nCopyIdx]	:= _anCmdRegValue[_nCopyIdx];
+			END_FOR
+			_nSendCount := _nCmdRegCount;
+			_nCmdRegCount := 0;
+		ELSIF _bPowerPending THEN
+			IF _nPowerDir <> 0 AND _nPowerDir <> _nDirWritten THEN
+				_anSendAddr[1] := 106;	_anSendValue[1] := 1;
+				_anSendAddr[2] := 103;	_anSendValue[2] := _nPowerDir;
+				_anSendAddr[3] := 107;	_anSendValue[3] := _nPowerAbs;
+				_nSendCount := 3;
+			ELSE
+				_anSendAddr[1] := 107;	_anSendValue[1] := _nPowerAbs;
+				_nSendCount := 1;
+			END_IF
+			_bPowerPending := FALSE;
+		END_IF
+		IF _nSendCount > 0 THEN
+			_nSendIdx	:= 1;
+			_nWriteStep	:= 1;
+		END_IF
+
+	1:	// 레지스터 하나 쓰기 시작
+		_fbMbWrite(sIPAddr := i_sIpAddr, nTCPPort := i_nPort, nUnitID := i_nUnitId,
+				 nQuantity := 1, nMBAddr := _anSendAddr[_nSendIdx], cbLength := 2,
+				 pSrcAddr := ADR(_anSendValue[_nSendIdx]), tTimeout := i_tTimeout, bExecute := TRUE);
+		_nWriteStep := 2;
+
+	2:	// 끝나기 기다림
+		_fbMbWrite(bExecute := FALSE);
+		IF NOT _fbMbWrite.bBusy THEN
+			_bWriteError := _fbMbWrite.bError;
+			_nWriteErrId := _fbMbWrite.nErrId;
+			IF NOT _fbMbWrite.bError AND _anSendAddr[_nSendIdx] = 103 THEN
+				_nDirWritten := _anSendValue[_nSendIdx];
+			END_IF
+			IF _fbMbWrite.bError THEN
+				_nSendIdx := _nSendCount;		// 실패하면 이 일은 그만 (상태 명령은 시퀀서가 다시 보냄)
+			END_IF
+			_nWriteStep := 3;
+		END_IF
+
+	3:	// 간격
+		_tonWriteGap(IN := TRUE, PT := i_tWriteGap);
+		IF _tonWriteGap.Q THEN
+			_tonWriteGap(IN := FALSE);
+			IF _nSendIdx < _nSendCount THEN
+				_nSendIdx	:= _nSendIdx + 1;
+				_nWriteStep	:= 1;
+			ELSE
+				_nWriteStep	:= 0;
+			END_IF
+		END_IF
+END_CASE]]></ST>
+      </Implementation>
+    </Action>
+    <Method Name="M_Cycle" Id="{87c4a5b3-dea6-4af7-abb4-acf88241239f}">
+      <Declaration><![CDATA[METHOD M_Cycle]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_bReadDue := M_IsReadTime();
+A_ReadRegisters();
+M_UpdateComm();
+A_MapToUnitState();
+A_WriteQueue();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_GetUnitState" Id="{05b7df22-3539-4ccb-9ef5-e3c0dd5666f3}">
+      <Declaration><![CDATA[METHOD M_GetUnitState : ST_UnitState
+VAR_INPUT
+	i_nSub		: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nSub = 1 THEN
+	M_GetUnitState := _stUnit;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_QueueCmdAndApply" Id="{82159912-b250-4b4d-9962-4ccd804b5b4e}">
+      <Declaration><![CDATA[METHOD PRIVATE M_QueueCmdAndApply		// 상태 명령 보낼 목록을 새로 만듦: 명령 레지스터 하나 + 적용 신호(105 ← 1)
+VAR_INPUT
+	i_nAddr		: UINT;
+	i_nValue	: INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_nCmdRegCount := 0;
+M_QueueRegister(i_nAddr, i_nValue);
+M_QueueRegister(105, 1);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_QueueRegister" Id="{7f64daf5-ed70-4ef7-9adc-c6d6bbec0ce0}">
+      <Declaration><![CDATA[METHOD PRIVATE M_QueueRegister		// 상태 명령 보낼 목록에 레지스터 하나(주소 ← 값) 추가
+VAR_INPUT
+	i_nAddr		: UINT;
+	i_nValue	: INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF _nCmdRegCount < 5 THEN
+	_nCmdRegCount := _nCmdRegCount + 1;
+	_anCmdRegAddr[_nCmdRegCount]	:= i_nAddr;
+	_anCmdRegValue[_nCmdRegCount]	:= i_nValue;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetPower" Id="{7e855231-0f88-4386-8e82-44e6eed31f6d}">
+      <Declaration><![CDATA[METHOD M_SetPower : BOOL
+VAR_INPUT
+	i_nSub		: UINT;
+	i_fP		: REAL;			// kW, 방전 +
+	i_fQ		: REAL;			// 이 맵에는 Q 지령이 없음
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nSub <> 1 THEN
+	RETURN;
+END_IF
+IF i_fP > 0.05 THEN
+	_nPowerDir := 2;			// 방전
+ELSIF i_fP < -0.05 THEN
+	_nPowerDir := 1;			// 충전
+ELSE
+	_nPowerDir := 0;			// 0 kW: 방향은 그대로 두고 107만
+END_IF
+// [결함 13 수정 2026-11-04: 지령·배율이 숫자가 아니면 0 (LIMIT·REAL_TO_INT에서 FPU 예외). 원래 _nPowerAbs := REAL_TO_INT(LIMIT(0.0, ABS(i_fP) * i_fPScale, 32767.0));]
+IF F_RealOk(i_fP) AND F_RealOk(i_fPScale) THEN
+	_nPowerAbs	:= REAL_TO_INT(LIMIT(0.0, ABS(i_fP) * i_fPScale, 32767.0));
+ELSE
+	_nPowerAbs	:= 0;
+END_IF
+_bPowerPending	:= TRUE;
+M_SetPower := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SetStateCmd" Id="{e4fa249d-1ec1-411c-9e60-38b091914e08}">
+      <Declaration><![CDATA[METHOD M_SetStateCmd : BOOL
+VAR_INPUT
+	i_nSub		: UINT;
+	i_stCmd		: ST_PcsCmd;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nSub <> 1 THEN
+	RETURN;
+END_IF
+
+CASE i_stCmd.eCmd OF
+	E_PcsCmd.Run:
+		_bStandbyMode := FALSE;
+		_nDirWritten := 0;			// 첫 출력 때 방향(103)을 다시 씀
+		IF _stUnit.eRunState = E_RunState.Stop THEN
+			M_QueueCmdAndApply(101, 55);			// 기동
+		END_IF
+		// 이미 운전 중이면 쓸 것 없음: Run으로 보고하고 출력 지령을 따름
+
+	E_PcsCmd.Standby:
+		_bStandbyMode := TRUE;
+		_nCmdRegCount := 0;
+		IF _stUnit.eRunState = E_RunState.Stop THEN
+			M_QueueRegister(101, 55);
+			M_QueueRegister(105, 1);
+		END_IF
+		M_QueueRegister(106, 1);
+		M_QueueRegister(103, 0);
+		M_QueueRegister(107, 0);
+
+	E_PcsCmd.Stop,
+	E_PcsCmd.EStop:
+		_bStandbyMode := FALSE;
+		_nDirWritten := 0;
+		M_QueueCmdAndApply(101, 99);
+
+	E_PcsCmd.Reset:
+		M_QueueCmdAndApply(102, 33);
+ELSE
+	RETURN;
+END_CASE
+M_SetStateCmd := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="RawMap" Id="{46ba0927-c022-402e-aebe-6a1f4c9ba190}">
+      <Declaration><![CDATA[PROPERTY RawMap : ST_PlaspoPcsRaw		// 마지막으로 읽은 레지스터 맵 (보고 매핑용. 제어에 쓰지 않음)]]></Declaration>
+      <Get Name="Get" Id="{602e413a-682c-405c-b4bc-e2e4921308a3}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[RawMap := _stReadMap;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <LineIds Name="FB_PlaspoPcs">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_PlaspoPcs.A_MapToUnitState">
+      <LineId Id="2" Count="18" />
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_PlaspoPcs.A_ReadRegisters">
+      <LineId Id="2" Count="17" />
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_PlaspoPcs.A_WriteQueue">
+      <LineId Id="2" Count="57" />
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_PlaspoPcs.M_Cycle">
+      <LineId Id="3" Count="3" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_PlaspoPcs.M_GetUnitState">
+      <LineId Id="3" Count="1" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_PlaspoPcs.M_QueueCmdAndApply">
+      <LineId Id="3" Count="1" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_PlaspoPcs.M_QueueRegister">
+      <LineId Id="3" Count="3" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_PlaspoPcs.M_SetPower">
+      <LineId Id="3" Count="11" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_PlaspoPcs.M_SetStateCmd">
+      <LineId Id="3" Count="34" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="FB_PlaspoPcs.RawMap.Get">
+      <LineId Id="2" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

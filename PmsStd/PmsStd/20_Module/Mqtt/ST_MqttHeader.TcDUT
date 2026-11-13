@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_MqttHeader" Id="{03be8fdb-1c9f-48d0-b0ab-0cd897606c52}">
+    <Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_MqttHeader :
+STRUCT
+	HeaderVersion	:	UDINT;
+	DeviceVersion	:	UDINT;
+	SiteId			:	UDINT;
+	DeviceCount		:	UDINT;		// 이 메시지에 실린 장치 레코드 개수
+	TimeStamp		:	STRING(23);	// "2024-09-04 11:11:11.123" 형식 (23자 + null = 24byte)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

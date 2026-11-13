@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<DUT Name="ST_UpsRaw" Id="{a8e963df-64a4-4dcc-9dd6-ca556bc4d925}"><Declaration><![CDATA[// 세방 UPS에서 읽은 변환 전 원본 값.
+TYPE ST_UpsRaw :
+STRUCT
+	awInput : ARRAY[0..53] OF WORD; // FC04 Input 주소 0~53 (계측, 알람, 상태)
+	awParam : ARRAY[0..66] OF WORD; // FC03 Holding 주소 0~66 (설정값)
+END_STRUCT
+END_TYPE]]></Declaration></DUT>
+</TcPlcObject>

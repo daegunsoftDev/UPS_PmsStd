@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_DistView" Id="{3989125e-ba8b-4779-9ca2-de62c3d289d2}">
+    <Declaration><![CDATA[TYPE ST_DistView :	// 분배 정책에 넘기는 것 (I_DistPolicy.M_Weight): 유닛 하나
+STRUCT
+	nGroup		: UINT;
+	nUnit		: UINT;
+	bManual		: BOOL;			// Manual 경로 그룹 몫
+	bForQ		: BOOL;			// FALSE = P, TRUE = Q
+	bPositive	: BOOL;			// 나눌 양이 방전·공급 쪽
+	eBasis		: E_DistBasis;	// 그룹 설정 eDistBasis (기본 정책이 씀)
+	fPRated		: REAL;			// kW, 정격 (Derate 반영 전)
+	fQRated		: REAL;			// kvar
+	fSoc		: REAL;			// %, 연결 배터리 그룹 SOC. 모르면 -1
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

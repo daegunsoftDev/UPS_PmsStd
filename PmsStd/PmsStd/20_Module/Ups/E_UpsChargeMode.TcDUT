@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<DUT Name="E_UpsChargeMode" Id="{982ac3ce-c7af-4dbc-b238-ff80975a2ab7}"><Declaration><![CDATA[// 충방전 시퀀스의 운전 종류. 주 운전이라 한 번에 하나만 실행한다.
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_UpsChargeMode : (
+ Off := 0, // 운전 없음
+ Trickle := 1, // 간헐충전
+ Periodic := 2, // 주기적 방전
+ Pulse := 3 // 펄스 방전
+) INT;
+END_TYPE]]></Declaration></DUT>
+</TcPlcObject>

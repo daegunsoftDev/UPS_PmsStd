@@ -1,0 +1,50 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ModuleBase" Id="{887f52a7-edc3-4b27-a8ae-2984073d8042}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK ABSTRACT FB_ModuleBase IMPLEMENTS I_Module
+VAR_INPUT
+	i_nModuleId		: UINT;			// 현장 안에서 겹치지 않는 번호. GVL_SITE에서 정함
+	i_sName			: STRING(31);	// 로그에 나오는 이름 (영문)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Property Name="ModuleId" Id="{14f58e33-1673-4065-a62f-f16d9dffd1bc}">
+      <Declaration><![CDATA[PROPERTY ModuleId : UINT]]></Declaration>
+      <Get Name="Get" Id="{9b4e2987-bc92-44ca-9481-178e8cfc1a2b}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ModuleId := i_nModuleId;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ModuleName" Id="{b392486e-65a9-4052-afd4-07a9504c87e2}">
+      <Declaration><![CDATA[PROPERTY ModuleName : STRING(31)]]></Declaration>
+      <Get Name="Get" Id="{c3f10883-4170-475f-86ab-569e6fcf4f8b}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ModuleName := i_sName;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="M_ReasonText" Id="{7be7bc14-94d7-4702-841e-1d6317896c74}">
+      <Declaration><![CDATA[METHOD M_ReasonText : WSTRING(63)		// 기본: "이유 n". 모듈이 바꿔서 자기 문구를 돌려줌
+VAR_INPUT
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_ReasonText := WCONCAT("이유 ", TO_WSTRING(i_nReason));]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckSet" Id="{53deb2fc-6584-479e-a247-cac75c4b974f}">
+      <Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)		// 기본: 점검할 설정 없음 (빈 문구). 설정 구조체를 받는 모듈이 바꿔서 자기 설정을 점검]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckSet := "";]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

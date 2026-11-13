@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_MakeLimit" Id="{ea8e3e66-78d6-43a0-907a-39d67f8d25c9}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_MakeLimit : ST_Limit		// 코어용 제한 한 줄 만들기
+VAR_INPUT
+	i_fMax		: REAL;
+	i_fMin		: REAL;
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[F_MakeLimit.bActive	:= TRUE;
+F_MakeLimit.fMax	:= i_fMax;
+F_MakeLimit.fMin	:= i_fMin;
+F_MakeLimit.nReason	:= i_nReason;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

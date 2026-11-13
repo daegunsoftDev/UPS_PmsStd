@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15"><DUT Name="ST_ScheduleWeekly_V1" Id="{441a2462-aec7-42f6-87c7-22eb3cdf74ff}"><Declaration><![CDATA[{attribute 'pack_mode' := '1'}
+TYPE ST_ScheduleWeekly_V1 :
+STRUCT
+ Name : STRING(20);
+ Priority : UDINT;
+ StartDate : UDINT;
+ EndDate : UDINT;
+ Works : ARRAY[0..69] OF ST_ScheduleWork_V1;
+END_STRUCT
+END_TYPE]]></Declaration></DUT></TcPlcObject>

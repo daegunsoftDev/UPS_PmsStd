@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_UnitProt" Id="{d82ad24e-6992-4665-84b7-d6d8f74f5e0a}">
+    <Declaration><![CDATA[TYPE ST_UnitProt :
+STRUCT
+	ePcsAction		: E_PcsAction;		// 이 유닛에 걸린 가장 센 조치
+	nModule			: UINT;				// 조치를 건 보호 모듈 ID
+	fPPct			: REAL := 100.0;	// 걸린 P 상한 중 가장 낮은 값 (유닛 정격 대비 %, 100 = 없음)
+	nPModule		: UINT;			// P 상한을 건 모듈 ID
+	fQPct			: REAL := 100.0;	// 걸린 Q 상한 중 가장 낮은 값 (유닛 정격 대비 %, 100 = 없음)
+	nQModule		: UINT;			// Q 상한을 건 모듈 ID
+	bModeManualReq	: BOOL;				// 보호가 걸려 있는 동안 TRUE: 이 유닛의 요청 모드를 Manual로 (실제 모드와 관계없음. FB_ModeSwitch가 요청값을 씀)
+	nModeModule		: UINT;				// 모드 조치를 건 보호 모듈 ID
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

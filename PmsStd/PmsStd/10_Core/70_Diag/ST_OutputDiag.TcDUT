@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_OutputDiag" Id="{e2727544-274b-42ce-be96-6ae93b7ccfff}">
+    <Declaration><![CDATA[TYPE ST_OutputDiag :
+STRUCT
+	eStage		: E_DiagStage;		// 막은 단계. Auto P: 최종 값을 정한 단계 (추적표 기준), 나머지: 처음 막은 단계
+	nModule		: UINT;				// 막은 모듈 (0 = 코어)
+	nReason		: UINT;				// 이유 코드 (모듈이 정한 이유 또는 GVL_REASON 코어 이유). UnitLimit 단계는 0
+	eUnitBy		: E_UnitLimitBy;	// UnitLimit 단계일 때 유닛 한도 이유 (그 경로 유닛 중 처음 찾은 것)
+	eGroupState	: E_GroupState;		// NotRunning일 때 그룹 상태
+	fReq		: REAL;				// kW, 고른 요청값
+	fOut		: REAL;				// kW, 장비에 쓴 값 합
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

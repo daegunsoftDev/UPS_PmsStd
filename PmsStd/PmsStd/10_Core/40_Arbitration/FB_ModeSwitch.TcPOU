@@ -1,0 +1,112 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ModeSwitch" Id="{89717a62-2b57-4ce5-bbb7-e3c1d0a32edb}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ModeSwitch		// 운전 모드 전환: 요청 모드 → (출력 0 → 지연 → 대기(출력 0)·정지 확인) → 실제 모드. 시작한 전환은 끝까지 진행. 보호가 ToManual을 요청하면 요청 모드를 Manual로 바꿈 (보호가 풀려도 Manual 유지)
+VAR_INPUT
+	i_stSet			: ST_ModeSet;
+	i_fDonePct		: REAL;		// 출력 0 확인: |P|·|Q| ≤ 정격의 이 % (g_stSeqSet.stPcs.fStopDonePct, 정지 램프 완료와 같은 기준)
+END_VAR
+VAR_IN_OUT
+	iq_aeModeReq	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;		// 요청 모드 (GVL_PERSIST.g_aeOpMode). HMI가 쓰고, 보호가 ToManual을 요청하면 이 FB가 Manual로 바꿈
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;		// 정격 (출력 0 확인)
+	iq_astUnitProt	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitProt;	// 보호 결과 (bModeManualReq만 봄, 지난 스캔 값)
+END_VAR
+VAR_OUTPUT
+	q_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;		// 실제 모드. 코어는 전부 이것을 씀
+	q_abSwitching	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;			// 전환 중: 출력 0, 지령원 상태 요청 안 받음
+	q_aeStep		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_ModeStep;		// 진단
+	q_abModeForced	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;			// 보호가 요청 모드를 Auto에서 Manual로 바꾼 스캔 (1스캔, 기록용)
+END_VAR
+VAR
+	_atonDelay		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF TON;
+	_aeTarget		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;		// 진행 중인 전환의 목표 모드 (끝날 때까지 고정)
+	_bInit			: BOOL;
+END_VAR
+VAR_TEMP
+	u				: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// PMS 시작: 기본은 모든 유닛 Manual로 시작 (요청 모드도 Manual로 씀). bKeepOnRestart면 저장된 요청 모드를 그대로 씀. 전환 단계 없음
+// 장비 상태는 건드리지 않음: 시작 때 Run·배터리 투입 명령을 스스로 보내지 않음
+IF NOT _bInit THEN
+	IF NOT i_stSet.bKeepOnRestart THEN
+		FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+			iq_aeModeReq[u] := E_OpMode.Manual;
+		END_FOR
+	END_IF
+	q_aeOpMode	:= iq_aeModeReq;
+	_bInit		:= TRUE;
+END_IF
+
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	// 보호가 걸려 있는 동안 요청 모드는 Manual (Auto 재요청도 되돌림). 풀려도 요청은 그대로 Manual
+	q_abModeForced[u] := FALSE;
+	IF iq_astUnitProt[u].bModeManualReq THEN
+		IF iq_aeModeReq[u] <> E_OpMode.Manual THEN
+			iq_aeModeReq[u]		:= E_OpMode.Manual;
+			q_abModeForced[u]	:= TRUE;
+		END_IF
+		// Auto로 가던 전환은 목표를 Manual로 바꿈: 끝까지 진행하는 규칙의 예외 (Auto로 한 스캔도 넘어가지 않게). 출력 0은 그대로, 남은 단계는 Manual 기준
+		IF q_aeStep[u] <> E_ModeStep.Idle AND _aeTarget[u] <> E_OpMode.Manual THEN
+			_aeTarget[u] := E_OpMode.Manual;
+		END_IF
+	END_IF
+	_atonDelay[u](IN := q_aeStep[u] = E_ModeStep.Zero, PT := i_stSet.tDelay);
+
+	IF q_aeStep[u] = E_ModeStep.Idle THEN
+		// 새 전환 시작: 목표를 고정
+		IF iq_aeModeReq[u] <> q_aeOpMode[u] THEN
+			_aeTarget[u] := iq_aeModeReq[u];
+			IF M_Level(_aeTarget[u]) = E_ModeSwitch.Direct THEN
+				q_aeOpMode[u] := _aeTarget[u];
+			ELSE
+				q_aeStep[u] := E_ModeStep.Zero;			// 이번 스캔부터 출력 0
+			END_IF
+		END_IF
+	ELSE
+		// 진행 중: 요청이 바뀌어도 끝까지 진행. 끝난 뒤 요청이 다르면 다시 전환 (예외: 보호 ToManual은 위에서 목표를 Manual로 바꿈)
+		CASE q_aeStep[u] OF
+			E_ModeStep.Zero:
+				IF _atonDelay[u].Q THEN
+					IF M_Level(_aeTarget[u]) = E_ModeSwitch.Standby AND iq_astUnit[u].eRunState = E_RunState.Run
+						AND NOT F_IsLocal(iq_astUnit[u]) THEN
+						q_aeStep[u]			:= E_ModeStep.WaitStop;
+					ELSE
+						q_aeOpMode[u]	:= _aeTarget[u];
+						q_aeStep[u]		:= E_ModeStep.Idle;
+					END_IF
+				END_IF
+
+			E_ModeStep.WaitStop:
+				// 대기 = 출력 0: 장비가 대기·정지를 보고하거나 실측 |P|·|Q|가 0 근처면 끝 (대기 명령은 따로 없음)
+				// 로컬로 바뀌면 PMS가 제어할 수 없으므로 기다리지 않고 끝냄
+				IF iq_astUnit[u].eRunState <> E_RunState.Run OR F_IsLocal(iq_astUnit[u])
+					OR (ABS(iq_astUnit[u].stP.fValue) <= iq_astUnitCfg[u].fPRated * i_fDonePct / 100.0
+						AND ABS(iq_astUnit[u].stQ.fValue) <= iq_astUnitCfg[u].fQRated * i_fDonePct / 100.0) THEN
+					q_aeOpMode[u]	:= _aeTarget[u];
+					q_aeStep[u]		:= E_ModeStep.Idle;
+				END_IF
+		END_CASE
+	END_IF
+
+	q_abSwitching[u] := q_aeStep[u] <> E_ModeStep.Idle;
+END_FOR]]></ST>
+    </Implementation>
+    <Method Name="M_Level" Id="{caaaefb7-cd38-4a80-bf5f-ba9892141e8e}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Level : E_ModeSwitch		// 목표 모드로 갈 때 어디까지 하나 (MODE_SET)
+VAR_INPUT
+	i_eTarget	: E_OpMode;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_eTarget = E_OpMode.Manual THEN
+	M_Level := i_stSet.eToManual;
+ELSE
+	M_Level := i_stSet.eToAuto;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

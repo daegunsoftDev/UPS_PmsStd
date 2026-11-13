@@ -1,0 +1,117 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_MqttPublish" Id="{958d77c7-8621-4a9b-a300-9d417bfe32ad}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_MqttPublish		// MQTT 발행 (브로커 1개): 장치 토픽·config echo 토픽을 1 s마다 발행, 로거 이벤트는 M_PublishLogger로 1건씩
+VAR_INPUT
+	i_nSiteId		: UDINT;
+	i_sConnLabel	: STRING(10);	// 연결 구분 ('Cloud', 'local', 'Azure'). ClientId에만 씀
+	i_sHost			: STRING(15);
+	i_nPort			: UINT;
+	i_sUserName		: STRING;
+	i_sUserPassword	: STRING;	// 접속 값은 첫 호출 때 한 번 읽음
+	i_sInstance		: STRING(4) := '';	// ClientId 뒤에 붙임. 이중화: 두 PLC가 같은 ClientId로 접속하면 브로커가 서로 끊으므로 PLC마다 다르게 ('-P', '-S')
+	i_bPublish		: BOOL := TRUE;	// FALSE = 접속은 유지하고 발행만 안 함 (이중화: Active만 발행)
+	i_astDeviceTable	: ARRAY[1..GVL_MQTT.DEVICE_TOPIC_COUNT] OF ST_MqttPubEntry;	// 장치 토픽 표 (FB_MqttMain.A_InitPublishTable)
+	i_astConfigTable	: ARRAY[1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF ST_MqttPubEntry;	// config echo 토픽 표
+END_VAR
+VAR
+	_sSiteId			: STRING;
+	_sClientId			: STRING;
+	_sHost				: STRING(15);
+	_nPort				: UINT;
+	_sUserName			: STRING;
+	_sUserPassword		: STRING;
+	_asDeviceTopic		: ARRAY[1..GVL_MQTT.DEVICE_TOPIC_COUNT] OF STRING(80);
+	_asConfigTopic		: ARRAY[1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF STRING(80);
+	_sLoggerTopic		: STRING(80);
+	_fbClient			: FB_IotMqttClient;
+	_fbQueue			: FB_IotMqttMessageQueue;
+	_i					: UINT;
+	_bSetParameter		: BOOL := TRUE;
+	_bConnect			: BOOL := TRUE;
+	_bPublished			: BOOL;
+	_tonPeriod			: TON := (PT := T#1S);		// 발행 주기
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF _bSetParameter THEN
+	_bSetParameter := FALSE;
+	_sSiteId		:= UDINT_TO_STRING(i_nSiteId);
+	_sHost			:= i_sHost;
+	_nPort			:= i_nPort;
+	_sClientId		:= CONCAT(CONCAT('dgspms/pub-', i_sConnLabel), CONCAT('/', _sSiteId));
+	_sClientId		:= CONCAT(_sClientId, i_sInstance);
+	_sUserName		:= i_sUserName;
+	_sUserPassword	:= i_sUserPassword;
+	(* 장치 토픽: dgspms/{solution}/{site_id}/{device_name} *)
+	FOR _i := 1 TO GVL_MQTT.DEVICE_TOPIC_COUNT DO
+		_asDeviceTopic[_i] := CONCAT(CONCAT(CONCAT('dgspms/', GVL_MQTT.SOLUTION_NAME), CONCAT('/', _sSiteId)),
+									CONCAT('/', i_astDeviceTable[_i].sTopic));
+	END_FOR
+	(* config echo 토픽: dgspms/{solution}/{site_id}/config/{device_name} *)
+	FOR _i := 1 TO GVL_MQTT.CONFIG_TOPIC_COUNT DO
+		_asConfigTopic[_i] := CONCAT(CONCAT(CONCAT('dgspms/', GVL_MQTT.SOLUTION_NAME), CONCAT('/', _sSiteId)),
+									CONCAT(CONCAT('/', i_astConfigTable[_i].sCategory), CONCAT('/', i_astConfigTable[_i].sTopic)));
+	END_FOR
+
+	(* 로거 토픽: dgspms/{solution}/{site_id}/{LOGGER_TOPIC} (주기 발행 아님. M_PublishLogger로 이벤트가 생길 때만) *)
+	_sLoggerTopic := CONCAT(CONCAT(CONCAT('dgspms/', GVL_MQTT.SOLUTION_NAME), CONCAT('/', _sSiteId)), CONCAT('/', GVL_MQTT.LOGGER_TOPIC));
+
+	_fbClient.sClientId		:= _sClientId;
+	_fbClient.sUserName		:= _sUserName;
+	_fbClient.sUserPassword	:= _sUserPassword;
+	_fbClient.sHostName		:= _sHost;
+	_fbClient.nHostPort		:= _nPort;
+	_fbClient.sTopicPrefix	:= '';
+	_fbClient.ipMessageQueue := _fbQueue;
+END_IF
+
+_fbClient.Execute(_bConnect);
+
+IF _fbClient.bConnected AND i_bPublish THEN
+	_tonPeriod(IN := TRUE);
+	IF _tonPeriod.Q THEN
+		_tonPeriod(IN := FALSE);
+		FOR _i := 1 TO GVL_MQTT.DEVICE_TOPIC_COUNT DO
+			IF i_astDeviceTable[_i].nDeviceCount > 0 THEN
+			_bPublished := _fbClient.Publish(sTopic := _asDeviceTopic[_i],
+						pPayload := i_astDeviceTable[_i].pStaging,
+						nPayloadSize := i_astDeviceTable[_i].nStagingSize,
+						eQos := TcIotMqttQos.AtMostOnceDelivery,
+						bRetain := FALSE,
+						bQueue := FALSE);
+			END_IF
+		END_FOR
+		FOR _i := 1 TO GVL_MQTT.CONFIG_TOPIC_COUNT DO
+			IF i_astConfigTable[_i].nDeviceCount > 0 THEN
+			_bPublished := _fbClient.Publish(sTopic := _asConfigTopic[_i],
+						pPayload := i_astConfigTable[_i].pStaging,
+						nPayloadSize := i_astConfigTable[_i].nStagingSize,
+						eQos := TcIotMqttQos.AtMostOnceDelivery,
+						bRetain := FALSE,
+						bQueue := FALSE);
+			END_IF
+		END_FOR
+	END_IF
+END_IF]]></ST>
+    </Implementation>
+    <Method Name="M_PublishLogger" Id="{d8a3000c-1bfb-4812-809c-a62862005371}">
+      <Declaration><![CDATA[METHOD M_PublishLogger : BOOL		// 로거 이벤트 1건 발행 (QoS 1, 반복 없음). 접속돼 있고 보냈으면 TRUE (FB_MqttMain.A_PublishLogger가 부름)
+VAR_INPUT
+	i_pPayload	: PVOID;		// ST_LoggerPublish_V1
+	i_nSize		: UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_PublishLogger := FALSE;
+IF _bSetParameter OR NOT _fbClient.bConnected OR NOT i_bPublish THEN
+	RETURN;		// 아직 접속 전: 큐에 남아 있다가 접속하면 나감. 발행 허가 없음(이중화 대기)도 보내지 않음
+END_IF
+M_PublishLogger := _fbClient.Publish(sTopic := _sLoggerTopic,
+						pPayload := i_pPayload,
+						nPayloadSize := i_nSize,
+						eQos := TcIotMqttQos.AtLeastOnceDelivery,
+						bRetain := FALSE,
+						bQueue := FALSE);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

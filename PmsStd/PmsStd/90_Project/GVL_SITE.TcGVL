@@ -1,0 +1,194 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <GVL Name="GVL_SITE" Id="{2c66961a-cf4e-430a-8dbe-f182b38eb7b2}">
+    <Declaration><![CDATA[VAR_GLOBAL CONSTANT
+	(* ================================================================
+	   현장 구성 (현장이 바뀌면 재빌드)
+	   ================================================================ *)
+	(* UPS 연결: UPS 번호 1 → BMS 등록 칸 1 (현장 5: UPS 1대·BAT 1대). PCS 등록과는 별개.
+	   UPS는 별도 I_Ups 드라이버이며 이 표는 UPS와 BMS의 소속 관계를 정의한다. *)
+	UPS_BMS			: ARRAY[1..GVL_PARAM.UPS_COUNT] OF UINT := [1];
+
+	(* 유닛 → PCS·배터리 그룹·제어 그룹 *)
+	UNIT_CFG		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg := [
+						(nPcs := 1, nSub := 1, nBatGroup := 1, nGroup := 1, fPRated := 1000.0, fQRated := 500.0, fSRated := 1118.0),	// 유닛 1 = PCS1
+						(nPcs := 2, nSub := 1, nBatGroup := 1, nGroup := 1, fPRated := 1000.0, fQRated := 500.0, fSRated := 1118.0)];	// 유닛 2 = PCS2 (배터리 그룹 2, 접속점은 유닛 1과 같음)
+	(* BMS → 배터리 그룹. 유닛 n : BMS m = 같은 배터리 그룹 번호 *)
+	BMS_CFG			: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsCfg := [
+						(nBatGroup := 1, fCapacity := 0.0)];	// BMS 1 = 배터리 그룹 1 (UPS1 배터리). 용량 미정 (0 = SOC 균등)
+	(* 계측점 = 계측기 값을 부호와 함께 더한 것 (계측기 값은 방전·공급 +)
+	   예) Helios 기준점(VCB1): [(nMeter := 1, fSign := 1.0)]   CTPT 미터 (Beckhoff, PV 측)
+	       Helios VCB2의 PV 값: [(nMeter := 1, fSign := 1.0), (nMeter := 2, fSign := -1.0)]   CTPT 미터 − ESS 미터
+	       메시즈 수전점: [(nMeter := 1, fSign := -1.0)]   역전력계전기 (수전 +)를 뒤집음 *)
+	POINT_CFG		: ARRAY[1..GVL_PARAM.POINT_COUNT] OF ST_PointCfg := [
+						(astTerm := [(nMeter := 1, fSign := 1.0)])];	// 계측점 1 = 계측기 1
+	GROUP_CFG		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupCfg := [
+						(nPccPoint := 0)];	// no ESS PCC at this UPS-only site
+
+	START_MODE		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_StartMode := [
+						E_StartMode.Step, E_StartMode.Step];			// 유닛별 기동 방식
+
+	(* MQTT 접속 (PRG_Mqtt → FB_MqttMain). 브로커 계정은 저장소에 올리지 않으려고 비워 둠: 빌드·다운로드 전에 sUserName·sUserPassword에 적고 이 두 줄은 커밋하지 않는다.
+	   접속 값은 첫 호출 때 한 번 읽으므로 바꾸면 재빌드. 안 쓰는 브로커는 bUse := FALSE (지금은 PCS 값을 발행 직전 구조체까지만 시험하느라 모두 FALSE. 발행 시험 때 TRUE로) *)
+	MQTT_SET		: ST_MqttSet := (
+						nSiteId			:= 5,
+						stCloud			:= (bUse := FALSE, sHost := '10.0.0.0', nPort := 1883),
+						stLocal			:= (bUse := TRUE, sHost := '10.0.0.36', nPort := 1883),	// DGS MQTT 브로커 (현장 5). 브로커 끊김 감시 기본(Local)이 이 칸을 봄
+						stAzure			:= (bUse := FALSE, sHost := '10.0.0.3', nPort := 1883),
+						sUserName		:= 'dgs_admin',
+						sUserPassword	:= '');
+
+	(* 시험 모드: 사무실 가상 장비 시험용. 현장 빌드는 FALSE (가상 장비 연결 PRG_SimLink, 가상신호 GVL_TEST.g_astVirtual, 시험 리셋 GVL_TEST.g_bTestReset을 안 씀) *)
+	TEST_MODE		: BOOL := FALSE; // real-map commissioning: no fabricated measurements
+
+	(* 장비 쓰기 스위치: FALSE면 PMS는 계산·보고만 하고 PCS·BMS·보조 출력에 아무것도 쓰지 않음 (읽기 전용 시험).
+	   실제 장비에 처음 연결할 때는 FALSE로 시작하고, 읽기 값이 맞는지 확인한 뒤 TRUE. 가상 장비 시험은 TRUE *)
+	DEVICE_WRITE	: BOOL := FALSE;		// 제어 시험(PCS 시뮬레이터 192.168.0.120:602) 동안 TRUE. 실제 장비에 연결할 때는 FALSE로 시작
+
+	(* 명령 필터·Manual 지령 거르기·시퀀스 설정은 운전 중 바꾸도록 GVL_PERSIST로 옮김 (g_stCmdFilter, g_stManualCmdSet, g_stSeqSet) *)
+
+	(* 운전 모드 전환: 어디까지 하고 바꾸나 (Direct / Zero / Standby) *)
+	MODE_SET		: ST_ModeSet := (
+						eToManual		:= E_ModeSwitch.Standby,	// 출력 0 → 400 ms → Standby → 멈춤 확인 → Manual (Helios와 같음)
+						eToAuto			:= E_ModeSwitch.Zero,		// 출력 0 → 400 ms → Auto
+						tDelay			:= T#400MS,
+						bKeepOnRestart	:= FALSE);	// PMS가 다시 켜지면 모든 유닛 Manual로 시작 (정전 뒤 장비 투입은 운전원이). TRUE = 저장된 모드 유지
+
+	(* 이중화: 두 PLC에 같은 프로그램. 역할(Primary/Secondary)은 이 PLC의 AMS Net ID로 정함 (PRG_Redundancy)
+	   이중화를 쓰면 bUse := TRUE, 두 PLC의 Net ID를 적음 (TwinCAT 시스템 화면 또는 온라인 PRG_Redundancy.sMyNetId) *)
+	RED_SET			: ST_RedSet := (
+						bUse			:= FALSE,
+						sPrimaryNetId	:= '',
+						sSecondaryNetId	:= '');
+
+	(* 로그 설정 *)
+	LOG_SET			: ST_LogSet := (
+						tHold			:= T#10S,		// 출력 제한 이유가 이 시간 이상 유지될 때만 기록
+						tPersistSave	:= T#60S,		// PERSISTENT 주기 저장 (설정 변경은 바로 저장)
+						bUnitLimited	:= FALSE,		// 자세한 기록 (시운전·문제 추적 때 TRUE)
+						bReqRefused		:= FALSE,
+						bSeqChange		:= FALSE,
+						bModeChange		:= FALSE,
+						bBatRefused		:= TRUE,		// 배터리 요청 거부
+						bCmdRefused		:= TRUE);		// 무시한 지령 (이상값·방향 반대)
+END_VAR
+
+VAR_GLOBAL
+
+	(* ================================================================
+	   장비·모듈 인스턴스
+	   - 모듈 ID는 현장 안에서 겹치지 않게: 1~99 장비, 100~199 지령원, 200~ 기능 모듈
+	   - 이름은 영문 (로그에 그대로 나옴)
+	   - 장비 읽기 주기: 기본 200 ms. 장비마다 바꾸려면 선언에 추가 → (i_nModuleId := 1, i_sName := 'PCS1', i_tReadPeriod := T#500MS)
+	   ================================================================ *)
+
+	(* ---------- 장비: 기존 PCS 시험 인스턴스는 보관만 하며 g_aipPcs에는 등록하지 않는다 ---------- *)
+	g_fbPcs1		: FB_PlaspoPcs	:= (i_nModuleId := 1, i_sName := 'PCS1', i_sIpAddr := '192.168.0.120', i_nPort := 602);
+	g_fbPcs2		: FB_PcsSim		:= (i_nModuleId := 2, i_sName := 'PCS2');
+	// 가상 PCS로 되돌리려면: g_fbPcs1 : FB_PcsSim := (i_nModuleId := 1, i_sName := 'PCS1');  (g_fbRptPcs1·MAIN A_Report의 RawMap 줄도 같이 뺌)
+	// 보고 매핑 (PCS 1 → MQTT pcs 레코드). 배율은 플라스포 레지스터 맵 확인 후 i_f…Scale에 줌. MAIN 액션 A_Report가 부름
+	g_fbRptPcs1		: FB_RptPlaspoPcs;
+	// 실제 PCS 예: g_fbPcs1 : FB_PlaspoPcs := (i_nModuleId := 1, i_sName := 'PCS1', i_sIpAddr := '192.168.0.100', i_tReadPeriod := T#1S);
+	g_fbBms1		: FB_EsolutionBms := (i_nModuleId := 11, i_sName := 'BMS1', i_nRackCount := GVL_PARAM.RACKS_PER_BMS, i_bReadDetails := TRUE, i_bEnable := TRUE, i_sIpAddr := '192.168.0.138', i_nPort := 504, i_nUnitId := 1); // 시험용: PC의 BMS 시뮬레이터 (03. simulator\ups_bms_sim.py)
+	g_fbMeter1		: FB_MeterSim	:= (i_nModuleId := 21, i_sName := 'PCC1');
+
+	(* UPS-only devices. TCP endpoints are deliberately empty and i_bEnable defaults FALSE.
+	   Set each endpoint from the equipment list before read-only commissioning. *)
+	g_fbUps1 : FB_SebangUps := (i_nModuleId := 41, i_sName := 'UPS1', i_bEnable := TRUE, i_sIpAddr := '192.168.0.138', i_nPort := 503, i_nUnitId := 1); // 시험용: PC의 UPS 시뮬레이터 (03. simulator\ups_bms_sim.py)
+	g_aipUps : ARRAY[1..GVL_PARAM.UPS_COUNT] OF I_Ups := [g_fbUps1];	// 현장 5: UPS 1대
+
+	(* ---------- 보조 장비: Helios에서 가져온 센서 드라이버 (2026-11-09). 맵·주소 미확보라 모두 i_bEnable FALSE (통신 안 함)
+	   쓰려면 주소를 적고 i_bEnable := TRUE. 점 번호는 각 드라이버 머리 주석. 보호 판정은 아래 "보조 장비·규칙 예"처럼 FB_RuleBit·FB_RuleValue로 등록 ---------- *)
+	g_fbThd1		: FB_AutonicsThd		:= (i_nModuleId := 32, i_sName := 'THD1', i_nSensorCount := 1, i_tReadPeriod := T#300MS);	// 오토닉스 온습도 (RTU, EL6022 채널). 채널 연결은 XAE I/O 화면에서. AI 1 온도·2 습도
+	g_fbImd1		: FB_LsImd1000		:= (i_nModuleId := 33, i_sName := 'IMD1', i_tReadPeriod := T#1S);	// LS IMD1000 절연감시 (LS ETH-RSTP-DC24V 컨버터, 라벨 MAC 00-0B-29-00-6D-F7). 컨버터 IP 미확인이라 통신 끔: 라벨 초기값 192.168.0.100·종이 10.0.0.50 모두 응답 없음, 192.168.0.50은 다른 장비(ASUS). 찾으면 i_bEnable := TRUE, i_sIpAddr DI 1 경고·2 절연 경보, AI 1 절연저항. MAIN.A_Report가 q_stState로 imd 토픽 보고
+	g_fbRio1		: FB_RootechAcuraIo	:= (i_nModuleId := 34, i_sName := 'RIO1');	// 루텍 ACURA3700 원격 I/O (TCP). i_sIpAddr 미정. DI 1..8 = 화재(열)·연기·가스 감지기 접점 (Helios 배치, 현장 결선 확인)
+	g_fbThd2		: FB_ItGuardIeSx		:= (i_nModuleId := 35, i_sName := 'THD2', i_tReadPeriod := T#1S, i_bEnable := TRUE, i_sIpAddr := '192.168.0.70');	// ITGuard IE-SX 이더넷 온습도계 (TCP, 2026-11-09 PC에서 읽어 확인). AI 1 온도·2 습도. MAIN.A_Report가 temperature_sensor 토픽 보고
+	g_fbGfr1		: FB_WoonyoungGfr	:= (i_nModuleId := 36, i_sName := 'GFR1', i_tReadPeriod := T#1S, i_nChannels := 8, i_nUnitId := 1, i_bEnable := TRUE);	// 운영 WYGF-D08NC 지락검출계전기 (RTU, EL6022 채널. _fbRtu InData·OutData를 XAE I/O에서 연결). AC 회로 누전. DI n 지락, AI n 누설전류 A
+	g_fbAsd57		: FB_GasdnaAsd57		:= (i_nModuleId := 37, i_sName := 'ASD1', i_tReadPeriod := T#1S, i_nUnitId := 1, i_bEnable := TRUE);	// 가스디엔에이 ASD-57 열연복합 감지기 (RTU 9600 고정, EL6022 채널. 지락계전기와 다른 채널. _fbRtu InData·OutData를 XAE I/O에서 연결). DI 1 연기·2 온도 알람, AI 1·2 연기, 3 온도
+	g_fbSmoke2		: FB_RuleBit			:= (i_nModuleId := 206, i_sName := 'Smoke2', i_ipAux := g_fbAsd57, i_nPoint := 1);	// 연기 감지 (ASD-57 연기 알람). 알람만 (조치 없음, 사고·고장 단계는 EMS). 2026-11-10
+	g_fbIo1			: FB_AuxIo			:= (i_nModuleId := 31, i_sName := 'IO1');	// 벡호프 단자 I/O (EL1xxx DI). 점은 XAE I/O 화면에서 _abDi[n]에 연결. DI 1 = 가스디엔에이 TS-60 연기 접점 (흰 NO·초록 COM, 경보 때 닫힘). 2026-11-10
+	g_fbSmoke1		: FB_RuleBit			:= (i_nModuleId := 205, i_sName := 'Smoke1', i_ipAux := g_fbIo1, i_nPoint := 1);	// 연기 감지 (TS-60 연기 접점). 알람만 (조치 없음, 사고·고장 단계는 EMS가 판단). 온도 접점(노랑·파랑)은 쓰지 않음 (사용자 2026-11-10)
+
+	(* ---------- 지령원 ---------- *)
+	g_fbSrcTest		: FB_SrcTest	:= (i_nModuleId := 101, i_sName := 'Test');
+	(* ---------- 제어 모드: 접속점 그룹마다 관리자 하나 + 모드 한 세트 (접속점 그룹 안 Auto 유닛은 같은 모드). 모듈 ID 240~
+	   [16번 수정 2026-11-09: PCS마다(유닛 단위) → 접속점 그룹 단위로 바꿈. 원래 g_fbCtrlMode1(유닛 1)·g_fbCtrlMode2(유닛 2)와 모드 두 세트 (ID 103, 244~247, 249)]
+	   - 관리자 i_nUnit = 0: 접속점 그룹 하나를 통째로 맡음. 모드는 접속점 그룹 값(접속점·정격·SOC)을 보고 접속점 그룹 지령(접속점 기준)을 내고, 코어 분배가 접속점 그룹의 Auto 유닛에 나눔. Manual 유닛은 제어 모드를 받지 않음
+	   - 스탠다드 스케줄(5)만 유닛별 값: EMS가 PCS마다 보낸 P를 그 PCS의 유닛에 그대로 냄 (ST_CtrlModeOut.bUnitOut)
+	   - HMI가 관리자 i_nModeReq(모드 칸 번호, 0 = 없음)를 씀. 칸 번호 = g_aipCtrlMode1 순서. PERSISTENT가 아니라 재기동하면 0 (14번 탭 2번 결정)
+	   - 설정은 GVL_PERSIST.g_stModuleSet 칸 (stCtrlMode1·stCmConstP1·stCmSchedule1·stCmPeakCut1·stCmSchedPeak1, 공통 stCmCommon)을 MAIN 액션 A_PassModuleSet에서 넘김. 피크 목표·정출력 값은 접속점 그룹 전체 값
+	   - 접속점 그룹을 늘리면: 관리자·모드 5개 선언(등록 nGroup = 그 접속점 그룹) + 등록(g_aipSource·g_aipCtrlModeN·GVL_PERSIST.g_astSourceReg) + ST_ModuleSet 칸 + A_PassModuleSet 줄 + FB_ConfigCheck·FB_EventLog 입력 ---------- *)
+	g_fbCtrlMode1	: FB_CtrlModeMgr	:= (i_nModuleId := 102, i_sName := 'CtrlMode1', i_nUnit := 0);	// 접속점 그룹 1 (접속점 그룹 단위). 설정 stCtrlMode1
+	g_fbCmConstP1	: FB_CmConstPower	:= (i_nModuleId := 240, i_sName := 'CmConstP1');	// 1 정출력 (설정 stCmConstP1, 접속점 그룹의 접속점 기준 값)
+	g_fbCmSchedule1	: FB_CmSchedule		:= (i_nModuleId := 241, i_sName := 'CmSchedule1');	// 2 스케줄 (시간표 stCmSchedule1, 접속점 그룹 값)
+	g_fbCmPeakCut1	: FB_CmPeakCut		:= (i_nModuleId := 242, i_sName := 'CmPeakCut1');	// 3 피크컷 (설정 stCmPeakCut1, 목표 피크 = 접속점 그룹 전체)
+	g_fbCmSchedPeak1	: FB_CmSchedPeak	:= (i_nModuleId := 243, i_sName := 'CmSchedPeak1');	// 4 통합 = 스케줄 + 피크컷 (시간표 stCmSchedule1, 설정 stCmSchedPeak1)
+	g_fbCmStdSched1	: FB_CmStdSchedule	:= (i_nModuleId := 248, i_sName := 'CmStdSched1');	// 5 스탠다드 스케줄 = EMS 지령을 그대로 따름 (PCS마다 값, MAIN A_PassEmsCmd가 넘김)
+	// EMS 지령원 (MQTT command). 상태 명령은 Auto에서 받고 충전·방전 P 지령은 i_bPEnable이 켜질 때만 냄. 입력은 MAIN 액션 A_PassEmsCmd가 넘김
+	g_fbSrcEms		: FB_SrcEms		:= (i_nModuleId := 104, i_sName := 'Ems');
+
+	(* ---------- SOC 정책 (버스 제한. 기본 등록: 모든 버스, Auto·Manual 모두. 적용 모드는 GVL_PERSIST.g_astBatRuleReg bAuto·bManual)
+	   설정(한계·감발 폭·재개 마진)은 GVL_PERSIST.g_stModuleSet.stSocLimit, MAIN 액션 A_PassModuleSet에서 넘김 ---------- *)
+	g_fbSocLimit	: FB_SocLimit	:= (i_nModuleId := 210, i_sName := 'SocLimit');	// SOC 감발·막음·재개 마진. 한도 0이면 그 방향 출력 0 (= 대기)
+
+	(* ---------- 사용자 한도 (유닛 제한. EMS config pcs 충·방전 전력 한도도 여기에 씀: FB_EmsConfigApply) [9-21 수정 2026-11-04: 아래 주석 예에서 꺼내 기본 등록.
+	   설정 stUnitLimit 기본 모두 끔 → 켜기 전에는 하는 일 없음. 적용 모드는 GVL_PERSIST.g_astUnitRuleReg[1] (기본 전체 유닛, Auto·Manual)] ---------- *)
+	g_fbUnitLimit	: FB_UnitLimit := (i_nModuleId := 230, i_sName := 'UserLimit');	// 설정 stUnitLimit
+
+	(* ---------- 표준 보호 (기본 등록. 빼면 그 보호 없음. 설정은 GVL_PERSIST.g_astRuleCfg 같은 칸) ---------- *)
+	g_fbProtPcsFault	: FB_ProtPcsFault	:= (i_nModuleId := 901, i_sName := 'PcsFault');
+	g_fbProtPcsComm		: FB_ProtPcsComm	:= (i_nModuleId := 902, i_sName := 'PcsComm');
+	g_fbProtBmsFault	: FB_ProtBmsFault	:= (i_nModuleId := 903, i_sName := 'BmsFault');
+	g_fbProtBmsComm		: FB_ProtBmsComm	:= (i_nModuleId := 904, i_sName := 'BmsComm');
+	g_fbProtPccInvalid	: FB_ProtPccInvalid	:= (i_nModuleId := 905, i_sName := 'PccInvalid');
+	g_fbProtRespStd		: FB_ProtRespStd		:= (i_nModuleId := 900, i_sName := 'RespStd');	// 표준 대응: 칸 설정(g_astRuleCfg.stProt)의 조치. 칸마다 같은 인스턴스
+
+	(* ---------- 보조 장비·규칙 예 (현장에서 주석을 풀어 씀)
+	Helios 센서로 쓰는 예 (위 g_fbThd1·g_fbImd1·g_fbRio1):
+	g_fbFireHeat	: FB_RuleBit	:= (i_nModuleId := 204, i_sName := 'FireHeat', i_ipAux := g_fbRio1, i_nPoint := 1);	// 화재(열) 감지기 접점
+	g_fbFireSmoke	: FB_RuleBit	:= (i_nModuleId := 205, i_sName := 'FireSmoke', i_ipAux := g_fbRio1, i_nPoint := 2);	// 연기 감지기 접점
+	g_fbFireGas		: FB_RuleBit	:= (i_nModuleId := 206, i_sName := 'FireGas', i_ipAux := g_fbRio1, i_nPoint := 3);	// 가스 감지기 접점
+	g_fbImdFault	: FB_RuleBit	:= (i_nModuleId := 207, i_sName := 'ImdFault', i_ipAux := g_fbImd1, i_nPoint := 2);	// IMD 고장 (경고까지 보려면 점 1도 한 칸 더)
+	g_fbRoomTemp	: FB_RuleValue	:= (i_nModuleId := 208, i_sName := 'RoomTemp', i_ipAux := g_fbThd1, i_nPoint := 1);	// 실내 온도
+	등록은 아래 g_fbFire 예와 같음 (g_aipRule 칸 + RULE_COUNT + GVL_PERSIST.g_astRuleCfg 같은 칸, 대응을 비우면 알람만)
+	g_fbIo1			: FB_AuxIo		:= (i_nModuleId := 31, i_sName := 'IO1', i_afAiGain := [0.1, 0.1]);		// 점은 화면에서 연결
+	g_fbFire		: FB_RuleBit	:= (i_nModuleId := 201, i_sName := 'Fire', i_ipAux := g_fbIo1, i_nPoint := 1);			// 설정 stFire
+	g_fbEStop		: FB_RuleBit	:= (i_nModuleId := 202, i_sName := 'EStopSw', i_ipAux := g_fbIo1, i_nPoint := 2);		// 설정 stEStop (b접점, 통신 끊김 시 조건)
+	g_fbBatTemp		: FB_RuleValue	:= (i_nModuleId := 203, i_sName := 'BatRoomTemp', i_ipAux := g_fbIo1, i_nPoint := 1);	// 설정 stBatTemp (해소 폭 2.0)
+	등록: g_aipAux := [g_fbIo1], g_aipRule := [표준 5개, g_fbFire, g_fbEStop, g_fbBatTemp] (보호 6~8칸, RULE_COUNT 8), g_aipOutput := [g_fbBatTemp] (팬 켜기)
+	      같은 규칙을 보호와 출력에 함께 등록할 수 있음. 설정은 GVL_PERSIST.g_astRuleCfg / g_astOutputCfg 같은 칸 번호
+	      모듈 설정(b접점·해소 폭 등)은 GVL_PERSIST.g_stModuleSet 칸 + MAIN 액션 A_PassModuleSet
+	차단기(VCB) 운전원 투입·개방 예:
+	g_fbVcb1		: FB_BreakerCtrl := (i_nModuleId := 220, i_sName := 'VCB1', i_ipAux := g_fbIo1, i_nClosedPoint := 3);	// 상태 접점 DI 3, 설정 stVcb1
+	등록: g_aipOutput 두 칸에 g_fbVcb1 (g_astOutputCfg: 투입 코일 칸 fThreshold := 1, 개방 코일 칸 fThreshold := 2, nAux·nPoint = 코일 DO, 지연 0·유지 끔),
+	      g_aipRule 한 칸에 g_fbVcb1 (g_astRuleCfg: 조치 None = 투입·개방 실패 알람만). HMI는 g_fbVcb1.i_bCloseCmd·i_bOpenCmd·i_bResetFail을 켬
+	사용자 한도 (유닛마다 P·Q 상·하한 kW·kvar) 예:
+	(9-21 수정 2026-11-04: 위 SOC 정책 다음으로 꺼내 기본 등록함) g_fbUnitLimit	: FB_UnitLimit := (i_nModuleId := 230, i_sName := 'UserLimit');	// 설정 stUnitLimit
+	등록: g_aipUnitRule 한 칸에 g_fbUnitLimit (g_astUnitRuleReg: nTarget 0 = 전체 유닛, bAuto·bManual로 적용 모드)
+	---------- *)
+
+	(* ================================================================
+	   등록 (선언할 때 연결. 다른 곳에서 쓰지 않음)
+	   - 칸을 비워 두면 그 기능은 없다
+	   ================================================================ *)
+	g_aipPcs		: ARRAY[1..GVL_PARAM.PCS_COUNT] OF I_Pcs; // UPS site: no separate PCS installed
+	g_aipBms		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF I_Bms				:= [g_fbBms1];	// 현장 5: BAT 1대
+	g_aipMeter		: ARRAY[1..GVL_PARAM.METER_COUNT] OF I_Meter; // no separate PCC meter in UPS-only commissioning
+	g_aipAux		: ARRAY[1..GVL_PARAM.AUX_COUNT] OF I_AuxDevice		:= [g_fbThd1, g_fbImd1, g_fbRio1, g_fbThd2, g_fbGfr1, g_fbIo1, g_fbAsd57];	// 보조 장비 (규칙·출력 설정의 nAux = 칸 번호)
+	g_aipSource		: ARRAY[1..GVL_PARAM.SOURCE_COUNT] OF I_CommandSource; // ESS command sources unregistered at UPS site	// 등록표 GVL_PERSIST.g_astSourceReg 같은 칸
+	g_aipLimit		: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF I_LimitRule;
+	g_aipPermit		: ARRAY[1..GVL_PARAM.PERMIT_COUNT] OF I_StartPermit;
+	g_aipComp		: ARRAY[1..GVL_PARAM.COMP_COUNT] OF I_Compensator;
+	g_aipRule		: ARRAY[1..GVL_PARAM.RULE_COUNT] OF I_ProtectionRule	:= [g_fbProtPcsFault, g_fbProtPcsComm, g_fbProtBmsFault, g_fbProtBmsComm, g_fbProtPccInvalid, g_fbSmoke1, g_fbSmoke2];	// 보호 (설정 g_astRuleCfg). 1~5 = 표준 보호, 6 = 연기 TS-60, 7 = 연기 ASD-57 (대응 칸 비움 = 알람만)
+	g_aipResp		: ARRAY[1..GVL_PARAM.RULE_COUNT] OF I_ProtResponse	:= [g_fbProtRespStd, g_fbProtRespStd, g_fbProtRespStd, g_fbProtRespStd, g_fbProtRespStd];	// 보호 대응 (같은 칸). 1~5 = 표준 대응. 비우면 조치 없음 (알람만). 현장 보호 칸을 늘리면 그 칸에도 등록
+	g_aipOutput	: ARRAY[1..GVL_PARAM.OUTPUT_COUNT] OF I_OutputRule;	// 보조 장비 출력 규칙
+	g_aipUnitRule	: ARRAY[1..GVL_PARAM.UNIT_RULE_COUNT] OF I_UnitLimitRule	:= [g_fbUnitLimit];	// 유닛 제한 (등록 설정 GVL_PERSIST.g_astUnitRuleReg). 1 = 사용자 한도 [9-21 수정 2026-11-04: 등록. 원래 빈 칸]
+	g_aipBatRule	: ARRAY[1..GVL_PARAM.BAT_RULE_COUNT] OF I_BatLimitRule	:= [g_fbSocLimit];	// 버스 제한 (g_astBatRuleReg). 1 = SOC 정책
+	g_aipCtrlMode1		: ARRAY[1..GVL_PARAM.CTRL_MODE_COUNT] OF I_ControlMode	:= [g_fbCmConstP1, g_fbCmSchedule1, g_fbCmPeakCut1, g_fbCmSchedPeak1, g_fbCmStdSched1];	// 접속점 그룹 1 제어 모드 (칸 번호 = g_fbCtrlMode1.i_nModeReq). MAIN A_PassModuleSet이 관리자에 넘김 [16번 수정 2026-11-09: g_aipCtrlMode2 없앰]
+	g_aipSelectPolicy	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF I_SelectPolicy;	// 그룹별 지령원 고르기 정책. 비우면 코어 기본 (g_astGroupSet eSelP·eSelQ)
+	g_aipDistPolicy		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF I_DistPolicy;		// 그룹별 분배 정책. 비우면 코어 기본 (g_astGroupSet eDistBasis)
+	g_ipAutoGate		: I_Gate;		// Auto 지령 거르기. 비우면 코어 기본 (통과)
+	g_ipManualGate		: I_Gate;		// Manual 지령 거르기. 비우면 코어 기본 (방향 반대 무시·Run 뒤 새 지령 대기, g_stManualCmdSet)
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_PcsRank" Id="{11085055-b9e2-46c2-a1ed-3c43f28b5148}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_PcsRank : INT		// 조치 세기: None 0 < Standby 1 < Stop 2 < EStop 3
+VAR_INPUT
+	i_eAction	: E_PcsAction;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_eAction OF
+	E_PcsAction.Standby:	F_PcsRank := 1;
+	E_PcsAction.Stop:		F_PcsRank := 2;
+	E_PcsAction.EStop:		F_PcsRank := 3;
+ELSE
+	F_PcsRank := 0;
+END_CASE]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

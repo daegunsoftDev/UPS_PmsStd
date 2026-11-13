@@ -1,0 +1,97 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_RptPlaspoPcs" Id="{c4414348-631f-4c0c-b30e-2db24f996b2d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_RptPlaspoPcs		// 보고 매핑: 플라스포 PCS 읽기값 + 코어 결과 → MQTT pcs 발행 레코드 (보고 전용, 제어에 쓰지 않음)
+(* 필드 대응 (플라스포 읽기 맵 ST_PlaspoPcsRaw, 괄호는 레지스터 번호):
+   SystemOperationMode  코어 운전 모드 (Manual 0, Auto 1)
+   OperationMode        nOpMode (4) 그대로
+   PMSActivePower       PMS가 이 PCS에 낸 지령 kW (분배 결과. 장비 쓰기를 막아도 나옴)
+   RemoteMode           nRemoteMode (3)
+   Status               nPcsStatus (1) 그대로: bit0 운전, bit1 고장, bit2 경고, bit5 PCS 내부 통신 이상
+   AcActivePower·AcReactivePower  드라이버가 변환한 P·Q (방전 +, 0.1 kW·kvar)
+   PowerFactor          nAcPf (29) × i_fPfScale
+   Frequency            nAcFreq (26) × 0.1
+   AcRs·St·TrVoltage    anAcVolt[1..3] (20~22) × i_fVoltScale  (선간 전압으로 가정)
+   AcR·S·TVoltage       읽지 않음 → 0
+   AcR·S·TCurrent       anAcCurrent[1..3] (23~25) × i_fCurrScale
+   DcLinkVoltage·DcVoltage  nDcLinkVolt (36)·nDcVolt (37) × i_fDcVoltScale
+   DcCurrent            nDcCurrent (38) × i_fDcCurrScale
+   DcActivePower        nDcPower (39) × i_fDcPowerScale
+   InsulationResistance 읽지 않음 → 0
+   Temperature1~4       anIgbtTemp[1..4] (12~15) × i_fTempScale
+   Temperature5~8       anAcFilterTemp[1..4] (16~19) × i_fTempScale
+   Warning1             anFault[5] (11). Warning2~10 → 0
+   Fault1~4             anFault[1..4] (7~10). Fault5~10 → 0
+   통신이 끊기면 레코드 전체가 0 (이 값만으로는 끊김을 알 수 없으니 GVL_IF.g_stReport.abPcsComm을 봄)
+   배율(i_f…Scale)은 레지스터 맵 문서로 확인되지 않은 값이라 기본 1.0 (= 레지스터 값 그대로). 실제 값과 비교해 맞출 것 *)
+VAR_INPUT
+	i_stRaw			: ST_PlaspoPcsRaw;	// 드라이버 FB_PlaspoPcs.RawMap
+	i_stUnit		: ST_UnitState;		// 이 PCS의 유닛 상태 (FB_Snapshot)
+	i_eOpMode		: E_OpMode;			// 이 유닛의 실제 운전 모드 (FB_ModeSwitch)
+	i_fPCmd			: REAL;				// kW, PMS가 낸 지령 (FB_Distributor 유닛 지령)
+	i_fPfScale		: REAL := 1.0;
+	i_fVoltScale	: REAL := 1.0;
+	i_fCurrScale	: REAL := 1.0;
+	i_fDcVoltScale	: REAL := 1.0;
+	i_fDcCurrScale	: REAL := 1.0;
+	i_fDcPowerScale	: REAL := 1.0;
+	i_fTempScale	: REAL := 1.0;
+END_VAR
+VAR_OUTPUT
+	q_stPcs			: ST_PcsPublish_V1;	// 발행 직전 레코드 (DeviceIndex는 PRG_Mqtt가 채움)
+	q_bComm			: BOOL;				// 통신 정상
+END_VAR
+VAR
+	_stNone			: ST_PcsPublish_V1;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[q_stPcs := _stNone;
+q_bComm := i_stUnit.bComm;
+IF NOT q_bComm THEN
+	RETURN;
+END_IF
+
+IF i_eOpMode = E_OpMode.Auto THEN
+	q_stPcs.SystemOperationMode := 1;
+ELSE
+	q_stPcs.SystemOperationMode := 0;
+END_IF
+q_stPcs.OperationMode		:= UINT_TO_UDINT(i_stRaw.nOpMode);
+q_stPcs.PMSActivePower		:= i_fPCmd;
+q_stPcs.RemoteMode			:= UINT_TO_UDINT(i_stRaw.nRemoteMode);
+q_stPcs.Status				:= DWORD_TO_UDINT(WORD_TO_DWORD(i_stRaw.nPcsStatus));
+
+q_stPcs.AcActivePower		:= i_stUnit.stP.fValue;
+q_stPcs.AcReactivePower		:= i_stUnit.stQ.fValue;
+q_stPcs.PowerFactor			:= INT_TO_REAL(i_stRaw.nAcPf) * i_fPfScale;
+q_stPcs.Frequency			:= UINT_TO_REAL(i_stRaw.nAcFreq) * 0.1;
+
+q_stPcs.AcRsVoltage			:= UINT_TO_REAL(i_stRaw.anAcVolt[1]) * i_fVoltScale;
+q_stPcs.AcStVoltage			:= UINT_TO_REAL(i_stRaw.anAcVolt[2]) * i_fVoltScale;
+q_stPcs.AcTrVoltage			:= UINT_TO_REAL(i_stRaw.anAcVolt[3]) * i_fVoltScale;
+q_stPcs.AcRCurrent			:= UINT_TO_REAL(i_stRaw.anAcCurrent[1]) * i_fCurrScale;
+q_stPcs.AcSCurrent			:= UINT_TO_REAL(i_stRaw.anAcCurrent[2]) * i_fCurrScale;
+q_stPcs.AcTCurrent			:= UINT_TO_REAL(i_stRaw.anAcCurrent[3]) * i_fCurrScale;
+
+q_stPcs.DcLinkVoltage		:= UINT_TO_REAL(i_stRaw.nDcLinkVolt) * i_fDcVoltScale;
+q_stPcs.DcVoltage			:= UINT_TO_REAL(i_stRaw.nDcVolt) * i_fDcVoltScale;
+q_stPcs.DcCurrent			:= INT_TO_REAL(i_stRaw.nDcCurrent) * i_fDcCurrScale;
+q_stPcs.DcActivePower		:= INT_TO_REAL(i_stRaw.nDcPower) * i_fDcPowerScale;
+
+q_stPcs.Temperature1		:= INT_TO_REAL(i_stRaw.anIgbtTemp[1]) * i_fTempScale;
+q_stPcs.Temperature2		:= INT_TO_REAL(i_stRaw.anIgbtTemp[2]) * i_fTempScale;
+q_stPcs.Temperature3		:= INT_TO_REAL(i_stRaw.anIgbtTemp[3]) * i_fTempScale;
+q_stPcs.Temperature4		:= INT_TO_REAL(i_stRaw.anIgbtTemp[4]) * i_fTempScale;
+q_stPcs.Temperature5		:= INT_TO_REAL(i_stRaw.anAcFilterTemp[1]) * i_fTempScale;
+q_stPcs.Temperature6		:= INT_TO_REAL(i_stRaw.anAcFilterTemp[2]) * i_fTempScale;
+q_stPcs.Temperature7		:= INT_TO_REAL(i_stRaw.anAcFilterTemp[3]) * i_fTempScale;
+q_stPcs.Temperature8		:= INT_TO_REAL(i_stRaw.anAcFilterTemp[4]) * i_fTempScale;
+
+q_stPcs.Warning1			:= DWORD_TO_UDINT(WORD_TO_DWORD(i_stRaw.anFault[5]));
+q_stPcs.Fault1				:= DWORD_TO_UDINT(WORD_TO_DWORD(i_stRaw.anFault[1]));
+q_stPcs.Fault2				:= DWORD_TO_UDINT(WORD_TO_DWORD(i_stRaw.anFault[2]));
+q_stPcs.Fault3				:= DWORD_TO_UDINT(WORD_TO_DWORD(i_stRaw.anFault[3]));
+q_stPcs.Fault4				:= DWORD_TO_UDINT(WORD_TO_DWORD(i_stRaw.anFault[4]));]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

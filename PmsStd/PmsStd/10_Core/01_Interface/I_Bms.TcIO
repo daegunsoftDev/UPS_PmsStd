@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_Bms" Id="{36494f1b-5c5d-4f50-bc4a-5cc60186e07e}">
+    <Declaration><![CDATA[INTERFACE I_Bms EXTENDS I_Module]]></Declaration>
+    <Method Name="M_Cycle" Id="{67153870-2450-473f-a177-eed32d0562c8}">
+      <Declaration><![CDATA[METHOD M_Cycle]]></Declaration>
+    </Method>
+    <Property Name="BatState" Id="{54df7881-0787-49fb-b1ef-6c39854f9d07}">
+      <Declaration><![CDATA[PROPERTY BatState : ST_BatState]]></Declaration>
+      <Get Name="Get" Id="{a4a7a020-3eda-4bce-8657-7a04ad113bab}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="M_SetStateCmd" Id="{375badf2-66c7-4730-92e0-271a792c891c}">
+      <Declaration><![CDATA[METHOD M_SetStateCmd : BOOL
+VAR_INPUT
+	i_stCmd		: ST_BatCmd;	// Close / Open / EStop / Reset
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

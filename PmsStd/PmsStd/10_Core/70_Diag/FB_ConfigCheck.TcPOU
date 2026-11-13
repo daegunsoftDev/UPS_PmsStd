@@ -1,0 +1,147 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ConfigCheck" Id="{0623a3c7-957b-4047-9b24-052035c95e8d}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ConfigCheck		// 매 스캔 고정 설정(GVL_SITE 구성·모듈 ID)을 점검. 운전 중 바꾸는 설정은 FB_SettingGuard가 되돌리고, 되돌릴 정상값이 없을 때만 여기서 오류. 오류가 있으면 q_bConfigOk = FALSE → 장비 쓰기 전부 차단. 오류 문구(앞 10건)를 내고, 기록은 FB_EventLog
+VAR_IN_OUT CONSTANT
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_astBmsCfg	: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsCfg;
+	iq_astGroupCfg	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupCfg;
+	iq_astPointCfg	: ARRAY[1..GVL_PARAM.POINT_COUNT] OF ST_PointCfg;
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_abUnitInstalled	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// FB_ModuleList: 미설치 유닛은 정격 점검에서 뺌
+END_VAR
+VAR_INPUT
+	i_bModuleSetTooBig	: BOOL;		// 현장 모듈 설정 묶음이 GVL_PARAM.MODULE_SET_BYTES보다 큼 (바로 저장·되돌리기 안 됨)
+	i_bSetNoGood	: BOOL;			// 운전 중 바꾸는 설정 값이 잘못됐는데 되돌릴 정상값이 없음 (FB_SettingGuard.q_bNoGood)
+	i_sSetNoGood	: WSTRING(63);	// 그 설정과 이유
+	i_stRedSet		: ST_RedSet;	// 이중화 설정 (GVL_SITE.RED_SET)
+	i_eRedRole		: E_RedRole;	// 이 PLC의 역할 (GVL_IF.g_eRedRole)
+END_VAR
+VAR_IN_OUT
+	iq_aipModule	: ARRAY[1..GVL_PARAM.MODULE_MAX] OF I_Module;	// 등록된 모듈 전부 (FB_ModuleList): 모듈 ID 겹침·0 점검
+	iq_aipCtrlMode	: ARRAY[1..GVL_PARAM.CTRL_MODE_COUNT] OF I_ControlMode;	// 제어 모드 (GVL_SITE.g_aipCtrlMode1). 모듈 목록에 없어 따로 점검 [2번 수정 2026-11-09: 추가]
+END_VAR
+VAR_OUTPUT
+	q_bConfigOk		: BOOL;			// 설정 오류 없음. FALSE면 디스패처·보조 출력·시퀀서 명령을 막음
+	q_nErrors		: UINT;			// 이번 스캔 오류 수
+	q_asErrors		: ARRAY[1..10] OF WSTRING(63);	// 이번 스캔 오류 문구 (앞 10건, 나머지 칸은 빈 문구)
+END_VAR
+VAR
+	_nErrCount		: UINT;								// 이번 스캔 오류 수
+END_VAR
+VAR_TEMP
+	i				: UINT;
+	k				: UINT;
+	n				: UINT;
+	bZeroId			: BOOL;			// 등록된 모듈 중 ID 0이 있음
+	anModuleId			: ARRAY[1..GVL_PARAM.MODULE_MAX] OF UINT;		// 등록된 모듈 ID (0 = 빈 칸)
+	anModeId			: ARRAY[1..GVL_PARAM.CTRL_MODE_COUNT] OF UINT;	// 제어 모드 ID (0 = 빈 칸)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[_nErrCount := 0;
+FOR k := 1 TO 10 DO
+	q_asErrors[k] := "";
+END_FOR
+
+
+FOR i := 1 TO GVL_PARAM.UNIT_COUNT DO
+	IF iq_astUnitCfg[i].nPcs < 1 OR iq_astUnitCfg[i].nPcs > GVL_PARAM.PCS_COUNT THEN M_AddConfigError(F_TxtNum("UNIT_CFG nPcs 범위 밖: 유닛 ", i)); END_IF
+	IF iq_astUnitCfg[i].nSub < 1 OR iq_astUnitCfg[i].nSub > GVL_PARAM.MAX_SUB THEN M_AddConfigError(F_TxtNum("UNIT_CFG nSub 범위 밖: 유닛 ", i)); END_IF
+	IF iq_astUnitCfg[i].nBatGroup > GVL_PARAM.BAT_COUNT THEN M_AddConfigError(F_TxtNum("UNIT_CFG nBatGroup 범위 밖: 유닛 ", i)); END_IF
+	IF iq_astUnitCfg[i].nGroup < 1 OR iq_astUnitCfg[i].nGroup > GVL_PARAM.GROUP_COUNT THEN M_AddConfigError(F_TxtNum("UNIT_CFG nGroup 범위 밖: 유닛 ", i)); END_IF
+	IF iq_abUnitInstalled[i] AND iq_astUnitCfg[i].fPRated <= 0 THEN		// 미설치 유닛(PCS 칸 빈 것)은 정격을 안 봄
+		 M_AddConfigError(F_TxtNum("UNIT_CFG fPRated 0 이하: 유닛 ", i)); END_IF
+	FOR k := i + 1 TO GVL_PARAM.UNIT_COUNT DO
+		IF iq_astUnitCfg[i].nPcs = iq_astUnitCfg[k].nPcs AND iq_astUnitCfg[i].nSub = iq_astUnitCfg[k].nSub THEN
+			M_AddConfigError(F_TxtNum("UNIT_CFG 같은 PCS·nSub 중복: 유닛 ", k));
+		END_IF
+	END_FOR
+END_FOR
+FOR i := 1 TO GVL_PARAM.BMS_COUNT DO
+	IF iq_astBmsCfg[i].nBatGroup < 1 OR iq_astBmsCfg[i].nBatGroup > GVL_PARAM.BAT_COUNT THEN M_AddConfigError(F_TxtNum("BMS_CFG nBatGroup 범위 밖: BMS ", i)); END_IF
+END_FOR
+FOR i := 1 TO GVL_PARAM.GROUP_COUNT DO
+	IF iq_astGroupCfg[i].nPccPoint > GVL_PARAM.POINT_COUNT THEN M_AddConfigError(F_TxtNum("GROUP_CFG nPccPoint 범위 밖: 그룹 ", i)); END_IF
+END_FOR
+FOR i := 1 TO GVL_PARAM.POINT_COUNT DO
+	FOR k := 1 TO GVL_PARAM.POINT_TERM_MAX DO
+		IF iq_astPointCfg[i].astTerm[k].nMeter > GVL_PARAM.METER_COUNT THEN M_AddConfigError(F_TxtNum("POINT_CFG nMeter 범위 밖: 계측점 ", i)); END_IF
+	END_FOR
+END_FOR
+// 모듈 ID 겹침·0: 등록된 모듈 목록(FB_ModuleList)으로 비교
+n := GVL_PARAM.MODULE_MAX;
+bZeroId := FALSE;
+FOR i := 1 TO n DO
+	anModuleId[i] := 0;
+	IF iq_aipModule[i] <> 0 THEN
+		anModuleId[i] := iq_aipModule[i].ModuleId;
+		bZeroId := bZeroId OR anModuleId[i] = 0;
+	END_IF
+END_FOR
+// 모듈 ID 0은 코어 예약 번호 (등록된 칸인데 0이면 오류)
+IF bZeroId THEN
+	M_AddConfigError("모듈 ID 0 (코어 예약 번호)인 등록 있음");
+END_IF
+FOR i := 1 TO n DO
+	FOR k := i + 1 TO n DO
+		IF anModuleId[i] <> 0 AND anModuleId[i] = anModuleId[k] THEN
+			M_AddConfigError(F_TxtNum("모듈 ID 겹침: ", anModuleId[i]));
+		END_IF
+	END_FOR
+END_FOR
+// [2번 수정 2026-11-09: 추가] 제어 모드 ID: 0 (코어 예약), 제어 모드끼리 겹침, 등록 모듈과 겹침. 제어 모드는 지령원(관리자) 안의 부품이라 FB_ModuleList에 없어 원래 점검하지 않았음
+FOR i := 1 TO GVL_PARAM.CTRL_MODE_COUNT DO
+	anModeId[i] := 0;
+	IF iq_aipCtrlMode[i] <> 0 THEN
+		anModeId[i] := iq_aipCtrlMode[i].ModuleId;
+		IF anModeId[i] = 0 THEN
+			M_AddConfigError(F_TxtNum("제어 모드 ID 0 (코어 예약 번호): 칸 ", i));
+		END_IF
+	END_IF
+END_FOR
+FOR i := 1 TO GVL_PARAM.CTRL_MODE_COUNT DO
+	IF anModeId[i] <> 0 THEN
+		FOR k := i + 1 TO GVL_PARAM.CTRL_MODE_COUNT DO
+			IF anModeId[i] = anModeId[k] THEN
+				M_AddConfigError(F_TxtNum("제어 모드 ID 겹침: ", anModeId[i]));
+			END_IF
+		END_FOR
+		FOR k := 1 TO n DO
+			IF anModeId[i] = anModuleId[k] THEN
+				M_AddConfigError(F_TxtNum("제어 모드 ID가 등록 모듈과 겹침: ", anModeId[i]));
+			END_IF
+		END_FOR
+	END_IF
+END_FOR
+
+(* 운전 중 바꾸는 설정 값: 잘못된 값은 FB_SettingGuard가 마지막 정상값으로 되돌림. 되돌릴 정상값이 없을 때(시작부터 잘못)만 설정 오류 *)
+IF i_bSetNoGood THEN M_AddConfigError(WCONCAT("설정 값: ", i_sSetNoGood)); END_IF
+IF i_bModuleSetTooBig THEN M_AddConfigError("모듈 설정 묶음이 MODULE_SET_BYTES보다 큼"); END_IF
+// 이중화: Net ID 두 개가 있어야 하고 서로 달라야 함, 이 PLC Net ID가 둘 중 하나여야 함
+IF i_stRedSet.bUse THEN
+	IF i_stRedSet.sPrimaryNetId = '' OR i_stRedSet.sSecondaryNetId = '' OR i_stRedSet.sPrimaryNetId = i_stRedSet.sSecondaryNetId THEN
+		M_AddConfigError("RED_SET: Primary·Secondary Net ID를 서로 다르게 적어야 함");
+	ELSIF i_eRedRole = E_RedRole.NoMatch THEN
+		M_AddConfigError("RED_SET: 이 PLC Net ID가 Primary·Secondary와 다름");
+	END_IF
+END_IF
+
+q_nErrors	:= _nErrCount;
+q_bConfigOk	:= _nErrCount = 0;]]></ST>
+    </Implementation>
+    <Method Name="M_AddConfigError" Id="{af49984d-4406-4e6f-a6df-0125eb090a1f}">
+      <Declaration><![CDATA[METHOD PRIVATE M_AddConfigError
+VAR_INPUT
+	i_sText		: WSTRING(63);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// 오류 하나를 모음 (기록은 FB_EventLog가 내용이 바뀔 때만)
+_nErrCount := _nErrCount + 1;
+IF _nErrCount <= 10 THEN
+	q_asErrors[_nErrCount] := i_sText;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

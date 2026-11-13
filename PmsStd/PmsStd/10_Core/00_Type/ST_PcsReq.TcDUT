@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_PcsReq" Id="{67cfe7e0-44d4-4edc-8475-b2be686b916d}">
+    <Declaration><![CDATA[TYPE ST_PcsReq :		// 지령원의 PCS 상태 요청
+STRUCT
+	eCmd		: E_PcsCmd;		// None = 요청 없음. 새 요청일 때 1스캔만
+	nUnit		: UINT;			// 대상 유닛. 0 = 지령원 대상 그룹 전체
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

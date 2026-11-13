@@ -1,0 +1,497 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.9">
+  <POU Name="PRG_MqttTestData" Id="{88491714-22aa-416d-a1c5-97442acddae5}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_MqttTestData		// 시험 전용 더미 발행 값 + 수신 기록 (PRG_Mqtt가 GVL_SITE.TEST_MODE일 때만 부름. 현장 빌드는 Virtual 폴더와 함께 뺌)
+VAR
+	bEnable			: BOOL := TRUE;			// FALSE면 더미 값을 쓰지 않음 (마지막 값 유지)
+	tonUpdate		: TON := (PT := T#1S);	// 갱신 주기
+	bFirstDone		: BOOL;					// 시작 직후 한 번은 바로 채움
+	nTick			: UDINT;				// 갱신 횟수 (1 s마다 +1)
+	fWave			: REAL;					// 삼각파 -1 ~ +1 (WAVE_PERIOD 초 주기)
+	nHeartbeat		: UDINT;				// 0 ~ 99 반복 (BAT Heartbeat)
+	fPcsP			: REAL;					// PCS 1대 유효전력 kW (방전 +)
+	fBatSoc			: REAL;					// BAT SOC %
+	fDev			: REAL;					// 장치 번호 (실수)
+	nRacksPerBat	: UINT;					// BAT 1대에 속한 랙 수
+	afPvEnergy		: ARRAY[0..GVL_PARAM.PV_COUNT-1] OF REAL;		// PV 누적 발전량 kWh
+	afEssEnergy		: ARRAY[0..GVL_PARAM.ESS_COUNT-1] OF REAL;		// ESS 누적 방전량 kWh
+	afEssEnergyRev	: ARRAY[0..GVL_PARAM.ESS_COUNT-1] OF REAL;		// ESS 누적 충전량 kWh
+	fP				: REAL;
+	i				: UINT;
+
+	(* ---------- 수신 시험 핸들러 A_HandleRx (PRG_Mqtt가 FB_MqttMain 다음, 명령 핸들러 FB_EmsCommand 앞에서 부름) ----------
+	   - 새 수신 판별은 v3_1과 같은 타임스탬프 방식: FB_MqttSubscribe가 헤더 TimeStamp가 바뀐 메시지만 q_an???RxCount +1
+	     → EMS는 메시지마다 헤더 TimeStamp를 바꿔 보내야 새 수신으로 셈
+	   - 브로커별 2중 배열 [1 Cloud, 2 Local, 3 Azure, 토픽]. command 토픽 1 pcs, 2 bat / config 토픽 1 pcs, 2 bat, 3 protection
+	   - 받은 레코드는 FB_EmsCommand가 CommandType을 0으로 지우기 전에 사본으로 남김 *)
+	anBrokerCmdCount	: ARRAY[1..3, 1..GVL_MQTT.COMMAND_TOPIC_COUNT] OF UDINT;		// 브로커별 command 수신 횟수 (FB_MqttSubscribe.q_anCmdRxCount)
+	asBrokerCmdTime		: ARRAY[1..3, 1..GVL_MQTT.COMMAND_TOPIC_COUNT] OF STRING(23);	// 브로커별 마지막 command 헤더 TimeStamp
+	anBrokerCfgCount	: ARRAY[1..3, 1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF UDINT;
+	asBrokerCfgTime		: ARRAY[1..3, 1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF STRING(23);
+	anPrevCmdCount		: ARRAY[1..3, 1..GVL_MQTT.COMMAND_TOPIC_COUNT] OF UDINT;		// 핸들러가 마지막으로 본 횟수
+	anPrevCfgCount		: ARRAY[1..3, 1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF UDINT;
+	anCmdRxBroker		: ARRAY[1..GVL_MQTT.COMMAND_TOPIC_COUNT] OF INT;	// 토픽별 마지막으로 받은 브로커 (1 Cloud, 2 Local, 3 Azure)
+	anCfgRxBroker		: ARRAY[1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF INT;
+	astCmdHeader		: ARRAY[1..GVL_MQTT.COMMAND_TOPIC_COUNT] OF ST_MqttCommandHeader;	// 마지막으로 받은 command 헤더 (Location, SiteID, UserName, TimeStamp, DeviceCount)
+	astCfgHeader		: ARRAY[1..GVL_MQTT.CONFIG_TOPIC_COUNT] OF ST_MqttCommandHeader;
+	astPcsCommandRx		: ARRAY[0..GVL_PARAM.PCS_COUNT-1] OF ST_MqttCommand_Rx;	// 받은 command/pcs 레코드 사본 (칸 = DeviceIndex - F_MqttDistribute.DEVICE_ID_BASE, 지금 1)
+	astBatCommandRx		: ARRAY[0..GVL_PARAM.BMS_COUNT-1] OF ST_MqttCommand_Rx;	// 받은 command/bat 레코드 사본
+	astPcsConfigRx		: ARRAY[0..GVL_PARAM.PCS_COUNT-1] OF ST_PcsConfig_Rx;	// 받은 config/pcs 사본
+	astBatConfigRx		: ARRAY[0..GVL_PARAM.BMS_COUNT-1] OF ST_BatConfig_Rx;	// 받은 config/bat 사본
+	stProtectionConfigRx : ST_ProtectionConfig_Rx;								// 받은 config/protection 사본
+	nCmdRxTotal			: UDINT;		// 핸들러가 본 command 수신 누계 (브로커 합)
+	nCfgRxTotal			: UDINT;
+	sLastRx				: STRING(80);	// 마지막 수신 요약 예) 'Cloud command/pcs 2026-10-21 10:20:00.000'
+	pRxHeader			: POINTER TO ST_MqttCommandHeader;
+	b					: INT;
+	t					: UINT;
+END_VAR
+VAR CONSTANT
+	WAVE_PERIOD		: UDINT := 600;		// 삼각파 주기 (갱신 횟수 = 초)
+	PCS_P_MAX		: REAL := 500.0;	// PCS 1대 최대 출력 kW
+	BAT_V			: REAL := 740.0;	// DC 전압 V
+	AC_V_LL			: REAL := 380.0;	// AC 선간 전압 V
+	AC_V_LN			: REAL := 220.0;	// AC 상 전압 V
+	SQRT3			: REAL := 1.7320508;
+	BROKER_NAME		: ARRAY[1..3] OF STRING(5) := ['Cloud', 'Local', 'Azure'];
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF NOT bEnable THEN
+	RETURN;
+END_IF
+
+tonUpdate(IN := NOT tonUpdate.Q);
+IF NOT (tonUpdate.Q OR NOT bFirstDone) THEN
+	RETURN;
+END_IF
+bFirstDone := TRUE;
+
+(* 공통 값 *)
+nTick		:= nTick + 1;
+nHeartbeat	:= nTick MOD 100;
+fWave		:= ABS(UDINT_TO_REAL(nTick MOD WAVE_PERIOD) / UDINT_TO_REAL(WAVE_PERIOD / 2) - 1.0) * 2.0 - 1.0;	// 1 → -1 → 1
+fPcsP		:= PCS_P_MAX * fWave;
+fBatSoc		:= 50.0 - 30.0 * fWave;		// 방전(+)할수록 낮음: 20 ~ 80 %
+nRacksPerBat := GVL_PARAM.RACKS_PER_BMS;
+
+A_FillPms();
+A_FillPcs();
+A_FillBat();
+A_FillRack();
+A_FillPv();
+A_FillEss();
+A_FillTemp();
+A_FillAirConditioner();]]></ST>
+    </Implementation>
+    <Action Name="A_FillAirConditioner" Id="{536052f3-4fb2-48cf-a5d5-82aba39ae54b}">
+      <Implementation>
+        <ST><![CDATA[(* 공조기: 냉방·바람 자동 운전, 설정 24 ℃ 근처에서 실내 온도가 오르내림 *)
+FOR i := 0 TO GVL_PARAM.AIR_CONDITIONER_COUNT - 1 DO
+	fDev := UINT_TO_REAL(i);
+	g_stAirConditionerPublish.Devices[i].DeviceIndex		:= UINT_TO_UDINT(i + 1);
+	g_stAirConditionerPublish.Devices[i].Status				:= 2#0100;		// b2 운전
+	g_stAirConditionerPublish.Devices[i].ModeState			:= 0;			// 0 Cooling
+	g_stAirConditionerPublish.Devices[i].WindMode			:= 4;			// 4 Auto
+	g_stAirConditionerPublish.Devices[i].ControlTemperature	:= 24.0;		// ℃
+	g_stAirConditionerPublish.Devices[i].RoomTemperature	:= 24.0 + 0.2 * fDev + 1.5 * fWave;	// ℃
+	g_stAirConditionerPublish.Devices[i].Fault1				:= 0;
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_FillBat" Id="{2ef29a2a-9ef2-4d8f-b624-9ca885c7fd72}">
+      <Implementation>
+        <ST><![CDATA[FOR i := 0 TO GVL_PARAM.BMS_COUNT - 1 DO
+	fDev := UINT_TO_REAL(i);
+	g_stBatPublish.Devices[i].DeviceIndex						:= UINT_TO_UDINT(i + 1);
+	g_stBatPublish.Devices[i].Status							:= 0;
+	g_stBatPublish.Devices[i].OnlineRackCount					:= UINT_TO_UDINT(nRacksPerBat);
+	g_stBatPublish.Devices[i].TotalRackCount					:= UINT_TO_UDINT(nRacksPerBat);
+	g_stBatPublish.Devices[i].MaxCellVoltageLocationFromRack	:= 1;
+	g_stBatPublish.Devices[i].MaxCellVoltageLocationFromModule	:= 2;
+	g_stBatPublish.Devices[i].MaxCellVoltageLocationFromCell	:= 3;
+	g_stBatPublish.Devices[i].MinCellVoltageLocationFromRack	:= 4;
+	g_stBatPublish.Devices[i].MinCellVoltageLocationFromModule	:= 5;
+	g_stBatPublish.Devices[i].MinCellVoltageLocationFromCell	:= 6;
+	g_stBatPublish.Devices[i].MaxModuleTempLocationFromRack		:= 7;
+	g_stBatPublish.Devices[i].MaxModuleTempLocationFromModule	:= 8;
+	g_stBatPublish.Devices[i].MaxModuleTempLocationFromCell		:= 9;
+	g_stBatPublish.Devices[i].MinModuleTempLocationFromRack		:= 10;
+	g_stBatPublish.Devices[i].MinModuleTempLocationFromModule	:= UINT_TO_UDINT(MIN(UINT#11, GVL_PARAM.MODULES_PER_RACK));
+	g_stBatPublish.Devices[i].MinModuleTempLocationFromCell		:= 12;
+	g_stBatPublish.Devices[i].Heartbeat							:= nHeartbeat;
+	g_stBatPublish.Devices[i].Soc								:= fBatSoc + fDev;			// %
+	g_stBatPublish.Devices[i].Soh								:= 98.0 - 0.5 * fDev;		// %
+	g_stBatPublish.Devices[i].Eol								:= 80.0;
+	g_stBatPublish.Devices[i].DcVoltage							:= BAT_V - 20.0 * fWave;	// 방전할수록 낮음
+	g_stBatPublish.Devices[i].DcCurrent							:= fPcsP * 1000.0 / BAT_V;	// A (방전 +)
+	g_stBatPublish.Devices[i].ChargeCurrentLimit				:= 800.0;					// A
+	g_stBatPublish.Devices[i].DischargeCurrentLimit				:= 800.0;
+	g_stBatPublish.Devices[i].ChargePowerLimit					:= 600.0;					// kW
+	g_stBatPublish.Devices[i].DischargePowerLimit				:= 600.0;
+	g_stBatPublish.Devices[i].MaxCellVoltage					:= 3.35 - 0.05 * fWave;		// V
+	g_stBatPublish.Devices[i].MinCellVoltage					:= 3.30 - 0.05 * fWave;
+	g_stBatPublish.Devices[i].MaxModuleTemperature				:= 30.0 + 2.0 * ABS(fWave);	// ℃
+	g_stBatPublish.Devices[i].MinModuleTemperature				:= 25.0 + ABS(fWave);
+	g_stBatPublish.Devices[i].Warning1							:= 0;
+	g_stBatPublish.Devices[i].Warning2							:= 0;
+	g_stBatPublish.Devices[i].Warning3							:= 0;
+	g_stBatPublish.Devices[i].Warning4							:= 0;
+	g_stBatPublish.Devices[i].Warning5							:= 0;
+	g_stBatPublish.Devices[i].Warning6							:= 0;
+	g_stBatPublish.Devices[i].Warning7							:= 0;
+	g_stBatPublish.Devices[i].Warning8							:= 0;
+	g_stBatPublish.Devices[i].Warning9							:= 0;
+	g_stBatPublish.Devices[i].Warning10							:= 0;
+	g_stBatPublish.Devices[i].Fault1							:= 0;
+	g_stBatPublish.Devices[i].Fault2							:= 0;
+	g_stBatPublish.Devices[i].Fault3							:= 0;
+	g_stBatPublish.Devices[i].Fault4							:= 0;
+	g_stBatPublish.Devices[i].Fault5							:= 0;
+	g_stBatPublish.Devices[i].Fault6							:= 0;
+	g_stBatPublish.Devices[i].Fault7							:= 0;
+	g_stBatPublish.Devices[i].Fault8							:= 0;
+	g_stBatPublish.Devices[i].Fault9							:= 0;
+	g_stBatPublish.Devices[i].Fault10							:= 0;
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_FillEss" Id="{6dc59d9c-fad9-4c46-89b4-a4415ce69bbe}">
+      <Implementation>
+        <ST><![CDATA[(* ESS 계량: PCS와 같은 방향 (방전 +, 충전 -). 방전량·충전량을 따로 누적 *)
+FOR i := 0 TO GVL_PARAM.ESS_COUNT - 1 DO
+	fDev := UINT_TO_REAL(i);
+	fP := fPcsP * (1.0 - 0.05 * fDev);
+	IF fP >= 0.0 THEN
+		afEssEnergy[i] := afEssEnergy[i] + fP / 3600.0;
+	ELSE
+		afEssEnergyRev[i] := afEssEnergyRev[i] - fP / 3600.0;
+	END_IF
+	g_stEssPublish.Devices[i].EnergyActivePower			:= afEssEnergy[i];		// kWh 방전
+	g_stEssPublish.Devices[i].EnergyReactivePower		:= 0.05 * afEssEnergy[i];
+	g_stEssPublish.Devices[i].EnergyReverseActivePower	:= afEssEnergyRev[i];	// kWh 충전
+	g_stEssPublish.Devices[i].EnergyReverseReactivePower := 0.05 * afEssEnergyRev[i];
+	g_stEssPublish.Devices[i].DeviceIndex		:= UINT_TO_UDINT(i + 1);
+	g_stEssPublish.Devices[i].Status			:= 1;
+	g_stEssPublish.Devices[i].AcActivePower	:= fP;					// kW
+	g_stEssPublish.Devices[i].AcReactivePower	:= 0.05 * fP;			// kvar
+	g_stEssPublish.Devices[i].AcVoltageR		:= AC_V_LN + fDev;
+	g_stEssPublish.Devices[i].AcVoltageS		:= AC_V_LN + fDev + 0.3;
+	g_stEssPublish.Devices[i].AcVoltageT		:= AC_V_LN + fDev - 0.3;
+	g_stEssPublish.Devices[i].AcCurrentR		:= ABS(fP) * 1000.0 / (3.0 * AC_V_LN);	// A
+	g_stEssPublish.Devices[i].AcCurrentS		:= g_stEssPublish.Devices[i].AcCurrentR + 0.3;
+	g_stEssPublish.Devices[i].AcCurrentT		:= g_stEssPublish.Devices[i].AcCurrentR - 0.3;
+	g_stEssPublish.Devices[i].Frequency		:= 60.0 + 0.02 * fWave;
+	g_stEssPublish.Devices[i].PowerFactor		:= 0.99;
+	g_stEssPublish.Devices[i].Warning1		:= 0;
+	g_stEssPublish.Devices[i].Warning2		:= 0;
+	g_stEssPublish.Devices[i].Warning3		:= 0;
+	g_stEssPublish.Devices[i].Warning4		:= 0;
+	g_stEssPublish.Devices[i].Warning5		:= 0;
+	g_stEssPublish.Devices[i].Warning6		:= 0;
+	g_stEssPublish.Devices[i].Warning7		:= 0;
+	g_stEssPublish.Devices[i].Warning8		:= 0;
+	g_stEssPublish.Devices[i].Warning9		:= 0;
+	g_stEssPublish.Devices[i].Warning10		:= 0;
+	g_stEssPublish.Devices[i].Fault1			:= 0;
+	g_stEssPublish.Devices[i].Fault2			:= 0;
+	g_stEssPublish.Devices[i].Fault3			:= 0;
+	g_stEssPublish.Devices[i].Fault4			:= 0;
+	g_stEssPublish.Devices[i].Fault5			:= 0;
+	g_stEssPublish.Devices[i].Fault6			:= 0;
+	g_stEssPublish.Devices[i].Fault7			:= 0;
+	g_stEssPublish.Devices[i].Fault8			:= 0;
+	g_stEssPublish.Devices[i].Fault9			:= 0;
+	g_stEssPublish.Devices[i].Fault10			:= 0;
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_FillPcs" Id="{58574e30-f115-4469-960a-c8b2baa98cbf}">
+      <Implementation>
+        <ST><![CDATA[FOR i := 0 TO GVL_PARAM.PCS_COUNT - 1 DO
+	fDev := UINT_TO_REAL(i);
+	fP := fPcsP * (1.0 - 0.05 * fDev);		// 장치마다 5 %씩 다르게
+	g_stPcsPublish.Devices[i].DeviceIndex			:= UINT_TO_UDINT(i + 1);
+	g_stPcsPublish.Devices[i].SystemOperationMode	:= 1;			// 1 모드스케줄
+	g_stPcsPublish.Devices[i].OperationMode			:= 1;
+	g_stPcsPublish.Devices[i].PMSActivePower		:= fP;			// 지령 kW
+	g_stPcsPublish.Devices[i].RemoteMode			:= 1;			// 1 Remote
+	g_stPcsPublish.Devices[i].Status				:= 0;
+	g_stPcsPublish.Devices[i].AcActivePower			:= fP * 0.99;	// 출력 kW
+	g_stPcsPublish.Devices[i].AcReactivePower		:= 0.1 * fP;	// kvar
+	g_stPcsPublish.Devices[i].PowerFactor			:= 0.99;
+	g_stPcsPublish.Devices[i].Frequency				:= 60.0 + 0.02 * fWave;
+	g_stPcsPublish.Devices[i].AcRsVoltage			:= AC_V_LL + fDev;
+	g_stPcsPublish.Devices[i].AcStVoltage			:= AC_V_LL + fDev + 0.5;
+	g_stPcsPublish.Devices[i].AcTrVoltage			:= AC_V_LL + fDev - 0.5;
+	g_stPcsPublish.Devices[i].AcRVoltage			:= AC_V_LN + fDev;
+	g_stPcsPublish.Devices[i].AcSVoltage			:= AC_V_LN + fDev + 0.3;
+	g_stPcsPublish.Devices[i].AcTVoltage			:= AC_V_LN + fDev - 0.3;
+	g_stPcsPublish.Devices[i].AcRCurrent			:= ABS(fP) * 1000.0 / (SQRT3 * AC_V_LL);	// A
+	g_stPcsPublish.Devices[i].AcSCurrent			:= g_stPcsPublish.Devices[i].AcRCurrent + 0.5;
+	g_stPcsPublish.Devices[i].AcTCurrent			:= g_stPcsPublish.Devices[i].AcRCurrent - 0.5;
+	g_stPcsPublish.Devices[i].DcLinkVoltage			:= BAT_V + 10.0;
+	g_stPcsPublish.Devices[i].DcVoltage				:= BAT_V;
+	g_stPcsPublish.Devices[i].DcCurrent				:= fP * 1000.0 / BAT_V;					// A (방전 +)
+	g_stPcsPublish.Devices[i].DcActivePower			:= fP * 1.01;
+	g_stPcsPublish.Devices[i].InsulationResistance	:= 2000.0;		// kΩ
+	g_stPcsPublish.Devices[i].Temperature1			:= 35.0 + fDev + 3.0 * ABS(fWave);
+	g_stPcsPublish.Devices[i].Temperature2			:= 36.0 + fDev + 3.0 * ABS(fWave);
+	g_stPcsPublish.Devices[i].Temperature3			:= 37.0 + fDev + 3.0 * ABS(fWave);
+	g_stPcsPublish.Devices[i].Temperature4			:= 38.0 + fDev + 3.0 * ABS(fWave);
+	g_stPcsPublish.Devices[i].Temperature5			:= 30.0 + fDev;
+	g_stPcsPublish.Devices[i].Temperature6			:= 31.0 + fDev;
+	g_stPcsPublish.Devices[i].Temperature7			:= 32.0 + fDev;
+	g_stPcsPublish.Devices[i].Temperature8			:= 33.0 + fDev;
+	g_stPcsPublish.Devices[i].Warning1				:= 0;
+	g_stPcsPublish.Devices[i].Warning2				:= 0;
+	g_stPcsPublish.Devices[i].Warning3				:= 0;
+	g_stPcsPublish.Devices[i].Warning4				:= 0;
+	g_stPcsPublish.Devices[i].Warning5				:= 0;
+	g_stPcsPublish.Devices[i].Warning6				:= 0;
+	g_stPcsPublish.Devices[i].Warning7				:= 0;
+	g_stPcsPublish.Devices[i].Warning8				:= 0;
+	g_stPcsPublish.Devices[i].Warning9				:= 0;
+	g_stPcsPublish.Devices[i].Warning10				:= 0;
+	g_stPcsPublish.Devices[i].Fault1				:= 0;
+	g_stPcsPublish.Devices[i].Fault2				:= 0;
+	g_stPcsPublish.Devices[i].Fault3				:= 0;
+	g_stPcsPublish.Devices[i].Fault4				:= 0;
+	g_stPcsPublish.Devices[i].Fault5				:= 0;
+	g_stPcsPublish.Devices[i].Fault6				:= 0;
+	g_stPcsPublish.Devices[i].Fault7				:= 0;
+	g_stPcsPublish.Devices[i].Fault8				:= 0;
+	g_stPcsPublish.Devices[i].Fault9				:= 0;
+	g_stPcsPublish.Devices[i].Fault10				:= 0;
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_FillPms" Id="{dcc66078-2db4-4584-a086-b0addbf4c241}">
+      <Implementation>
+        <ST><![CDATA[(* PMS 상태 1건 *)
+g_stPmsPublish.Devices[0].DeviceIndex			:= 1;
+g_stPmsPublish.Devices[0].Status				:= 1;
+g_stPmsPublish.Devices[0].PmsIsAlive			:= 1;			// 1 정상
+g_stPmsPublish.Devices[0].CpuUsage				:= 20 + nTick MOD 10;	// %
+g_stPmsPublish.Devices[0].CpuTemperature		:= 50;			// ℃
+g_stPmsPublish.Devices[0].RemainCycle			:= 80;			// %
+g_stPmsPublish.Devices[0].RemainSaveArea		:= 70;			// %
+g_stPmsPublish.Devices[0].ProtectModuleCurrent	:= 1.2;
+g_stPmsPublish.Devices[0].ProtectModuleVoltage	:= 24.0;
+g_stPmsPublish.Devices[0].PmsEvent				:= 0;
+g_stPmsPublish.Devices[0].ModuleStatus1			:= 0;
+g_stPmsPublish.Devices[0].ModuleStatus2			:= 0;]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_FillPv" Id="{cfb76b77-42ab-4dab-9041-504876d42fda}">
+      <Implementation>
+        <ST><![CDATA[(* PV: 낮 발전처럼 100 ~ 300 kW, 누적 발전량은 1 s마다 kW/3600 kWh씩 더함 *)
+FOR i := 0 TO GVL_PARAM.PV_COUNT - 1 DO
+	fDev := UINT_TO_REAL(i);
+	fP := 200.0 + 100.0 * fWave - 10.0 * fDev;
+	afPvEnergy[i] := afPvEnergy[i] + fP / 3600.0;
+	g_stPvPublish.Devices[i].EnergyActivePower			:= afPvEnergy[i];		// kWh
+	g_stPvPublish.Devices[i].EnergyReactivePower		:= 0.05 * afPvEnergy[i];
+	g_stPvPublish.Devices[i].EnergyReverseActivePower	:= 0.0;
+	g_stPvPublish.Devices[i].EnergyReverseReactivePower	:= 0.0;
+	g_stPvPublish.Devices[i].DeviceIndex		:= UINT_TO_UDINT(i + 1);
+	g_stPvPublish.Devices[i].Status			:= 1;
+	g_stPvPublish.Devices[i].AcActivePower	:= fP;					// kW
+	g_stPvPublish.Devices[i].AcReactivePower	:= 0.05 * fP;			// kvar
+	g_stPvPublish.Devices[i].AcVoltageR		:= AC_V_LN + fDev;
+	g_stPvPublish.Devices[i].AcVoltageS		:= AC_V_LN + fDev + 0.3;
+	g_stPvPublish.Devices[i].AcVoltageT		:= AC_V_LN + fDev - 0.3;
+	g_stPvPublish.Devices[i].AcCurrentR		:= ABS(fP) * 1000.0 / (3.0 * AC_V_LN);	// A
+	g_stPvPublish.Devices[i].AcCurrentS		:= g_stPvPublish.Devices[i].AcCurrentR + 0.3;
+	g_stPvPublish.Devices[i].AcCurrentT		:= g_stPvPublish.Devices[i].AcCurrentR - 0.3;
+	g_stPvPublish.Devices[i].Frequency		:= 60.0 + 0.02 * fWave;
+	g_stPvPublish.Devices[i].PowerFactor		:= 0.99;
+	g_stPvPublish.Devices[i].Warning1		:= 0;
+	g_stPvPublish.Devices[i].Warning2		:= 0;
+	g_stPvPublish.Devices[i].Warning3		:= 0;
+	g_stPvPublish.Devices[i].Warning4		:= 0;
+	g_stPvPublish.Devices[i].Warning5		:= 0;
+	g_stPvPublish.Devices[i].Warning6		:= 0;
+	g_stPvPublish.Devices[i].Warning7		:= 0;
+	g_stPvPublish.Devices[i].Warning8		:= 0;
+	g_stPvPublish.Devices[i].Warning9		:= 0;
+	g_stPvPublish.Devices[i].Warning10		:= 0;
+	g_stPvPublish.Devices[i].Fault1			:= 0;
+	g_stPvPublish.Devices[i].Fault2			:= 0;
+	g_stPvPublish.Devices[i].Fault3			:= 0;
+	g_stPvPublish.Devices[i].Fault4			:= 0;
+	g_stPvPublish.Devices[i].Fault5			:= 0;
+	g_stPvPublish.Devices[i].Fault6			:= 0;
+	g_stPvPublish.Devices[i].Fault7			:= 0;
+	g_stPvPublish.Devices[i].Fault8			:= 0;
+	g_stPvPublish.Devices[i].Fault9			:= 0;
+	g_stPvPublish.Devices[i].Fault10			:= 0;
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_FillRack" Id="{2b1ca169-d91c-4d10-b2d6-5d27bc2cd9e9}">
+      <Implementation>
+        <ST><![CDATA[(* 번호·BatID·ModuleCount는 PRG_PublishDeviceNo에서 채움. 여기서는 시험 측정값만 생성 *)
+FOR i := 0 TO GVL_PARAM.RACK_COUNT - 1 DO
+	fDev := UINT_TO_REAL(i MOD 10);			// 10개 주기로 조금씩 다르게
+	g_stRackPublish.Devices[i].Status			:= 1;
+	g_stRackPublish.Devices[i].Soc				:= fBatSoc + 0.2 * fDev;		// %
+	g_stRackPublish.Devices[i].Soh				:= 98.0 - 0.1 * fDev;
+	g_stRackPublish.Devices[i].DcVoltage		:= BAT_V - 20.0 * fWave + 0.5 * fDev;
+	g_stRackPublish.Devices[i].DcCurrent		:= fPcsP * 1000.0 / BAT_V / UINT_TO_REAL(nRacksPerBat);	// A
+	g_stRackPublish.Devices[i].ChargeCurrentLimit		:= 100.0;
+	g_stRackPublish.Devices[i].DischargeCurrentLimit	:= 100.0;
+	g_stRackPublish.Devices[i].ChargePowerLimit			:= 70.0;
+	g_stRackPublish.Devices[i].DischargePowerLimit		:= 70.0;
+	g_stRackPublish.Devices[i].AvgCellVoltage	:= 3.32 - 0.05 * fWave;
+	g_stRackPublish.Devices[i].MaxCellVoltage	:= 3.35 - 0.05 * fWave;
+	g_stRackPublish.Devices[i].MinCellVoltage	:= 3.29 - 0.05 * fWave;
+	g_stRackPublish.Devices[i].AvgModuleTemp	:= 27.0 + 0.1 * fDev;
+	g_stRackPublish.Devices[i].MaxModuleTemp	:= 30.0 + 0.1 * fDev;
+	g_stRackPublish.Devices[i].MinModuleTemp	:= 24.0 + 0.1 * fDev;
+	g_stRackPublish.Devices[i].MaxCellVoltageLocationFromModule	:= (i MOD GVL_PARAM.MODULES_PER_RACK) + 1;
+	g_stRackPublish.Devices[i].MaxCellVoltageLocationFromCell	:= (i MOD 16) + 1;
+	g_stRackPublish.Devices[i].MinCellVoltageLocationFromModule	:= ((i + 3) MOD GVL_PARAM.MODULES_PER_RACK) + 1;
+	g_stRackPublish.Devices[i].MinCellVoltageLocationFromCell	:= ((i + 5) MOD 16) + 1;
+	g_stRackPublish.Devices[i].MaxModuleTempLocationFromModule	:= ((i + 1) MOD GVL_PARAM.MODULES_PER_RACK) + 1;
+	g_stRackPublish.Devices[i].MaxModuleTempLocationFromCell	:= ((i + 7) MOD 16) + 1;
+	g_stRackPublish.Devices[i].MinModuleTempLocationFromModule	:= ((i + 4) MOD GVL_PARAM.MODULES_PER_RACK) + 1;
+	g_stRackPublish.Devices[i].MinModuleTempLocationFromCell	:= ((i + 9) MOD 16) + 1;
+	g_stRackPublish.Devices[i].Warning1			:= 0;
+	g_stRackPublish.Devices[i].Warning2			:= 0;
+	g_stRackPublish.Devices[i].Warning3			:= 0;
+	g_stRackPublish.Devices[i].Warning4			:= 0;
+	g_stRackPublish.Devices[i].Warning5			:= 0;
+	g_stRackPublish.Devices[i].Warning6			:= 0;
+	g_stRackPublish.Devices[i].Warning7			:= 0;
+	g_stRackPublish.Devices[i].Warning8			:= 0;
+	g_stRackPublish.Devices[i].Warning9			:= 0;
+	g_stRackPublish.Devices[i].Warning10		:= 0;
+	g_stRackPublish.Devices[i].Fault1			:= 0;
+	g_stRackPublish.Devices[i].Fault2			:= 0;
+	g_stRackPublish.Devices[i].Fault3			:= 0;
+	g_stRackPublish.Devices[i].Fault4			:= 0;
+	g_stRackPublish.Devices[i].Fault5			:= 0;
+	g_stRackPublish.Devices[i].Fault6			:= 0;
+	g_stRackPublish.Devices[i].Fault7			:= 0;
+	g_stRackPublish.Devices[i].Fault8			:= 0;
+	g_stRackPublish.Devices[i].Fault9			:= 0;
+	g_stRackPublish.Devices[i].Fault10			:= 0;
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_FillTemp" Id="{7da32d46-0e0a-47e6-a745-5a794f9cd9f8}">
+      <Implementation>
+        <ST><![CDATA[(* 온도·습도 센서. location 1 PCS실, 2 BAT실, 3 UPS실, 4 FC 컨테이너실, 5 외부 *)
+FOR i := 0 TO GVL_PARAM.TEMP_COUNT - 1 DO
+	fDev := UINT_TO_REAL(i);
+	g_stTempPublish.Devices[i].DeviceIndex	:= UINT_TO_UDINT(i + 1);
+	g_stTempPublish.Devices[i].status		:= 1;
+	g_stTempPublish.Devices[i].location		:= UINT_TO_UDINT(i MOD 5) + 1;
+	g_stTempPublish.Devices[i].temperature	:= 24.0 + fDev + 2.0 * fWave;	// ℃
+	g_stTempPublish.Devices[i].humidity		:= 45.0 + 2.0 * fDev + 5.0 * fWave;	// %
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <Action Name="A_HandleRx" Id="{6fb65f31-cb86-47b0-b1ab-da9aba40ee8b}">
+      <Implementation>
+        <ST><![CDATA[(* 수신 시험 핸들러: 새로 받은 command·config를 브로커·토픽별로 기록하고 레코드 사본을 남김
+   PRG_Mqtt가 FB_MqttMain(구독·분배) 다음, FB_EmsCommand(CommandType 지움) 앞에서 PRG_MqttTestData.A_HandleRx()로 부름 *)
+
+(* 1. 브로커별 수신 횟수·시각 (1 Cloud, 2 Local, 3 Azure) *)
+FOR t := 1 TO GVL_MQTT.COMMAND_TOPIC_COUNT DO
+	anBrokerCmdCount[1, t] := PRG_Mqtt.fbMqttMain.fbCloudSub.q_anCmdRxCount[t];	asBrokerCmdTime[1, t] := PRG_Mqtt.fbMqttMain.fbCloudSub.q_asCmdRxTime[t];
+	anBrokerCmdCount[2, t] := PRG_Mqtt.fbMqttMain.fbLocalSub.q_anCmdRxCount[t];	asBrokerCmdTime[2, t] := PRG_Mqtt.fbMqttMain.fbLocalSub.q_asCmdRxTime[t];
+	anBrokerCmdCount[3, t] := PRG_Mqtt.fbMqttMain.fbAzureSub.q_anCmdRxCount[t];	asBrokerCmdTime[3, t] := PRG_Mqtt.fbMqttMain.fbAzureSub.q_asCmdRxTime[t];
+END_FOR
+FOR t := 1 TO GVL_MQTT.CONFIG_TOPIC_COUNT DO
+	anBrokerCfgCount[1, t] := PRG_Mqtt.fbMqttMain.fbCloudSub.q_anCfgRxCount[t];	asBrokerCfgTime[1, t] := PRG_Mqtt.fbMqttMain.fbCloudSub.q_asCfgRxTime[t];
+	anBrokerCfgCount[2, t] := PRG_Mqtt.fbMqttMain.fbLocalSub.q_anCfgRxCount[t];	asBrokerCfgTime[2, t] := PRG_Mqtt.fbMqttMain.fbLocalSub.q_asCfgRxTime[t];
+	anBrokerCfgCount[3, t] := PRG_Mqtt.fbMqttMain.fbAzureSub.q_anCfgRxCount[t];	asBrokerCfgTime[3, t] := PRG_Mqtt.fbMqttMain.fbAzureSub.q_asCfgRxTime[t];
+END_FOR
+
+(* 2. command: 횟수가 바뀐 브로커·토픽 = 새 메시지 (헤더 TimeStamp가 바뀐 것) *)
+FOR b := 1 TO 3 DO
+	FOR t := 1 TO GVL_MQTT.COMMAND_TOPIC_COUNT DO
+		IF anBrokerCmdCount[b, t] <> anPrevCmdCount[b, t] THEN
+			anPrevCmdCount[b, t] := anBrokerCmdCount[b, t];
+			anCmdRxBroker[t] := b;
+			nCmdRxTotal := nCmdRxTotal + 1;
+			pRxHeader := PRG_Mqtt.fbMqttMain.astSubCommandTable[t].pRxBuffer;
+			IF pRxHeader <> 0 THEN
+				astCmdHeader[t] := pRxHeader^;
+			END_IF
+			IF t = 1 THEN
+				astPcsCommandRx := g_astPcsCommand;		// FB_EmsCommand가 지우기 전 사본
+			ELSE
+				astBatCommandRx := g_astBatCommand;
+			END_IF
+			sLastRx := CONCAT(CONCAT(BROKER_NAME[b], ' command/'), CONCAT(PRG_Mqtt.fbMqttMain.astSubCommandTable[t].sTopic, CONCAT(' ', asBrokerCmdTime[b, t])));
+		END_IF
+	END_FOR
+END_FOR
+
+(* 3. config *)
+FOR b := 1 TO 3 DO
+	FOR t := 1 TO GVL_MQTT.CONFIG_TOPIC_COUNT DO
+		IF anBrokerCfgCount[b, t] <> anPrevCfgCount[b, t] THEN
+			anPrevCfgCount[b, t] := anBrokerCfgCount[b, t];
+			anCfgRxBroker[t] := b;
+			nCfgRxTotal := nCfgRxTotal + 1;
+			pRxHeader := PRG_Mqtt.fbMqttMain.astSubConfigTable[t].pRxBuffer;
+			IF pRxHeader <> 0 THEN
+				astCfgHeader[t] := pRxHeader^;
+			END_IF
+			CASE t OF
+				1:	astPcsConfigRx := g_astPcsConfig;
+				2:	astBatConfigRx := g_astBatConfig;
+				3:	stProtectionConfigRx := g_stProtectionConfig;
+			END_CASE
+			sLastRx := CONCAT(CONCAT(BROKER_NAME[b], ' config/'), CONCAT(PRG_Mqtt.fbMqttMain.astSubConfigTable[t].sTopic, CONCAT(' ', asBrokerCfgTime[b, t])));
+		END_IF
+	END_FOR
+END_FOR]]></ST>
+      </Implementation>
+    </Action>
+    <LineIds Name="PRG_MqttTestData">
+      <LineId Id="3" Count="24" />
+      <LineId Id="2" Count="0" />
+    </LineIds>
+    <LineIds Name="PRG_MqttTestData.A_FillAirConditioner">
+      <LineId Id="2" Count="9" />
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="PRG_MqttTestData.A_FillBat">
+      <LineId Id="2" Count="51" />
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="PRG_MqttTestData.A_FillEss">
+      <LineId Id="2" Count="44" />
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="PRG_MqttTestData.A_FillPcs">
+      <LineId Id="2" Count="54" />
+      <LineId Id="1" Count="0" />
+      <LineId Id="58" Count="9" />
+    </LineIds>
+    <LineIds Name="PRG_MqttTestData.A_FillPms">
+      <LineId Id="2" Count="11" />
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="PRG_MqttTestData.A_FillPv">
+      <LineId Id="2" Count="40" />
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="PRG_MqttTestData.A_FillRack">
+      <LineId Id="2" Count="48" />
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="PRG_MqttTestData.A_FillTemp">
+      <LineId Id="2" Count="7" />
+      <LineId Id="1" Count="0" />
+    </LineIds>
+    <LineIds Name="PRG_MqttTestData.A_HandleRx">
+      <LineId Id="2" Count="54" />
+      <LineId Id="1" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_GateView" Id="{6bed7781-53da-4402-be93-5532dc645b92}">
+    <Declaration><![CDATA[TYPE ST_GateView :	// Gate에 넘기는 것 (I_Gate.M_Filter)
+STRUCT
+	ePath			: E_OpMode;			// 이 Gate가 맡은 경로 (Auto / Manual)
+	stManualCmdSet	: ST_ManualCmdSet;	// Manual 지령 거르기 설정 (GVL_PERSIST.g_stManualCmdSet, 코어 기본 Manual Gate가 씀)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

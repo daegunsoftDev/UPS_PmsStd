@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="PRG_SimLink" Id="{404dbe14-1d4d-4970-839d-96b976a40f84}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM PRG_SimLink		// 가상 장비끼리 연결 (사무실 시험 전용)
+VAR_TEMP
+	u			: UINT;
+	p			: UINT;
+	stUnit		: ST_UnitState;
+	fP			: REAL;
+	fQ			: REAL;
+	b			: UINT;
+	afPBat		: ARRAY[1..GVL_PARAM.BAT_COUNT] OF REAL;	// kW, 배터리 그룹(DC 버스)마다 유닛 P 합
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 실제 현장에서 전기가 이어 주는 것을 흉내 냄: PCS 출력 → 배터리 SOC, 접속점 계측
+   - 가상 PCS 여러 대(GVL_SITE.g_aipPcs) → 배터리 그룹마다 그 그룹 BMS (GVL_SITE.BMS_CFG), 계측기1 하나 기준
+   - BMS를 늘리거나 줄이면 아래 BMS 줄도 같이 맞춤
+   - 현장 빌드: GVL_SITE의 장비를 실제 드라이버로 바꾸고, MAIN의 PRG_SimLink() 호출과 Virtual 폴더 삭제 *)
+fP := 0;
+fQ := 0;
+FOR b := 1 TO GVL_PARAM.BAT_COUNT DO
+	afPBat[b] := 0;
+END_FOR
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	p := GVL_SITE.UNIT_CFG[u].nPcs;
+	IF p >= 1 AND p <= GVL_PARAM.PCS_COUNT THEN
+		IF GVL_SITE.g_aipPcs[p] <> 0 THEN
+			stUnit	:= GVL_SITE.g_aipPcs[p].M_GetUnitState(GVL_SITE.UNIT_CFG[u].nSub);
+			fP		:= fP + stUnit.stP.fValue;
+			fQ		:= fQ + stUnit.stQ.fValue;
+			b		:= GVL_SITE.UNIT_CFG[u].nBatGroup;
+			IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT THEN
+				afPBat[b] := afPBat[b] + stUnit.stP.fValue;
+			END_IF
+		END_IF
+	END_IF
+END_FOR
+// BMS1: physical-map driver has no simulated power input.
+// BMS2: physical-map driver has no simulated power input.
+// BMS3: physical-map driver has no simulated power input.
+GVL_SITE.g_fbMeter1.i_fP	:= fP;
+GVL_SITE.g_fbMeter1.i_fQ	:= fQ;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

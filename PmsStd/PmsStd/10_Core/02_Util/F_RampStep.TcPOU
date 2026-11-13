@@ -1,0 +1,30 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="F_RampStep" Id="{e513036b-3273-4e1f-935b-bfcc91772b02}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION F_RampStep : REAL		// 기준값에서 한 스캔 동안 갈 수 있는 만큼만 목표 쪽으로
+VAR_INPUT
+	i_fTarget	: REAL;
+	i_fRef		: REAL;			// 기준 (지난 스캔 최종 출력)
+	i_fUpRate	: REAL;			// |값|이 커지는 쪽 (단위/s). 0 = 램프 없음
+	i_fDnRate	: REAL;			// |값|이 작아지는 쪽 (단위/s). 0 = 램프 없음
+END_VAR
+VAR
+	fRate		: REAL;
+	fStep		: REAL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF ABS(i_fTarget) > ABS(i_fRef) AND i_fTarget * i_fRef >= 0 THEN
+	fRate := i_fUpRate;
+ELSE
+	fRate := i_fDnRate;
+END_IF
+
+IF fRate <= 0 THEN
+	F_RampStep := i_fTarget;
+ELSE
+	fStep		:= fRate * F_CycleSec();
+	F_RampStep	:= i_fRef + LIMIT(-fStep, i_fTarget - i_fRef, fStep);
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,411 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ShapePath" Id="{2aec7ad5-2b7f-4fb2-8d71-4a2e8850b4a4}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ShapePath		// 지령 다듬기, 경로 하나 (MAIN에 fbManualShape·fbAutoShape 두 개). P는 램프 → 접속점 제한 → 보정 → 설비 제한, Q는 필터 → 제한
+// Auto·Manual이 같은 코드. Manual(i_bManual = TRUE)은 그룹 Manual 정책(ST_ManualPolicy)에서 켠 단계만 적용
+// 유닛 지령이 기본: 그룹 지령이 없으면 이 경로 유닛 지령 합(유닛별 램프 후)을 목표로 같은 제한을 건다
+// Auto는 Manual을 먼저 계산한 결과(iq_afOtherGrpP/Q)를 받아 접속점 제한을 그룹 전체로 보고, 결과에서 Manual 몫을 뺌
+// 설비 제한의 정격·배터리 줄과 Q 정격은 FB_EquipmentLimits의 그룹 설비 범위 (유닛 한도 합, 버스별 배터리 한도)
+VAR_INPUT
+	i_bManual			: BOOL;			// TRUE = Manual 경로, FALSE = Auto 경로 (인스턴스마다 고정)
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astView			: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupView;
+	iq_astGroupSet		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupSet;
+	iq_astManualPolicy	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_ManualPolicy;	// Manual 경로만 씀
+	iq_astUnitCfg		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_aeOpMode			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;			// 실제 운전 모드
+	iq_abOutputReady	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 유닛 출력 가능 (FB_OutputReady). 못 내면 성형 값 0 → 기동하면 0부터 램프
+	(* 이 경로 지령 (Gate 결과) *)
+	iq_astUnitP			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	iq_astUnitQ			: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	iq_astGrpP			: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_astGrpQ			: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_astGrpPLim		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Range;			// 이 경로 지령원 P 제한 (FB_Select)
+	iq_astGrpQLim		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Range;			// 이 경로 지령원 Q 제한 (FB_Select, 접속점 기준)
+	iq_afOtherGrpP		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;			// Auto: Manual 결과 (fbManualShape.q_afGrpP). Manual: 0
+	iq_afOtherGrpQ		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;
+	(* 제한·보정 모듈 결과 (FB_LimitEval, 그룹마다 한 번 평가) *)
+	iq_aabLimOn			: ARRAY[1..GVL_PARAM.GROUP_COUNT, 1..GVL_PARAM.LIMIT_COUNT] OF BOOL;
+	iq_aastLim			: ARRAY[1..GVL_PARAM.GROUP_COUNT, 1..GVL_PARAM.LIMIT_COUNT] OF ST_LimitOut;
+	iq_aaeBasis			: ARRAY[1..GVL_PARAM.GROUP_COUNT, 1..GVL_PARAM.LIMIT_COUNT] OF E_LimitBasis;
+	iq_aanLimModule		: ARRAY[1..GVL_PARAM.GROUP_COUNT, 1..GVL_PARAM.LIMIT_COUNT] OF UINT;
+	iq_abPccManual		: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF BOOL;
+	iq_abResume			: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;
+	iq_afPComp			: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;
+	iq_afQComp	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;
+	iq_astGroupEnv	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupEnvelope;	// 그룹 설비 범위 (FB_EquipmentLimits)
+END_VAR
+VAR_OUTPUT
+	q_afGrpP		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;		// kW, 이 경로 유닛 몫 합 (그룹 지령 또는 유닛 지령 합, 제한 후)
+	q_afGrpQ		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;		// kvar
+	q_afUnitP		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;		// kW, 이 경로 유닛별 값 (램프 후, 유닛 한도는 분배에서). 지령 없으면 0
+	q_afUnitQ		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;
+	q_astDiag		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_ShapeDiag;
+	q_abGrpPCmd		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// 이 경로 그룹 P 지령 있음 (제어용: 분배가 그룹 몫을 나눌지)
+	q_abGrpQCmd		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;
+	q_abFollow		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;		// 이 경로 유닛 지령을 다시 써야 함 (램프 중 또는 제한에 걸림). 디스패처는 Manual 것만 씀
+END_VAR
+VAR
+	_afRef			: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;		// 그룹 지령 램프 기준 = 지난 스캔 결과 (접속점 기준)
+	_afbQFilter		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF FB_Lpf;
+	(* 이번 그룹 값 (메서드에서 씀) *)
+	_stEnv	: ST_GroupEnvelope;	// 이번 그룹 설비 범위
+	_abLimOn		: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF BOOL;
+	_astLim			: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF ST_LimitOut;
+	_aeBasis		: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF E_LimitBasis;
+	_anLimModule	: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF UINT;
+	_abPccManual	: ARRAY[1..GVL_PARAM.LIMIT_COUNT] OF BOOL;
+	_stTrace		: ST_PTrace;		// P 추적표 (메서드에서 채움)
+	_astApply		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_ManualPolicy;	// 그룹마다 적용할 단계 (Auto는 APPLY_ALL)
+	_stApply		: ST_ManualPolicy;	// 이번 그룹 것 (메서드에서 씀)
+	_stGrpP			: ST_Pick;
+	_stGrpQ			: ST_Pick;
+	_stSrcLim		: ST_Range;
+	_stQSrcLim		: ST_Range;		// 지령원 Q 제한
+	_bUnitPCmd		: BOOL;
+	_fUnitPReq		: REAL;			// 유닛 P 지령 합 (램프 전)
+	_fUnitPSum		: REAL;			// 유닛 P 지령 합 (램프 후)
+	_bUnitQCmd		: BOOL;
+	_fUnitQSum		: REAL;
+	_fOtherP		: REAL;			// 접속점 제한에 같이 넣는 다른 경로 몫
+	_fOtherQ		: REAL;
+	_fPComp			: REAL;
+	_fQComp			: REAL;
+	_fUp			: REAL;			// 램프율 (재개 포함)
+	_fDn			: REAL;
+	_tQFilter		: TIME;
+END_VAR
+VAR CONSTANT
+	APPLY_ALL		: ST_ManualPolicy := (bRamp := TRUE, bSrcLimit := TRUE, bPccLimit := TRUE, bComp := TRUE, bDevLimit := TRUE, bRating := TRUE, bBatLimit := TRUE);	// Auto 경로: 모든 단계 (ST_ManualPolicy에 칸을 더하면 여기도)
+END_VAR
+VAR_TEMP
+	g				: UINT;
+	u				: UINT;
+	i				: UINT;
+	abHasAuto		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// 그룹에 Auto 유닛이 있음
+	bInPath			: BOOL;
+	afUp			: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;		// 램프율 (램프 꺼짐이면 0)
+	afDn			: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF REAL;
+	abGrpFollow		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;
+	abPathRun		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// 그룹에 이 경로의 출력 낼 수 있는 유닛이 있음
+	fShare			: REAL;
+	stDiag			: ST_ShapeDiag;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 0) 그룹마다 적용할 단계와 램프율. Auto = 전부, Manual = 그룹 Manual 정책 *)
+FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	abHasAuto[g] := FALSE;
+END_FOR
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	g := iq_astUnitCfg[u].nGroup;
+	IF g >= 1 AND g <= GVL_PARAM.GROUP_COUNT AND iq_aeOpMode[u] <> E_OpMode.Manual THEN
+		abHasAuto[g] := TRUE;
+	END_IF
+END_FOR
+FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	IF i_bManual THEN
+		_astApply[g]		:= iq_astManualPolicy[g];
+		_astApply[g].bComp	:= _astApply[g].bComp AND NOT abHasAuto[g];		// 같은 그룹에 Auto가 있으면 보정은 Auto 쪽에만 (두 번 더하지 않게)
+	ELSE
+		_astApply[g]		:= APPLY_ALL;
+	END_IF
+	afUp[g] := 0;
+	afDn[g] := 0;
+	IF iq_astGroupSet[g].bRamp AND _astApply[g].bRamp THEN		// 램프가 꺼져 있으면 램프율과 관계없이 바로 목표
+		afUp[g] := iq_astGroupSet[g].fRampUp;
+		afDn[g] := iq_astGroupSet[g].fRampDn;
+	END_IF
+END_FOR
+
+(* 1) 유닛 지령: 램프만 (유닛 몫 램프율 = 그룹 램프율 × 유닛 정격 비율). 유닛 한도는 분배에서.
+   그룹 지령이 없을 때 그룹 목표가 이 값의 합이라 먼저 계산. 램프 기준 = 지난 스캔 값.
+   출력을 못 내는 유닛(멈춤·전환 중·새 지령 대기)은 0: 기동하면 0부터 램프 (계단처럼 튀지 않게) *)
+FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	abPathRun[g] := FALSE;
+END_FOR
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	g := iq_astUnitCfg[u].nGroup;
+	
+	IF iq_abOutputReady[u] AND (iq_aeOpMode[u] = E_OpMode.Manual) = i_bManual AND g >= 1 AND g <= GVL_PARAM.GROUP_COUNT THEN
+		abPathRun[g] := TRUE;
+	END_IF
+	IF iq_astUnitP[u].bActive AND iq_abOutputReady[u] AND g >= 1 AND g <= GVL_PARAM.GROUP_COUNT THEN
+		fShare := 1.0;
+		IF iq_astView[g].fPRatedSum > 0 THEN
+			fShare := iq_astUnitCfg[u].fPRated / iq_astView[g].fPRatedSum;
+		END_IF
+		q_afUnitP[u] := F_RampStep(iq_astUnitP[u].fValue, q_afUnitP[u], afUp[g] * fShare, afDn[g] * fShare);
+	ELSE
+		q_afUnitP[u] := 0;
+	END_IF
+	q_afUnitQ[u] := SEL(iq_astUnitQ[u].bActive AND iq_abOutputReady[u], 0.0, iq_astUnitQ[u].fValue);	// P처럼 출력 못 내는 유닛 값은 0 (그룹 Q 합에 안 들어가게)
+END_FOR
+
+(* 2) 그룹마다: 적용할 단계, 이번 그룹 값 → M_ShapePath *)
+FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	_stEnv := iq_astGroupEnv[g];
+	FOR i := 1 TO GVL_PARAM.LIMIT_COUNT DO
+		_abLimOn[i]		:= iq_aabLimOn[g, i];
+		_astLim[i]		:= iq_aastLim[g, i];
+		_aeBasis[i]		:= iq_aaeBasis[g, i];
+		_anLimModule[i]	:= iq_aanLimModule[g, i];
+		_abPccManual[i]	:= iq_abPccManual[i];
+	END_FOR
+	_fPComp		:= iq_afPComp[g];
+	_fQComp		:= iq_afQComp[g];
+	_fUp		:= afUp[g];
+	IF iq_astGroupSet[g].bRamp AND _astApply[g].bRamp AND (iq_abResume[g] OR iq_astGroupEnv[g].bResume) AND iq_astGroupSet[g].fRampResume > 0 THEN
+		_fUp := iq_astGroupSet[g].fRampResume;
+	END_IF
+	_fDn		:= afDn[g];
+	_tQFilter	:= iq_astGroupSet[g].tQFilter;
+
+	_stApply	:= _astApply[g];
+	// 이 경로 유닛이 하나도 출력을 못 내면 그룹 지령 램프 기준을 "이 경로 몫 0"으로 (다시 기동하면 0부터 램프)
+	IF NOT abPathRun[g] THEN
+		_afRef[g] := iq_afOtherGrpP[g] - SEL(_stApply.bComp, 0.0, iq_afPComp[g]);
+	END_IF
+
+	_stGrpP		:= iq_astGrpP[g];
+	_stGrpQ		:= iq_astGrpQ[g];
+	_stSrcLim	:= iq_astGrpPLim[g];
+	_stQSrcLim	:= iq_astGrpQLim[g];
+	_fOtherP	:= iq_afOtherGrpP[g];
+	_fOtherQ	:= iq_afOtherGrpQ[g];
+	_bUnitPCmd	:= FALSE;
+	_fUnitPReq	:= 0;
+	_fUnitPSum	:= 0;
+	_bUnitQCmd	:= FALSE;
+	_fUnitQSum	:= 0;
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		IF iq_astUnitCfg[u].nGroup = g THEN
+			IF iq_astUnitP[u].bActive THEN
+				_bUnitPCmd	:= TRUE;
+				_fUnitPReq	:= _fUnitPReq + iq_astUnitP[u].fValue;
+				_fUnitPSum	:= _fUnitPSum + q_afUnitP[u];
+			END_IF
+			IF iq_astUnitQ[u].bActive THEN
+				_bUnitQCmd	:= TRUE;
+				_fUnitQSum	:= _fUnitQSum + q_afUnitQ[u];
+			END_IF
+		END_IF
+	END_FOR
+
+	stDiag := M_ShapePath(g);
+	q_astDiag[g]	:= stDiag;
+	q_abGrpPCmd[g]	:= _stGrpP.bActive;
+	q_abGrpQCmd[g]	:= _stGrpQ.bActive;
+	q_afGrpP[g]		:= stDiag.fPOut;
+	q_afGrpQ[g]		:= stDiag.stQ.fOut - _fOtherQ;
+	abGrpFollow[g]	:= ABS(stDiag.fPRamped - stDiag.fPReq) > 0.001 OR stDiag.stPcc.bClamped OR stDiag.stDev.bClamped OR stDiag.stQ.bClamped;
+END_FOR
+
+(* 3) 추종 표시: 유닛별 값 램프 중, 또는 이 경로 그룹 값이 램프 중·제한 *)
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	g := iq_astUnitCfg[u].nGroup;
+	bInPath := (iq_aeOpMode[u] = E_OpMode.Manual) = i_bManual;
+	q_abFollow[u] := iq_abOutputReady[u] AND iq_astUnitP[u].bActive AND q_afUnitP[u] <> iq_astUnitP[u].fValue;
+	IF g >= 1 AND g <= GVL_PARAM.GROUP_COUNT AND bInPath AND iq_abOutputReady[u] THEN
+		q_abFollow[u] := q_abFollow[u] OR abGrpFollow[g];
+	END_IF
+END_FOR]]></ST>
+    </Implementation>
+    <Method Name="M_ShapePath" Id="{861ff1cc-9604-40d4-b9d2-ae8e2bcc75b6}">
+      <Declaration><![CDATA[METHOD PRIVATE M_ShapePath : ST_ShapeDiag		// 경로 하나(Auto 또는 Manual) 성형. Auto·Manual이 같은 순서, _stApply에서 꺼진 단계만 건너뜀
+// 입력: i_bManual, _stApply, _stGrpP/Q, _stSrcLim, 유닛 합(_fUnitP*·_fUnitQSum), _fOtherP/Q, _tQFilter, _fPComp/_fQComp, _fUp/_fDn, 제한 모듈 결과
+VAR_INPUT
+	i_nGroup	: UINT;
+END_VAR
+VAR
+	i			: UINT;
+	fUp			: REAL;
+	fDn			: REAL;
+	fComp		: REAL;			// 이 경로에 더하는 P 보정
+	fQComp		: REAL;
+	fRef		: REAL;
+	fTrace		: REAL;
+	tTau		: TIME;
+	stRng		: ST_Range;
+	stQRng		: ST_Range;
+	stOne		: ST_Range;		// 모듈 하나의 범위 (추적표)
+	stQLim		: ST_Limit;		// 접속점 기준 모듈 Q 제한을 설비 기준으로 옮긴 값
+	stDiag		: ST_ShapeDiag;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[fUp		:= SEL(_stApply.bRamp, 0.0, _fUp);
+fDn		:= SEL(_stApply.bRamp, 0.0, _fDn);
+fComp	:= SEL(_stApply.bComp, 0.0, _fPComp);
+fQComp	:= SEL(_stApply.bComp, 0.0, _fQComp);
+stDiag.fRampUp	:= fUp;
+stDiag.fRampDn	:= fDn;
+stDiag.fPComp	:= fComp;
+
+(* P: 목표 → 램프 → 접속점 제한 → 보정 → 설비 제한
+   목표 = 그룹 지령 (접속점 기준). 없으면 유닛 지령 합 (유닛별로 이미 램프함) + 다른 경로 몫 - 보정 *)
+stDiag.bPGroupCmd	:= _stGrpP.bActive;
+stDiag.bPUnitCmd	:= _bUnitPCmd;
+stDiag.nPSource		:= _stGrpP.nModule;
+fRef := _afRef[i_nGroup];
+IF _stGrpP.bActive THEN
+	stDiag.fPReq	:= _stGrpP.fValue;
+	stDiag.fPRamped	:= F_RampStep(stDiag.fPReq, fRef, fUp, fDn);
+ELSE
+	stDiag.fPReq	:= _fUnitPReq + _fOtherP - fComp;
+	stDiag.fPRamped	:= _fUnitPSum + _fOtherP - fComp;
+END_IF
+
+(* P 추적표: 범위를 모으면서 같은 자리에서 한 줄씩 남김 (같은 단계 안의 모듈은 등록 순서대로 하나씩 자른 값, 보기용. 출력은 모은 범위로 한 번에 자름) *)
+_stTrace.nCount := 0;
+M_TraceSet(E_TraceStep.Request, stDiag.fPReq, stDiag.nPSource, FALSE);
+IF _stApply.bRamp THEN
+	M_TraceSet(E_TraceStep.Ramp, stDiag.fPRamped, 0, ABS(stDiag.fPRamped - stDiag.fPReq) > 0.001);
+END_IF
+
+// 접속점 제한: 지령원 P 제한 + 접속점 기준 모듈 (Manual은 모듈 등록 bManual인 것만)
+fTrace := stDiag.fPRamped;
+stRng := F_RangeOpen();
+IF _stApply.bSrcLimit THEN
+	stRng := _stSrcLim;
+	IF _stSrcLim.nMaxModule <> 0 OR _stSrcLim.nMinModule <> 0 THEN
+		fTrace := M_TraceClamp(E_TraceStep.PccLimit, fTrace, _stSrcLim);
+	END_IF
+END_IF
+FOR i := 1 TO GVL_PARAM.LIMIT_COUNT DO
+	IF M_PccLimitOn(i) THEN
+		stOne	:= F_RangeAdd(F_RangeOpen(), _astLim[i].stP, _anLimModule[i]);
+		stRng	:= F_RangeAdd(stRng, _astLim[i].stP, _anLimModule[i]);
+		fTrace	:= M_TraceClamp(E_TraceStep.PccLimit, fTrace, stOne);
+	END_IF
+END_FOR
+stDiag.stPccRng	:= stRng;
+stDiag.stPcc	:= F_RangeClamp(stDiag.fPRamped, stRng);
+
+// 보정
+fTrace := stDiag.stPcc.fOut + fComp;
+IF _stApply.bComp THEN
+	M_TraceSet(E_TraceStep.Comp, fTrace, 0, FALSE);
+END_IF
+
+// 설비 제한: 그룹 설비 범위(정격·배터리) + 설비 기준 모듈 (이번 경로에서 켠 것만)
+stRng := F_RangeOpen();
+IF _stApply.bRating THEN
+	stRng	:= F_RangeAnd(stRng, _stEnv.stRating);
+	fTrace	:= M_TraceClamp(E_TraceStep.DevRating, fTrace, _stEnv.stRating);
+END_IF
+IF _stApply.bBatLimit THEN
+	stRng	:= F_RangeAnd(stRng, _stEnv.stBattery);
+	fTrace	:= M_TraceClamp(E_TraceStep.DevBattery, fTrace, _stEnv.stBattery);
+END_IF
+FOR i := 1 TO GVL_PARAM.LIMIT_COUNT DO
+	IF M_DevLimitOn(i) THEN
+		stOne	:= F_RangeAdd(F_RangeOpen(), _astLim[i].stP, _anLimModule[i]);
+		stRng	:= F_RangeAdd(stRng, _astLim[i].stP, _anLimModule[i]);
+		fTrace	:= M_TraceClamp(E_TraceStep.DevLimit, fTrace, stOne);
+	END_IF
+END_FOR
+stDiag.stDevRng	:= stRng;
+stDiag.stDev	:= F_RangeClamp(stDiag.stPcc.fOut + fComp, stRng);
+stDiag.fPOut	:= stDiag.stDev.fOut - _fOtherP;		// 이 경로 몫
+_afRef[i_nGroup] := stDiag.stDev.fOut - fComp;		// 다음 스캔 램프 기준 (접속점 기준으로 되돌림)
+stDiag.stTrace := _stTrace;
+
+(* Q: 고르기 → 응답 필터 → 제한 (지령원 Q 제한 + 정격 + 제한 모듈 Q). 다른 경로 몫을 합쳐 제한 (Auto만) *)
+stQRng := F_RangeOpen();
+IF _stApply.bSrcLimit THEN
+	stQRng := _stQSrcLim;		// 지령원 Q 제한 (P와 같음: Manual은 정책 bSrcLimit). 접속점 기준 → 설비 기준 (보정만큼 옮김)
+	IF stQRng.nMaxModule <> 0 THEN stQRng.fMax := stQRng.fMax + fQComp; END_IF
+	IF stQRng.nMinModule <> 0 THEN stQRng.fMin := stQRng.fMin + fQComp; END_IF
+END_IF
+IF _stApply.bRating THEN
+	stQRng := F_RangeAnd(stQRng, _stEnv.stQ);
+END_IF
+FOR i := 1 TO GVL_PARAM.LIMIT_COUNT DO
+	// Q도 P와 같은 규칙: 설비 기준 모듈은 bDevLimit, 접속점 기준 모듈은 M_PccLimitOn (Manual은 bPccLimit + 모듈 bManual)
+	// Q 범위는 설비 기준(접속점 + 보정)이므로 접속점 기준 모듈 값은 보정만큼 옮겨 겹침 (P는 보정 앞 단계에서 자름)
+	IF M_DevLimitOn(i) THEN
+		stQRng := F_RangeAdd(stQRng, _astLim[i].stQ, _anLimModule[i]);
+	ELSIF M_PccLimitOn(i) THEN
+		stQLim		:= _astLim[i].stQ;
+		stQLim.fMax	:= stQLim.fMax + fQComp;
+		stQLim.fMin	:= stQLim.fMin + fQComp;
+		stQRng := F_RangeAdd(stQRng, stQLim, _anLimModule[i]);
+	END_IF
+END_FOR
+stDiag.stQRng		:= stQRng;
+stDiag.bQGroupCmd	:= _stGrpQ.bActive;
+stDiag.bQUnitCmd	:= _bUnitQCmd;
+tTau := T#0S;
+IF _stApply.bRamp THEN
+	tTau := _tQFilter;
+END_IF
+// 목표 = 그룹 지령 (필터 후 + 보정). 없으면 유닛 지령 합 + 다른 경로 몫 (필터는 그 값을 따라가게만 둠)
+IF _stGrpQ.bActive THEN
+	_afbQFilter[i_nGroup](i_fIn := _stGrpQ.fValue, i_tTau := tTau);
+	stDiag.stQ := F_RangeClamp(_afbQFilter[i_nGroup].q_fOut + fQComp, stQRng);
+ELSE
+	_afbQFilter[i_nGroup](i_fIn := _fUnitQSum + _fOtherQ - fQComp, i_tTau := tTau);
+	stDiag.stQ := F_RangeClamp(_fUnitQSum + _fOtherQ, stQRng);
+END_IF
+M_ShapePath := stDiag;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_PccLimitOn" Id="{fc9d4f79-77a1-4015-9c1d-be14bea58518}">
+      <Declaration><![CDATA[METHOD PRIVATE M_PccLimitOn : BOOL		// 이번 경로에 접속점 기준 모듈 i를 적용하는가
+VAR_INPUT
+	i_nLimit	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_PccLimitOn := _abLimOn[i_nLimit] AND _aeBasis[i_nLimit] = E_LimitBasis.Pcc
+				AND (NOT i_bManual OR (_stApply.bPccLimit AND _abPccManual[i_nLimit]));]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_DevLimitOn" Id="{233f9909-396e-4efa-b1d9-f4b9c4f0235f}">
+      <Declaration><![CDATA[METHOD PRIVATE M_DevLimitOn : BOOL		// 이번 경로에 설비 기준 모듈 i를 적용하는가 (Manual은 정책 bDevLimit)
+VAR_INPUT
+	i_nLimit	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_DevLimitOn := _stApply.bDevLimit AND _abLimOn[i_nLimit] AND _aeBasis[i_nLimit] = E_LimitBasis.Device;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_TraceSet" Id="{74223676-2bd2-40ca-af29-10f8ce4c667a}">
+      <Declaration><![CDATA[METHOD PRIVATE M_TraceSet		// 추적표에 한 줄 추가
+VAR_INPUT
+	i_eStep		: E_TraceStep;
+	i_fValue	: REAL;
+	i_nModule	: UINT;
+	i_bCut		: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF _stTrace.nCount < GVL_PARAM.TRACE_STEP_MAX - 2 THEN		// 끝 두 줄(분배 후·쓴 값)은 FB_OutputDiag 몫
+	_stTrace.nCount := _stTrace.nCount + 1;
+	_stTrace.astStep[_stTrace.nCount].eStep		:= i_eStep;
+	_stTrace.astStep[_stTrace.nCount].fValue	:= i_fValue;
+	_stTrace.astStep[_stTrace.nCount].bCut		:= i_bCut;
+	_stTrace.astStep[_stTrace.nCount].nModule	:= i_nModule;
+	_stTrace.astStep[_stTrace.nCount].nReason	:= 0;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_TraceClamp" Id="{8f8b2cee-9b3e-451f-af23-18a04a824d0c}">
+      <Declaration><![CDATA[METHOD PRIVATE M_TraceClamp : REAL		// 범위 하나로 자르고 추적표에 한 줄. 자른 값을 돌려줌
+VAR_INPUT
+	i_eStep		: E_TraceStep;
+	i_fIn		: REAL;
+	i_stRange	: ST_Range;
+END_VAR
+VAR
+	stClamp		: ST_Clamp;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[stClamp := F_RangeClamp(i_fIn, i_stRange);
+M_TraceSet(i_eStep, stClamp.fOut, stClamp.nModule, stClamp.bClamped);
+IF _stTrace.nCount >= 1 THEN
+	_stTrace.astStep[_stTrace.nCount].nReason := stClamp.nReason;
+END_IF
+M_TraceClamp := stClamp.fOut;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

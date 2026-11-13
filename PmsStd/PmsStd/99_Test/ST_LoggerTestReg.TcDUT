@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_LoggerTestReg" Id="{53e4a4ae-48fb-446c-8875-e78c37bd3449}">
+    <Declaration><![CDATA[TYPE ST_LoggerTestReg :		// PRG_TestLogger가 이벤트 로거에서 찾은 등록 이벤트 한 칸
+STRUCT
+	stEntry		: TcEventEntry;		// 클래스·번호 (심각도는 Info로 둠: 원래 심각도는 PLC에서 읽을 수 없음)
+	wsName		: WSTRING(31);		// "클래스 번호" (예: PmsSystem 8)
+	wsTemplate	: WSTRING(255);		// 받은 문구 틀 (인자 자리에 #0#~#5#)
+	nArgs		: UINT;				// 인자 수
+	nFixed		: UINT;				// 고정 글자 수 (인자를 뺀 길이)
+	nFree		: INT;				// 95 − 고정 글자 = 인자에 쓸 수 있는 글자
+	nPerArg		: UINT;				// 인자 하나당 남는 글자 (nFree / 인자 수)
+	bCheck		: BOOL;				// 확인 필요: 고정 50자 초과 또는 인자 하나당 남는 글자 10자 미만
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

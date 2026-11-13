@@ -1,0 +1,172 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_BreakerCtrl" Id="{66126f6b-b84a-4864-9759-03467e1d6f89}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_BreakerCtrl EXTENDS FB_ModuleBase IMPLEMENTS I_OutputRule, I_ProtectionRule	// 차단기(VCB) 운전원 투입·개방: 지령 → 코일 펄스(DO) → 상태 접점 확인 → 실패 감시
+// 출력: 출력 규칙 칸 두 개에 같은 인스턴스를 등록하고 g_astOutputCfg의 fThreshold로 코일을 고름 (1 = 투입 코일, 2 = 개방 코일). 장비·점은 그 칸의 nAux·nPoint, 지연 0·유지 끔
+// 실패 감시: 보호 규칙 칸에도 같은 인스턴스를 등록 (g_astRuleCfg 조치 None이면 알람만). 조건 = 투입 실패 또는 개방 실패 (다음 성공 조작 또는 i_bResetFail로 풀림)
+// 지령: HMI가 i_bCloseCmd·i_bOpenCmd를 켬 (상승 에지 1번에 1회). 같이 오면 개방이 이김. 투입은 상태 접점이 정상이고 개방 상태일 때만, 개방은 언제나 (조작 중이어도 끼어듦)
+// 보호 트립 같은 자동 개방은 다른 출력 규칙(FB_RuleBit 등)을 같은 개방 코일 점에 등록 (같은 점은 OR)
+// 스캔마다 한 번만 갱신 (보호 규칙·출력 규칙으로 여러 번 불려도 첫 호출에서만)
+VAR_INPUT
+	i_ipAux			: I_AuxDevice;		// 상태 접점을 읽을 보조 장비 (선언 때 지정)
+	i_nClosedPoint	: UINT;				// 디지털 입력 점: TRUE = 투입 상태
+	i_stSet			: ST_BreakerSet;	// 펄스 폭·확인 시간 (MAIN A_PassModuleSet이 g_stModuleSet 칸을 넘김. 안 넘기면 기본값)
+	i_bCloseCmd		: BOOL;				// 투입 지령 (HMI, 상승 에지)
+	i_bOpenCmd		: BOOL;				// 개방 지령 (HMI, 상승 에지)
+	i_bResetFail	: BOOL;				// 실패 표시 풀기 (HMI, 상승 에지)
+END_VAR
+VAR_OUTPUT
+	q_bClosed		: BOOL;		// 투입 상태 (상태 접점, 마지막으로 읽은 값)
+	q_bStateValid	: BOOL;		// 상태 접점을 읽을 수 있음 (보조 장비 통신 정상)
+	q_bClosePulse	: BOOL;		// 투입 코일 출력 중
+	q_bOpenPulse	: BOOL;		// 개방 코일 출력 중
+	q_bBusy			: BOOL;		// 조작 확인 중
+	q_bCloseFail	: BOOL;		// 투입 실패 (확인 시간 안에 투입 상태가 안 됨)
+	q_bOpenFail		: BOOL;		// 개방 실패
+END_VAR
+VAR
+	_rtClose		: R_TRIG;
+	_rtOpen			: R_TRIG;
+	_rtReset		: R_TRIG;
+	_tonPulse		: TON;
+	_tonConfirm		: TON;
+	_nOp			: INT;		// 진행 중인 조작 (OP_NONE / OP_CLOSE / OP_OPEN)
+	_fbTask			: GETCURTASKINDEX;
+	_nLastCycle		: UDINT;
+	_bRan			: BOOL;
+END_VAR
+VAR CONSTANT
+	OP_NONE			: INT := 0;
+	OP_CLOSE		: INT := 1;
+	OP_OPEN			: INT := 2;
+	COIL_CLOSE		: REAL := 1.0;	// 출력 규칙 fThreshold: 투입 코일
+	COIL_OPEN		: REAL := 2.0;	// 개방 코일
+	RSN_CLOSE_FAIL	: UINT := 1;
+	RSN_OPEN_FAIL	: UINT := 2;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_Update" Id="{a2b27ecf-5440-4fb3-a850-d1be87ba3b6c}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Update		// 스캔마다 한 번: 상태 읽기 → 지령 → 펄스 → 확인
+VAR
+	nCycle	: UDINT;
+	bNew	: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_fbTask();
+nCycle := TwinCAT_SystemInfoVarList._TaskInfo[_fbTask.index].CycleCount;
+IF _bRan AND nCycle = _nLastCycle THEN
+	RETURN;		// 이번 스캔은 이미 갱신함
+END_IF
+_bRan		:= TRUE;
+_nLastCycle	:= nCycle;
+
+// 상태 접점
+q_bStateValid := FALSE;
+IF i_ipAux <> 0 THEN
+	q_bStateValid := i_ipAux.Comm;
+	IF q_bStateValid THEN
+		q_bClosed := i_ipAux.M_GetBit(i_nClosedPoint);
+	END_IF
+END_IF
+
+// 지령 (개방이 이김. 투입은 상태를 알고 개방 상태일 때만, 진행 중인 조작이 없을 때만)
+_rtClose(CLK := i_bCloseCmd);
+_rtOpen(CLK := i_bOpenCmd);
+_rtReset(CLK := i_bResetFail);
+IF _rtReset.Q THEN
+	q_bCloseFail	:= FALSE;
+	q_bOpenFail		:= FALSE;
+END_IF
+bNew := FALSE;
+IF _rtOpen.Q AND NOT (q_bStateValid AND NOT q_bClosed) THEN
+	_nOp	:= OP_OPEN;
+	bNew	:= TRUE;
+ELSIF _rtClose.Q AND _nOp = OP_NONE AND q_bStateValid AND NOT q_bClosed THEN
+	_nOp	:= OP_CLOSE;
+	bNew	:= TRUE;
+END_IF
+IF bNew THEN
+	_tonPulse(IN := FALSE);
+	_tonConfirm(IN := FALSE);
+END_IF
+
+// 펄스·확인
+_tonPulse(IN := _nOp <> OP_NONE, PT := i_stSet.tPulse);
+_tonConfirm(IN := _nOp <> OP_NONE, PT := i_stSet.tConfirm);
+q_bClosePulse	:= _nOp = OP_CLOSE AND NOT _tonPulse.Q;
+q_bOpenPulse	:= _nOp = OP_OPEN AND NOT _tonPulse.Q;
+IF _nOp = OP_CLOSE THEN
+	IF q_bStateValid AND q_bClosed THEN
+		_nOp			:= OP_NONE;
+		q_bCloseFail	:= FALSE;
+	ELSIF _tonConfirm.Q THEN
+		_nOp			:= OP_NONE;
+		q_bCloseFail	:= TRUE;
+	END_IF
+ELSIF _nOp = OP_OPEN THEN
+	IF q_bStateValid AND NOT q_bClosed THEN
+		_nOp			:= OP_NONE;
+		q_bOpenFail		:= FALSE;
+	ELSIF _tonConfirm.Q THEN
+		_nOp			:= OP_NONE;
+		q_bOpenFail		:= TRUE;
+	END_IF
+END_IF
+q_bBusy := _nOp <> OP_NONE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Check" Id="{f1d21494-fd66-428b-a512-72279500a0e2}">
+      <Declaration><![CDATA[METHOD M_Check : BOOL		// 출력 규칙: fThreshold 1 = 투입 코일, 2 = 개방 코일
+VAR_INPUT
+	i_fThreshold	: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Update();
+IF i_fThreshold = COIL_CLOSE THEN
+	M_Check := q_bClosePulse;
+ELSIF i_fThreshold = COIL_OPEN THEN
+	M_Check := q_bOpenPulse;
+ELSE
+	M_Check := FALSE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Evaluate" Id="{2f774e7c-692a-441b-8a18-65b3a984c4ef}">
+      <Declaration><![CDATA[METHOD M_Evaluate : BOOL		// 보호 규칙: 투입 실패 또는 개방 실패
+VAR_INPUT
+	i_stView	: ST_ProtView;	// 안 씀 (차단기 하나)
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_Update();
+M_Evaluate := q_bCloseFail OR q_bOpenFail;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ReasonText" Id="{027dd212-c0f7-4c60-8a57-0d740b6bedce}">
+      <Declaration><![CDATA[METHOD M_ReasonText : WSTRING(63)
+VAR_INPUT
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE i_nReason OF
+	RSN_CLOSE_FAIL:	M_ReasonText := "차단기 투입 실패";
+	RSN_OPEN_FAIL:	M_ReasonText := "차단기 개방 실패";
+ELSE
+	M_ReasonText := WCONCAT("이유 ", TO_WSTRING(i_nReason));
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckSet" Id="{bb6b34d7-028a-4420-b075-cd0ed96f0d76}">
+      <Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)		// 설정 점검: 펄스 폭, 확인 시간]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckSet := "";
+IF i_stSet.tPulse = T#0S THEN
+	M_CheckSet := "펄스 폭 tPulse 0";
+ELSIF i_stSet.tConfirm < i_stSet.tPulse THEN
+	M_CheckSet := "확인 시간 tConfirm이 펄스 폭보다 짧음";
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

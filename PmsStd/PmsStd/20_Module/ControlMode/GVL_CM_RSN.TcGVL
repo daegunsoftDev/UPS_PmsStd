@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <GVL Name="GVL_CM_RSN" Id="{83476abd-232c-4568-b750-493d4d50c366}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+VAR_GLOBAL CONSTANT
+	(* 요금제 기반 제어 모드(FB_CmTariffBase 파생)의 상태·이유 코드. 문구는 FB_CmTariffBase.M_ReasonText
+	   q_nState: 0 = 정상(값 그대로), 아래 = 지금 출력이 왜 이런지. M_CheckEnter·bExitReq의 이유 코드도 같은 표 *)
+	NO_TIME		: UINT := 1;	// 시각 무효 → 0 (진입 거부)
+	NO_UNIT		: UINT := 2;	// 가용 유닛 없음 (진입 거부)
+	HOLIDAY		: UINT := 3;	// 휴일 → 0
+	NO_SLOT		: UINT := 4;	// 맞는 시간표 칸 없음 → 0
+	DIS_TIME	: UINT := 5;	// 방전 허용 시간 아님 → 0
+	REV_LIMIT	: UINT := 6;	// 역송 방지로 방전을 줄임
+	NO_PCC		: UINT := 7;	// 접속점 계측 무효 → 방전 0
+	NO_CAP		: UINT := 8;	// 배터리 용량·SOC 무효 → 0
+	PEAK		: UINT := 11;	// 피크 제어 방전
+	BELOW_PEAK	: UINT := 12;	// 피크 제어 필요 없음 → 0
+	AUTO_CHG	: UINT := 13;	// 자동 충전 시간
+	REMAIN_DIS	: UINT := 14;	// 잔량 방전 시간
+	SCHED_PEAK	: UINT := 15;	// 스케줄 방전과 피크 제어 중 큰 값
+	NEW_INTERVAL: UINT := 16;	// 새 15분 구간 첫 스캔 → 0
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

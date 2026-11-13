@@ -1,0 +1,43 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_PermitEval" Id="{de8d96bb-2f76-4fc0-be39-fd1c174b9dc3}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_PermitEval		// 기동 조건 모듈을 그룹마다 스캔당 한 번 평가 (등록된 모듈이 모두 허가해야 기동. 없으면 허가)
+// MAIN에서 fbSequencer.M_Prepare 앞에 부름. 시퀀서가 이 결과로 접수 검사·기동 단계를 진행
+VAR_IN_OUT CONSTANT
+	iq_astView		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupView;
+	iq_astPermitReg	: ARRAY[1..GVL_PARAM.PERMIT_COUNT] OF ST_ModuleReg;
+	iq_abWaitPermit	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// 그룹이 기동 조건을 기다리는 중 (fbSequencer.q_abWaitPermit, 지난 스캔)
+END_VAR
+VAR_IN_OUT
+	iq_aipPermit	: ARRAY[1..GVL_PARAM.PERMIT_COUNT] OF I_StartPermit;
+END_VAR
+VAR_OUTPUT
+	q_abPermit		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF BOOL;		// 그룹 기동 조건
+	q_anPermitModule: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF UINT;		// 막은 기동 조건 모듈 (처음 것)
+	q_anPermitReason: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF UINT;
+END_VAR
+VAR_TEMP
+	g				: UINT;
+	i				: UINT;
+	bPermitOk		: BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	q_abPermit[g]		:= TRUE;
+	q_anPermitModule[g]	:= 0;
+	q_anPermitReason[g]	:= 0;
+	FOR i := 1 TO GVL_PARAM.PERMIT_COUNT DO
+		IF iq_aipPermit[i] <> 0 AND_THEN (iq_astPermitReg[i].bEnable
+			AND (iq_astPermitReg[i].nGroup = 0 OR iq_astPermitReg[i].nGroup = g)) THEN
+			bPermitOk := iq_aipPermit[i].M_Evaluate(i_stView := iq_astView[g], i_bRequest := iq_abWaitPermit[g]);
+			IF NOT bPermitOk AND q_abPermit[g] THEN
+				q_abPermit[g]		:= FALSE;
+				q_anPermitModule[g]	:= iq_aipPermit[i].ModuleId;
+				q_anPermitReason[g]	:= iq_aipPermit[i].Reason;
+			END_IF
+		END_IF
+	END_FOR
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,439 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_CtrlModeMgr" Id="{8fc273f4-6255-432d-b3fa-20a8b941671f}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_CtrlModeMgr EXTENDS FB_SourceBase		// 제어 모드 관리자: 등록한 제어 모드(I_ControlMode) 중 하나만 켜고 전환을 맡음. 코어에는 지령원 하나로 보임
+// 등록: GVL_SITE.g_aipSource 한 칸 + GVL_PERSIST.g_astSourceReg 같은 칸 (ePowerMode := Auto → Auto 유닛에만 적용). 상태 요청(Run·Stop 등)·제한은 내지 않음
+// 요청(i_nModeReq = 모드 칸 번호, 0 = 모드 없음)이 바뀌면: 진입 검사 → 지금 모드 M_Exit → (출력 0 → 지연) → 진입 검사 다시 → 새 모드 M_Enter. 시작한 전환은 끝까지 진행
+// 진입 검사에 걸리면 지금 모드를 그대로 둠. 켜진 모드가 스스로 끝내면(bExitReq) 대체 모드(i_stSet.nFallback)로
+// 처리한 요청값은 다시 처리하지 않음 (거부·스스로 끝남 뒤 저절로 다시 들어가지 않게). 같은 값을 다시 시도하려면 i_bRetry
+// 단위: i_nUnit = 0 → 그룹 하나를 맡음 (그룹 지령 fPSet, 모드는 그룹 값을 봄. 그룹이 2개 이상이면 그룹마다 인스턴스, 등록표 nGroup)
+//       i_nUnit = n → 유닛(PCS) n만 맡음 (유닛별 값 astUnit[n], 모드는 FB_UnitView 유닛 값을 봄). PCS마다 관리자 하나 + 모드 인스턴스 한 세트 + 설정 한 세트
+//       유닛 단위의 접속점 값은 i_stSet.ePccShare (같은 접속점을 여러 유닛이 쓰면 몫으로 나눔). 접속점이 따로면 유닛마다 제어 그룹을 따로 둠 (GVL_SITE.GROUP_CFG)
+// 모드는 FB_ModuleList에 없으므로 설정 점검(M_CheckSet)은 이 FB가 대신 부름
+VAR_INPUT
+	i_aipMode	: ARRAY[1..GVL_PARAM.CTRL_MODE_COUNT] OF I_ControlMode;	// 등록한 제어 모드 (MAIN 액션 A_PassModuleSet이 GVL_SITE.g_aipCtrlModeN을 매 스캔 넘김). 빈 칸 = 0
+	i_stSet		: ST_CtrlModeSet;	// 전환 설정 (A_PassModuleSet이 GVL_PERSIST.g_stModuleSet 칸을 매 스캔 넘김)
+	i_nModeReq	: UINT;				// 요청 모드 칸 번호. 0 = 모드 없음 (지령을 내지 않음)
+	i_bRetry	: BOOL;				// 같은 요청값을 다시 처리 (쓰면 한 번 처리하고 FALSE로 돌아감)
+	i_stTime	: ST_LocalTime;		// 현지 시각 (MAIN 액션 A_PassModuleSet이 매 스캔 넘김). 시간표를 쓰는 모드가 봄
+	i_nUnit		: UINT;				// 0 = 그룹 단위. 1~ = 이 유닛(PCS) 단위. 선언에서 정함 (GVL_SITE)
+	i_pUnitView	: POINTER TO ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitView;	// 유닛 단위일 때: MAIN.fbUnitView.q_astView 주소 (A_PassModuleSet이 매 스캔 넘김). 0 = 연결 안 됨
+END_VAR
+VAR_OUTPUT
+	q_nActive		: UINT;					// 켜진 모드 칸 번호. 0 = 없음 (전환 중에도 0)
+	q_sActive		: STRING(31);			// 켜진 모드 이름 (ModuleName)
+	q_eStep			: E_CtrlModeStep;		// 관리자 단계
+	q_nTarget		: UINT;					// 전환 중 목표 칸 번호 (Leaving일 때만, 0 = 모드 없음으로 가는 중)
+	q_eRefuse		: E_CtrlModeRefuse;		// 마지막으로 처리한 요청의 결과 (None = 접수)
+	q_nRefuseReason	: UINT;					// NotReady일 때 그 모드의 이유 코드 (M_ModeReasonText)
+	q_nExitSlot		: UINT;					// 마지막으로 스스로 끝낸 모드 칸 번호
+	q_nExitReason	: UINT;					// 그 이유 코드 (M_ModeReasonText)
+	q_bChanged		: BOOL;					// 켜진 모드가 바뀐 스캔 (1스캔, 기록용)
+	q_bRefusedNow	: BOOL;					// 이번 스캔에 요청을 거부함 (1스캔, 기록용). 칸 q_nRefuseSlot, 결과 q_eRefuse·q_nRefuseReason [7번 수정 2026-11-09: 추가]
+	q_nRefuseSlot	: UINT;					// 마지막으로 거부한 요청 칸 번호
+	q_bExitedNow	: BOOL;					// 이번 스캔에 켜진 모드가 스스로 끝남 (1스캔, 기록용). 칸 q_nExitSlot, 이유 q_nExitReason [7번 수정 2026-11-09: 추가]
+	q_fPccP			: REAL;					// kW, 모드가 본 접속점 P (공급 +). 유닛 단위면 ePccShare를 적용한 값
+END_VAR
+VAR
+	_nHandledReq	: UINT;				// 처리를 끝낸 요청값 (요청이 이것과 다를 때만 새로 처리)
+	_nActive		: UINT;				// 켜진 모드 칸 번호
+	_nTarget		: UINT;				// 진행 중인 전환의 목표 (끝날 때까지 고정)
+	_bLeaveP		: BOOL;				// 전환 중 P를 0으로 냄 (이전 모드가 P를 내던 경우만)
+	_bLeaveQ		: BOOL;				// 전환 중 Q를 0으로 냄
+	_bPrevP			: BOOL;				// 켜진 모드가 지난 스캔에 P를 냄
+	_bPrevQ			: BOOL;
+	_tonZero		: TON;
+	_stModeOut		: ST_CtrlModeOut;	// 켜진 모드의 이번 스캔 결과
+	_stModeView		: ST_CtrlModeView;	// 모드에 넘기는 값 (이번 스캔)
+	(* [16번 수정 2026-11-09: 추가] 유닛별 값을 내는 모드(bUnitOut)의 전환 중 0 *)
+	_bPrevUnitOut	: BOOL;				// 켜진 모드가 지난 스캔에 유닛별 값을 냄
+	_abPrevUnitP	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;
+	_abPrevUnitQ	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;
+	_bLeaveUnit		: BOOL;				// 전환 중 유닛 칸으로 0을 냄 (이전 모드가 유닛별 값을 내던 경우)
+	_abLeaveUnitP	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;
+	_abLeaveUnitQ	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_UpdateOutput" Id="{fa62c635-3346-4611-85d5-8c32aa84720f}">
+      <Declaration><![CDATA[METHOD M_UpdateOutput : BOOL
+VAR
+	stNoMode	: ST_CtrlModeOut;
+	stOld		: ST_SourceOutput;	// 지난 스캔 낸 값 (새 지령 판단)
+	bNew		: BOOL;
+	stNoReq		: ST_UnitReq;
+	k			: UINT;
+	nCode		: UINT;
+	nFallback	: UINT;
+	bOk			: BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[q_bChanged	:= FALSE;
+q_bRefusedNow	:= FALSE;
+q_bExitedNow	:= FALSE;
+IF i_nUnit = 0 THEN
+	_stModeView.stGroup	:= _stView;		// FB_SourceBase가 이번 스캔 채운 대상 그룹 값
+ELSE
+	_stModeView.stGroup	:= M_UnitView();	// 이 유닛 값 (접속점은 ePccShare 몫)
+END_IF
+_stModeView.stTime	:= i_stTime;
+q_fPccP := _stModeView.stGroup.stPcc.stMeas.stP.fValue;
+
+// 0) 켜진 모드가 등록에서 빠졌으면 (온라인 변경) 모드 없음으로
+IF q_eStep = E_CtrlModeStep.Active AND NOT M_Valid(i_nSlot := _nActive) THEN
+	_nActive	:= 0;
+	q_eStep		:= E_CtrlModeStep.Idle;
+	q_bChanged	:= TRUE;
+END_IF
+
+// 1) 새 요청 (전환 중이면 끝난 뒤 처리)
+IF q_eStep <> E_CtrlModeStep.Leaving AND (i_nModeReq <> _nHandledReq OR i_bRetry) THEN
+	_nHandledReq	:= i_nModeReq;
+	q_eRefuse		:= E_CtrlModeRefuse.None;
+	q_nRefuseReason	:= 0;
+	IF i_nModeReq <> _nActive THEN
+		IF i_nModeReq <> 0 AND NOT M_Valid(i_nSlot := i_nModeReq) THEN
+			q_eRefuse := E_CtrlModeRefuse.BadSlot;
+			q_nRefuseSlot	:= i_nModeReq;
+			q_bRefusedNow	:= TRUE;
+		ELSE
+			nCode := 0;
+			IF i_nModeReq <> 0 THEN
+				nCode := i_aipMode[i_nModeReq].M_CheckEnter(i_stView := _stModeView);
+			END_IF
+			IF nCode = 0 THEN
+				M_StartSwitch(i_nTarget := i_nModeReq);
+			ELSE
+				q_eRefuse		:= E_CtrlModeRefuse.NotReady;	// 지금 모드는 그대로
+				q_nRefuseReason	:= nCode;
+				q_nRefuseSlot	:= i_nModeReq;
+				q_bRefusedNow	:= TRUE;
+			END_IF
+		END_IF
+	END_IF
+	i_bRetry := FALSE;		// 처리한 뒤에만 지움 (전환 중에 온 재시도는 끝난 뒤 처리)
+END_IF
+
+// 2) 전환 중: 0으로 둔 시간이 지나면 진입 검사를 다시 하고 새 모드로 (지연 동안 조건이 바뀌었을 수 있음)
+_tonZero(IN := q_eStep = E_CtrlModeStep.Leaving, PT := i_stSet.tZeroDelay);
+IF q_eStep = E_CtrlModeStep.Leaving AND _tonZero.Q THEN
+	bOk := TRUE;
+	IF _nTarget <> 0 THEN
+		IF M_Valid(i_nSlot := _nTarget) THEN
+			nCode := i_aipMode[_nTarget].M_CheckEnter(i_stView := _stModeView);
+			IF nCode <> 0 THEN
+				bOk				:= FALSE;
+				q_eRefuse		:= E_CtrlModeRefuse.NotReady;
+				q_nRefuseReason	:= nCode;
+			END_IF
+		ELSE
+			bOk				:= FALSE;
+			q_eRefuse		:= E_CtrlModeRefuse.BadSlot;
+			q_nRefuseReason	:= 0;
+		END_IF
+		IF NOT bOk THEN
+			q_nRefuseSlot	:= _nTarget;
+			q_bRefusedNow	:= TRUE;
+		END_IF
+	END_IF
+	IF bOk THEN
+		M_EnterMode(i_nSlot := _nTarget);
+	ELSE
+		M_EnterMode(i_nSlot := 0);
+	END_IF
+END_IF
+
+// 3) 켜진 모드 계산. 스스로 끝내면 대체 모드로
+IF q_eStep = E_CtrlModeStep.Active THEN
+	_bPrevP		:= _stModeOut.bPSetActive;		// 지난 스캔에 내던 쪽 (끝내는 스캔에 지령을 비워도 0으로 둘 수 있게)
+	_bPrevQ		:= _stModeOut.bQSetActive;
+	_bPrevUnitOut	:= _stModeOut.bUnitOut;
+	FOR k := 1 TO GVL_PARAM.UNIT_COUNT DO
+		_abPrevUnitP[k]	:= _stModeOut.bUnitOut AND _stModeOut.astUnit[k].bPSetActive;
+		_abPrevUnitQ[k]	:= _stModeOut.bUnitOut AND _stModeOut.astUnit[k].bQSetActive;
+	END_FOR
+	_stModeOut	:= i_aipMode[_nActive].M_Calc(i_stView := _stModeView);
+	IF _stModeOut.bExitReq THEN
+		q_nExitSlot		:= _nActive;
+		q_nExitReason	:= _stModeOut.nReason;
+		q_bExitedNow	:= TRUE;
+		nFallback		:= 0;
+		IF i_stSet.nFallback <> _nActive AND M_Valid(i_nSlot := i_stSet.nFallback) THEN
+			IF i_aipMode[i_stSet.nFallback].M_CheckEnter(i_stView := _stModeView) = 0 THEN
+				nFallback := i_stSet.nFallback;
+			END_IF
+		END_IF
+		M_StartSwitch(i_nTarget := nFallback);
+		// 대체 모드로 바로 들어갔으면 이번 스캔 값을 냄 (그 모드의 bExitReq는 다음 스캔에 봄)
+		IF q_eStep = E_CtrlModeStep.Active THEN
+			_stModeOut := i_aipMode[_nActive].M_Calc(i_stView := _stModeView);
+		END_IF
+	END_IF
+ELSIF q_eStep = E_CtrlModeStep.Idle THEN
+	_stModeOut	:= stNoMode;
+	_bPrevP		:= FALSE;
+	_bPrevQ		:= FALSE;
+	_bPrevUnitOut	:= FALSE;
+	FOR k := 1 TO GVL_PARAM.UNIT_COUNT DO
+		_abPrevUnitP[k]	:= FALSE;
+		_abPrevUnitQ[k]	:= FALSE;
+	END_FOR
+END_IF
+
+// 4) 출력: P·Q 지령만 (제한·상태 요청은 내지 않음). 그룹 단위 = 그룹 지령, 유닛 단위 = 그 유닛 칸만
+//    [16번 수정 2026-11-09: 모드가 유닛별 값을 내면(bUnitOut, 스탠다드 스케줄) 접속점 그룹 단위에서도 유닛 칸으로 냄 (접속점 그룹 지령은 비움).
+//     유닛 단위면 맡은 유닛 칸만. 원래는 모드의 접속점 그룹 값(fPSet·fQSet)만 냄]
+// 지난 스캔 값 (FB_SourceBase가 끊김·사용 안 함으로 비웠으면 빈 값과 비교 → 다시 켜질 때 새 지령)
+stOld := _stOut;
+// 모두 비우고 맡은 칸만 씀 (i_nUnit을 온라인으로 바꿔도 이전 칸이 남지 않게). 범위 밖이면 아무것도 안 냄 (설정 점검 오류)
+_stOut.bPSetActive	:= FALSE;
+_stOut.fPSet		:= 0.0;
+_stOut.bQSetActive	:= FALSE;
+_stOut.fQSet		:= 0.0;
+FOR k := 1 TO GVL_PARAM.UNIT_COUNT DO
+	_stOut.astUnit[k] := stNoReq;
+END_FOR
+CASE q_eStep OF
+	E_CtrlModeStep.Active:
+		IF _stModeOut.bUnitOut THEN
+			FOR k := 1 TO GVL_PARAM.UNIT_COUNT DO
+				IF i_nUnit = 0 OR i_nUnit = k THEN
+					_stOut.astUnit[k] := _stModeOut.astUnit[k];
+				END_IF
+			END_FOR
+		ELSIF i_nUnit = 0 THEN
+			_stOut.bPSetActive	:= _stModeOut.bPSetActive;
+			_stOut.fPSet		:= _stModeOut.fPSet;
+			_stOut.bQSetActive	:= _stModeOut.bQSetActive;
+			_stOut.fQSet		:= _stModeOut.fQSet;
+		ELSIF i_nUnit <= GVL_PARAM.UNIT_COUNT THEN
+			_stOut.astUnit[i_nUnit].bPSetActive	:= _stModeOut.bPSetActive;
+			_stOut.astUnit[i_nUnit].fPSet		:= _stModeOut.fPSet;
+			_stOut.astUnit[i_nUnit].bQSetActive	:= _stModeOut.bQSetActive;
+			_stOut.astUnit[i_nUnit].fQSet		:= _stModeOut.fQSet;
+		END_IF
+	E_CtrlModeStep.Leaving:
+		// 이전 모드가 내던 쪽만 0을 냄 (비우면 그 사이 등급이 낮은 지령원 값이 들어옴)
+		IF _bLeaveUnit THEN
+			FOR k := 1 TO GVL_PARAM.UNIT_COUNT DO
+				IF i_nUnit = 0 OR i_nUnit = k THEN
+					_stOut.astUnit[k].bPSetActive	:= _abLeaveUnitP[k];
+					_stOut.astUnit[k].bQSetActive	:= _abLeaveUnitQ[k];
+				END_IF
+			END_FOR
+		ELSIF i_nUnit = 0 THEN
+			_stOut.bPSetActive	:= _bLeaveP;
+			_stOut.bQSetActive	:= _bLeaveQ;
+		ELSIF i_nUnit <= GVL_PARAM.UNIT_COUNT THEN
+			_stOut.astUnit[i_nUnit].bPSetActive	:= _bLeaveP;
+			_stOut.astUnit[i_nUnit].bQSetActive	:= _bLeaveQ;
+		END_IF
+END_CASE
+// [결함 13 수정 2026-11-04: 값 비교를 비트로 (모드 출력이 NaN이어도 여기서 멈추지 않고, 고르기(F_CmdOk)에서 이상값으로 거름)]
+bNew := _stOut.bPSetActive <> stOld.bPSetActive OR F_RealChanged(_stOut.fPSet, stOld.fPSet)
+	OR _stOut.bQSetActive <> stOld.bQSetActive OR F_RealChanged(_stOut.fQSet, stOld.fQSet);
+FOR k := 1 TO GVL_PARAM.UNIT_COUNT DO
+	bNew := bNew OR _stOut.astUnit[k].bPSetActive <> stOld.astUnit[k].bPSetActive OR F_RealChanged(_stOut.astUnit[k].fPSet, stOld.astUnit[k].fPSet)
+		OR _stOut.astUnit[k].bQSetActive <> stOld.astUnit[k].bQSetActive OR F_RealChanged(_stOut.astUnit[k].fQSet, stOld.astUnit[k].fQSet);
+END_FOR
+_stOut.bNewSet := bNew;
+
+// 5) 진단
+q_nActive := _nActive;
+q_sActive := '';
+IF q_eStep = E_CtrlModeStep.Active THEN
+	q_sActive := i_aipMode[_nActive].ModuleName;
+END_IF
+q_nTarget := 0;
+IF q_eStep = E_CtrlModeStep.Leaving THEN
+	q_nTarget := _nTarget;
+END_IF
+
+M_UpdateOutput := TRUE;		// 관리자는 늘 살아 있음 (만료 없음). 모드가 없으면 지령 없음]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_UnitView" Id="{ce12cc17-8db6-4648-9a8b-cdde38515406}">
+      <Declaration><![CDATA[METHOD PRIVATE M_UnitView : ST_GroupView		// 유닛 단위: 이 유닛 값 (FB_UnitView)에 접속점 몫을 적용. 연결 안 됐으면 빈 값 (가용 유닛 0 → 모드 진입 안 됨)
+VAR
+	stUv		: ST_UnitView;
+	stNone		: ST_GroupView;
+	fShare		: REAL;
+	fLoad		: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_UnitView := stNone;
+IF i_nUnit < 1 OR i_nUnit > GVL_PARAM.UNIT_COUNT OR i_pUnitView = 0 THEN
+	RETURN;		// 설정 점검(M_CheckSet)이 오류로 올림
+END_IF
+stUv		:= i_pUnitView^[i_nUnit];
+M_UnitView	:= stUv.stView;
+IF i_stSet.ePccShare = E_PccShare.Actual THEN
+	RETURN;		// 접속점 실측 그대로
+END_IF
+IF i_stSet.ePccShare = E_PccShare.Fixed THEN
+	fShare := LIMIT(0.0, i_stSet.fPccRatio, 1.0);
+ELSE
+	fShare := stUv.fRatingShare;
+END_IF
+// 모드는 부하를 '출력 - 접속점 P'로 셈. 이 유닛 몫 부하 = 몫 × (그룹 출력 - 접속점 P)가 되도록 접속점 P = 유닛 출력 - 몫 부하
+IF stUv.stView.stPcc.stMeas.stP.bValid THEN
+	fLoad := stUv.fGroupPOut - stUv.stView.stPcc.stMeas.stP.fValue;
+	M_UnitView.stPcc.stMeas.stP.fValue := stUv.stView.fPOut - fShare * fLoad;
+END_IF
+IF stUv.stView.stPcc.stMeas.stQ.bValid THEN
+	fLoad := stUv.fGroupQOut - stUv.stView.stPcc.stMeas.stQ.fValue;
+	M_UnitView.stPcc.stMeas.stQ.fValue := stUv.stView.fQOut - fShare * fLoad;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_StartSwitch" Id="{d5f95ceb-2975-4279-abec-35f1e8d01430}">
+      <Declaration><![CDATA[METHOD PRIVATE M_StartSwitch		// 지금 모드를 끝내고 목표로 전환 시작 (0으로 둘 게 있으면 Leaving, 없으면 바로 진입)
+VAR_INPUT
+	i_nTarget	: UINT;		// 목표 칸 번호. 0 = 모드 없음. 0이 아니면 부르는 쪽이 진입 검사를 마침
+END_VAR
+VAR
+	bWasActive	: BOOL;
+	bLeaveAnyUnit	: BOOL;		// 유닛 칸 중 0으로 둘 것이 있음
+	k			: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[bWasActive := q_eStep = E_CtrlModeStep.Active;
+bLeaveAnyUnit := FALSE;
+IF bWasActive THEN
+	i_aipMode[_nActive].M_Exit();
+	_bLeaveP	:= _stModeOut.bPSetActive OR _bPrevP;		// 이전 모드가 이번·지난 스캔에 내던 쪽
+	_bLeaveQ	:= _stModeOut.bQSetActive OR _bPrevQ;
+	// [16번 수정 2026-11-09: 유닛별 값을 내던 모드면 유닛 칸마다 같은 방식으로]
+	_bLeaveUnit	:= _stModeOut.bUnitOut OR _bPrevUnitOut;
+	FOR k := 1 TO GVL_PARAM.UNIT_COUNT DO
+		_abLeaveUnitP[k]	:= (_stModeOut.bUnitOut AND _stModeOut.astUnit[k].bPSetActive) OR _abPrevUnitP[k];
+		_abLeaveUnitQ[k]	:= (_stModeOut.bUnitOut AND _stModeOut.astUnit[k].bQSetActive) OR _abPrevUnitQ[k];
+		bLeaveAnyUnit		:= bLeaveAnyUnit OR _abLeaveUnitP[k] OR _abLeaveUnitQ[k];
+	END_FOR
+	_nActive	:= 0;
+	q_bChanged	:= TRUE;
+END_IF
+_nTarget := i_nTarget;
+IF bWasActive AND i_stSet.bZeroOnSwitch AND (_bLeaveP OR _bLeaveQ OR (_bLeaveUnit AND bLeaveAnyUnit)) THEN
+	_tonZero(IN := FALSE);		// 지연을 처음부터 셈
+	q_eStep := E_CtrlModeStep.Leaving;
+ELSE
+	M_EnterMode(i_nSlot := i_nTarget);
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_EnterMode" Id="{734d6afd-8469-4078-bb1e-da5acc5e424a}">
+      <Declaration><![CDATA[METHOD PRIVATE M_EnterMode		// 모드 진입 (0 = 모드 없음으로)
+VAR_INPUT
+	i_nSlot		: UINT;		// 0이 아니면 등록된 칸이어야 함 (부르는 쪽이 확인)
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_nTarget := 0;
+IF i_nSlot = 0 THEN
+	_nActive	:= 0;
+	q_eStep		:= E_CtrlModeStep.Idle;
+ELSE
+	i_aipMode[i_nSlot].M_Enter(i_stView := _stModeView);
+	_nActive	:= i_nSlot;
+	q_eStep		:= E_CtrlModeStep.Active;
+	q_bChanged	:= TRUE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_Valid" Id="{16f201ae-e661-4c4c-b352-9b70307ae7e4}">
+      <Declaration><![CDATA[METHOD PRIVATE M_Valid : BOOL		// 칸 번호가 범위 안이고 모드가 등록됨
+VAR_INPUT
+	i_nSlot		: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// AND는 단락 평가가 아니므로 범위를 먼저 따로 봄 (배열 범위 밖 접근 방지)
+M_Valid := FALSE;
+IF i_nSlot >= 1 AND i_nSlot <= GVL_PARAM.CTRL_MODE_COUNT THEN
+	M_Valid := i_aipMode[i_nSlot] <> 0;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_CheckSet" Id="{074831f5-6041-400a-9831-efd0b86cfd0a}">
+      <Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)		// 대체 모드 칸 번호 + 등록한 모드마다 M_CheckSet (첫 오류 문구)
+VAR
+	i			: UINT;
+	sErr		: WSTRING(63);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_CheckSet := "";
+IF i_nUnit > GVL_PARAM.UNIT_COUNT THEN
+	M_CheckSet := "제어 모드: i_nUnit이 유닛 수(UNIT_COUNT)보다 큼";
+	RETURN;
+END_IF
+IF i_nUnit <> 0 AND i_pUnitView = 0 THEN
+	M_CheckSet := "제어 모드: 유닛 단위인데 유닛 값(i_pUnitView) 연결 안 됨";
+	RETURN;
+END_IF
+IF NOT F_RealOk(i_stSet.fPccRatio) THEN	// [결함 13 수정 2026-11-04]
+	M_CheckSet := "제어 모드: 접속점 몫 fPccRatio 숫자 아님";
+	RETURN;
+END_IF
+IF i_stSet.ePccShare = E_PccShare.Fixed AND NOT (i_stSet.fPccRatio >= 0.0 AND i_stSet.fPccRatio <= 1.0) THEN
+	M_CheckSet := "제어 모드: 접속점 몫 fPccRatio는 0~1";
+	RETURN;
+END_IF
+IF i_stSet.nFallback <> 0 AND NOT M_Valid(i_nSlot := i_stSet.nFallback) THEN
+	M_CheckSet := "제어 모드: 대체 모드 nFallback 칸이 비었거나 범위 밖";
+	RETURN;
+END_IF
+FOR i := 1 TO GVL_PARAM.CTRL_MODE_COUNT DO
+	IF i_aipMode[i] <> 0 THEN
+		sErr := i_aipMode[i].M_CheckSet();
+		IF sErr <> "" THEN
+			M_CheckSet := sErr;
+			RETURN;
+		END_IF
+	END_IF
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_SlotName" Id="{4c731d77-75d5-4482-804b-b40b3e688427}">
+      <Declaration><![CDATA[METHOD M_SlotName : WSTRING(63)		// 모드 칸 번호 → 이름 (0 = 없음). 로그용 [7번 수정 2026-11-09: 추가]
+VAR_INPUT
+	i_nSlot		: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF i_nSlot = 0 THEN
+	M_SlotName := "없음";
+ELSIF M_Valid(i_nSlot := i_nSlot) THEN
+	M_SlotName := STRING_TO_WSTRING(i_aipMode[i_nSlot].ModuleName);
+ELSE
+	M_SlotName := WCONCAT("칸 ", TO_WSTRING(i_nSlot));
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_RefuseText" Id="{77c46007-9e0e-40e6-a1ae-5d62e7d7047a}">
+      <Declaration><![CDATA[METHOD M_RefuseText : WSTRING(63)		// 마지막 거부 이유 문구 (q_eRefuse·q_nRefuseSlot·q_nRefuseReason). 로그용 [7번 수정 2026-11-09: 추가]]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE q_eRefuse OF
+	E_CtrlModeRefuse.BadSlot:
+		M_RefuseText := "모드 칸이 비었거나 범위 밖";
+	E_CtrlModeRefuse.NotReady:
+		M_RefuseText := M_ModeReasonText(i_nSlot := q_nRefuseSlot, i_nReason := q_nRefuseReason);
+ELSE
+	M_RefuseText := "";
+END_CASE]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ModeReasonText" Id="{09b25082-4ce8-4e8d-8dbf-e194aa61970b}">
+      <Declaration><![CDATA[METHOD M_ModeReasonText : WSTRING(63)		// 모드 칸의 이유 코드 → 문구 (q_nRefuseReason·q_nExitReason을 HMI·로그에 보일 때)
+VAR_INPUT
+	i_nSlot		: UINT;
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF M_Valid(i_nSlot := i_nSlot) THEN
+	M_ModeReasonText := i_aipMode[i_nSlot].M_ReasonText(i_nReason := i_nReason);
+ELSE
+	M_ModeReasonText := WCONCAT("이유 ", TO_WSTRING(i_nReason));
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

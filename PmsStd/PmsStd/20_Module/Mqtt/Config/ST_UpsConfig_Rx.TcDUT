@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15"><DUT Name="ST_UpsConfig_Rx" Id="{00bf9d8f-add0-47b9-93c2-af3172df6d22}"><Declaration><![CDATA[// UPS 1대의 MQTT 설정값. 바이너리 구조라 필드 순서를 바꾸면 안 된다.
+// H는 대응하는 UPS Holding 주소. 단위 변환은 맵과 대조가 더 필요하다.
+{attribute 'pack_mode' := '1'}
+TYPE ST_UpsConfig_Rx :
+STRUCT
+ DeviceId : UDINT; // UPS 번호 1~3
+ TrickleChargeSetParameter : ST_CommonConfig_UDINT; // H57 기준 선택
+ TrickleChargeSetStartVoltage : ST_CommonConfig_REAL; // H58 재충전 시작 전압
+ TrickleChargeSetEndVoltage : ST_CommonConfig_REAL; // H59 종료 전압
+ TrickleChargeSetStartSoc : ST_CommonConfig_REAL; // H58 재충전 시작 SOC
+ TrickleChargeSetEndSoc : ST_CommonConfig_REAL; // H59 종료 SOC
+ TrickleChargeSetStartTime : ST_CommonConfig_UDINT; // H60 추정. 역할 미확정
+ TrickleChargeSetReStartDay : ST_CommonConfig_UDINT; // H61 재시작 기간
+ PeriodicTrickleDischargeSetCurrent : ST_CommonConfig_REAL; // H50 주기적 방전 전류
+ PeriodicTrickleDischargeSetTime : ST_CommonConfig_UDINT; // H51 주기적 방전 시간
+ PulseChargeSetCurrent : ST_CommonConfig_REAL; // H53 펄스 충전 전류
+ PulseDischargeSetCurrent : ST_CommonConfig_REAL; // H52 펄스 방전 전류
+ PulseChargeSetTime : ST_CommonConfig_UDINT; // H55 펄스 충전 시간
+ PulseDischargeSetTime : ST_CommonConfig_UDINT; // H54 펄스 방전 시간
+ PulseChargeDischargeSetCycle : ST_CommonConfig_UDINT; // H56 펄스 반복 횟수
+ TempCompBaseVoltage25C : ST_CommonConfig_REAL; // H62 25℃ 기준 전압
+ BatterySeriesCellCount : ST_CommonConfig_UDINT; // H63 직렬 셀 수
+ SlopeVoltagePerCell : ST_CommonConfig_REAL; // H64 셀당 온도 기울기
+ TempCompAppliedChargeVoltage : ST_CommonConfig_REAL; // H65 적용 전압. 역할 미확정
+END_STRUCT
+END_TYPE]]></Declaration></DUT></TcPlcObject>

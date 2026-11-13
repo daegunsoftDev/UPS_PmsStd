@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_BatLimitRule" Id="{30306150-8f19-44fd-bced-a2ed2a4d8e0d}">
+    <Declaration><![CDATA[INTERFACE I_BatLimitRule EXTENDS I_Module]]></Declaration>
+    <Method Name="M_Evaluate" Id="{546536d6-d0ef-44f1-aa0e-4f0565b2e42a}">
+      <Declaration><![CDATA[METHOD M_Evaluate : ST_BatLimitOut	// 배터리 버스 충·방전 한도 (SOC 감발 등). 범위를 좁히기만 함 (0은 항상 허용)
+VAR_INPUT
+	i_stView	: ST_BatLimitView;
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

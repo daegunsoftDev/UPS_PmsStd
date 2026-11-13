@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+<DUT Name="E_UpsChargeStep" Id="{64cda644-a11d-446e-a8be-006b0f8259fc}"><Declaration><![CDATA[// FB_UpsChargeSequence의 진행 단계.
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_UpsChargeStep : (
+ Idle := 0, // 대기
+ WaitNormal := 10, // 시작 조건 확인
+ WaitSchedule := 20, // 주기적 방전 일정 대기
+ BbcStart := 30, // BBC 기동 요청
+ WaitEnd := 40, // 종료 기준 도달 대기
+ ExtraCharge := 50, // 추가 충전(간헐) / 초기 충전 대기(주기적)
+ BbcReady := 60, // BBC 대기 요청
+ WaitReady := 70, // BAT Mode 2 확인
+ Rest := 80, // 휴지, 재충전 조건 대기
+ PrepareBms := 90, // BMS 방전 준비 요청
+ StartDischarge := 100, // UPS 방전 시작 요청
+ WaitRunning := 110, // 방전 모드 진입 확인
+ Running := 120, // 방전 실행 중
+ CancelUps := 130, // UPS 방전 취소 요청
+ CancelBms := 140, // BMS 방전 취소 요청
+ BbcResume := 150, // 휴지 해제, BBC 재기동
+ FloatRequest := 160, // 부동충전 요청
+ WaitFloat := 170, // BAT Mode 0 확인
+ Complete := 180, // 완료
+ Fault := 900 // 고장 정지
+) INT;
+END_TYPE]]></Declaration></DUT>
+</TcPlcObject>

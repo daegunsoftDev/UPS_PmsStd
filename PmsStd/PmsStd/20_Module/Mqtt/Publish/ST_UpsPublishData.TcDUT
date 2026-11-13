@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15"><DUT Name="ST_UpsPublishData" Id="{c92cac08-461f-4c99-ad38-8bf06856da14}"><Declaration><![CDATA[// EMS로 보내는 UPS MQTT 패킷 전체. 바이너리 구조라 필드 순서를 바꾸면 안 된다.
+{attribute 'pack_mode' := '1'}
+TYPE ST_UpsPublishData :
+STRUCT
+ Header : ST_MqttHeader; // MQTT 공통 헤더
+ Devices : ARRAY[0..GVL_PARAM.UPS_COUNT-1] OF ST_UpsPublish_V1; // UPS별 데이터
+END_STRUCT
+END_TYPE]]></Declaration></DUT></TcPlcObject>

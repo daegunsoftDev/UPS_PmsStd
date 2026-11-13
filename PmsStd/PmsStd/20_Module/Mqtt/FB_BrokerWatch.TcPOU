@@ -1,0 +1,58 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_BrokerWatch" Id="{17aec6bb-667c-4c3c-8d7d-32f8cccebcf8}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_BrokerWatch		// MQTT 브로커 끊김 감시 (PlcTask, MAIN이 부름) [9번 수정 2026-11-09: 추가 — 14번 탭 9번 결정]
+// - 감시: i_stSet.eBroker로 고른 브로커가 쓰는 브로커(MQTT_SET bUse)일 때만. 접속 상태는 PRG_Mqtt가 GVL_IF.g_abBrokerConn에 올림 (구독 클라이언트 기준)
+// - 끊김: 접속이 i_stSet.tLostDelay 넘게 이어서 끊기면 q_bLost (알람 '브로커 끊김', 접속하면 해소). PMS 시작 직후 접속 전도 끊김으로 셈
+// - Manual 전환: 끊김 동안 한 번만 q_bToManual (1스캔) → MAIN이 운전 모드 요청(g_aeOpMode)을 모두 Manual로. 끊긴 동안 운전원이 Auto로 되돌려도 다시 바꾸지 않음.
+//   다시 접속하면(q_bLost 해소) 다시 무장 → 다음 끊김에 다시 한 번
+// - 이중화: Active PLC만 전환 요청 (대기 PLC의 운전 모드 요청은 Active 값으로 동기화됨). 끊긴 동안 Active가 되면 그때 한 번
+VAR_INPUT
+	i_stSet			: ST_BrokerWatchSet;
+	i_abUse			: ARRAY[1..3] OF BOOL;	// 쓰는 브로커 (GVL_IF.g_abBrokerUse, 1 Cloud, 2 Local, 3 Azure)
+	i_abConnected	: ARRAY[1..3] OF BOOL;	// 접속됨 (GVL_IF.g_abBrokerConn)
+	i_bActive		: BOOL;					// 이 PLC가 Active (GVL_IF.g_bRedActive. 이중화를 안 쓰면 항상 TRUE)
+END_VAR
+VAR_OUTPUT
+	q_bWatch		: BOOL;			// 감시 중 (고른 브로커를 씀)
+	q_bLost			: BOOL;			// 끊김 확정 (알람)
+	q_bToManual		: BOOL;			// 이번 스캔에 Manual 전환 요청 (1스캔)
+	q_sBroker		: WSTRING(15);	// 고른 브로커 이름 (로그)
+	q_sDelay		: WSTRING(31);	// 판정 시간 글자 (로그)
+END_VAR
+VAR
+	_tonLost		: TON;
+	_bDone			: BOOL;			// 이번 끊김에서 전환 요청을 냄 (접속하면 지움)
+	_n				: INT;			// 고른 브로커 칸 (0 = 범위 밖)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE i_stSet.eBroker OF
+	E_MqttBroker.Cloud:	_n := 1;	q_sBroker := "Cloud";
+	E_MqttBroker.Local:	_n := 2;	q_sBroker := "Local";
+	E_MqttBroker.Azure:	_n := 3;	q_sBroker := "Azure";
+ELSE
+	_n := 0;	q_sBroker := "?";
+END_CASE
+q_sDelay := WCONCAT(TO_WSTRING(TIME_TO_UDINT(i_stSet.tLostDelay) / 1000), " s");
+
+q_bWatch := FALSE;
+IF _n >= 1 AND _n <= 3 THEN
+	q_bWatch := i_abUse[_n];
+END_IF
+IF q_bWatch THEN
+	_tonLost(IN := NOT i_abConnected[_n], PT := i_stSet.tLostDelay);
+ELSE
+	_tonLost(IN := FALSE);
+END_IF
+q_bLost := _tonLost.Q;
+
+q_bToManual := q_bLost AND NOT _bDone AND i_bActive;
+IF q_bToManual THEN
+	_bDone := TRUE;
+END_IF
+IF NOT q_bLost THEN
+	_bDone := FALSE;		// 다시 접속: 다음 끊김에 다시 한 번
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

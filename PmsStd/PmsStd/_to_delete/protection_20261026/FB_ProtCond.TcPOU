@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_ProtCond" Id="{6614661b-e540-47b0-a193-9e2117b53456}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ProtCond		// 보호 조건 하나: 조건이 tDelay 이상 이어지면 발생, 조건이 풀리면 해제 (유지·리셋 없음. 정지된 장비는 새 Run 요청이 있어야 다시 돎)
+VAR_INPUT
+	i_bCond		: BOOL;
+	i_stCfg		: ST_ProtCfg;
+END_VAR
+VAR_OUTPUT
+	q_bActive	: BOOL;
+END_VAR
+VAR
+	_tonDelay	: TON;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[_tonDelay(IN := (i_stCfg.bAuto OR i_stCfg.bManual) AND i_bCond, PT := i_stCfg.tDelay);
+q_bActive := _tonDelay.Q;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

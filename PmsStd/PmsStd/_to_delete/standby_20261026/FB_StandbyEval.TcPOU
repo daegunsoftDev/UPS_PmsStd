@@ -1,0 +1,157 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_StandbyEval" Id="{5ab22dd8-a2a0-48d4-bc41-a5b61a2047a2}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_StandbyEval	// Standby 규칙 모듈을 유닛마다 스캔당 한 번 평가 → Standby 요청과, 그 Standby의 자동 재개(Run) 요청 (상태 중재에는 다음 스캔에 들어감. 요청 주체 0 = 코어)
+// 유닛의 실제 운전 모드 경로 지령(Gate 결과)과 버스 한도(FB_EquipmentLimits)를 넘김. 등록 bAuto·bManual로 그 모드 유닛에만 적용
+// 모드가 맞지 않아도 모듈을 부름 (bInScope = FALSE): 모듈이 그 유닛 상태(타이머 등)를 풀 수 있게
+// 자동 재개: 규칙이 낸 Standby가 Run 목표를 대신해 접수되면 "재개 대기"로 기억
+//   취소: 목표가 Standby가 아니게 됨, 지령원 요청 접수, 보호 조치, 모드 전환, 운전 모드 변경, 그 등록이 적용 대상 아님
+//   재개 대기 중 그 모듈의 M_CheckResume = TRUE면 Run 요청 (접수 검사를 거침. 거부되면 대기를 유지하고 모듈이 정한 간격으로 다시 요청)
+// MAIN에서 fbStateArb.M_CommitRequest 다음에 부름 (이번 스캔에 확정된 목표를 봄)
+VAR_IN_OUT CONSTANT
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+	iq_aeOpMode	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;	// 실제 운전 모드
+	iq_astUnit	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;
+	iq_astAutoUnitP	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;	// fbAutoGate 결과
+	iq_astAutoGrpP	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_astManualUnitP	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;	// fbManualGate 결과
+	iq_astManualGrpP	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_astBatGroup	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatGroupState;
+	iq_astBatEnv	: ARRAY[1..GVL_PARAM.BAT_COUNT] OF ST_BatEnvelope;	// 버스 한도 (FB_EquipmentLimits)
+	iq_astStandbyReg	: ARRAY[1..GVL_PARAM.STANDBY_RULE_COUNT] OF ST_RuleTargetReg;
+	iq_aeTarget	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_PcsCmd;	// 목표 (fbStateArb.q_aeTarget, 이번 스캔 확정)
+	iq_anOrigin	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;	// 그 목표를 낸 모듈 ID (0 = 코어·보호)
+	iq_abNewReq	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 이번 스캔에 새 요청 접수 (fbStateArb.q_abNewReq)
+	iq_abSwitching	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 모드 전환 중
+	iq_astUnitProt	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitProt;	// 보호 조치
+END_VAR
+VAR_IN_OUT
+	iq_aipStandby	: ARRAY[1..GVL_PARAM.STANDBY_RULE_COUNT] OF I_StandbyRule;
+END_VAR
+VAR_OUTPUT
+	q_abStandbyReq	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// Standby 요청 (1스캔)
+	q_anStandbyModule	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;	// 마지막으로 요청한 모듈 ID
+	q_anStandbyReason	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;	// 그 모듈의 이유 코드
+	q_abResumeWait	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 재개 대기 중 (규칙이 건 Standby를 들고 있음)
+	q_anResumeWaitModule	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;	// 그 Standby를 건 모듈 ID (0 = 대기 없음)
+	q_abResumeReq	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 자동 재개 Run 요청 (1스캔)
+	q_anResumeModule	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;	// 마지막으로 재개를 요청한 모듈 ID
+END_VAR
+VAR
+	_anWaitRule	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;	// 재개 대기 중인 Standby를 건 등록 칸 (0 = 없음)
+	_anSentRule	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF UINT;	// 지난 스캔에 Standby를 요청한 등록 칸 (0 = 안 함)
+	_aePrevTarget	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_PcsCmd;	// 지난 스캔 목표
+	_aePrevOpMode	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;	// 지난 스캔 운전 모드
+END_VAR
+VAR_TEMP
+	u	: UINT;
+	g	: UINT;
+	b	: UINT;
+	i	: UINT;
+	nSent	: UINT;
+	bManual	: BOOL;
+	bReq	: BOOL;
+	bResume	: BOOL;
+	stUnitPick	: ST_Pick;
+	stGrpPick	: ST_Pick;
+	stNoPick	: ST_Pick;
+	stNoVal	: ST_Val;
+	stView	: ST_StandbyView;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	q_abStandbyReq[u]	:= FALSE;
+	q_abResumeReq[u]	:= FALSE;
+	g	:= iq_astUnitCfg[u].nGroup;
+	b	:= iq_astUnitCfg[u].nBatGroup;
+	bManual	:= iq_aeOpMode[u] = E_OpMode.Manual;
+
+	(* 1) 재개 대기 시작·취소 *)
+	IF _anSentRule[u] <> 0 AND iq_abNewReq[u] AND iq_aeTarget[u] = E_PcsCmd.Standby AND iq_anOrigin[u] = 0 AND _aePrevTarget[u] = E_PcsCmd.Run THEN
+		_anWaitRule[u] := _anSentRule[u];		// 지난 스캔에 낸 Standby가 Run 목표를 대신해 접수됨
+	ELSIF _anWaitRule[u] <> 0 AND (iq_aeTarget[u] <> E_PcsCmd.Standby		// 재개됨(목표 Run) 또는 다른 목표
+			OR (iq_abNewReq[u] AND iq_anOrigin[u] <> 0)						// 지령원 요청 접수 (운전원·EMS)
+			OR iq_abSwitching[u]
+			OR iq_astUnitProt[u].ePcsAction <> E_PcsAction.None
+			OR iq_aeOpMode[u] <> _aePrevOpMode[u]) THEN
+		_anWaitRule[u] := 0;
+	END_IF
+
+	(* 2) 모듈에 넘길 요약: 이 유닛 경로의 P 지령 (유닛별 값, 없으면 그룹 값), 연결 버스 *)
+	stGrpPick := stNoPick;
+	IF bManual THEN
+		stUnitPick := iq_astManualUnitP[u];
+		IF g >= 1 AND g <= GVL_PARAM.GROUP_COUNT THEN stGrpPick := iq_astManualGrpP[g]; END_IF
+	ELSE
+		stUnitPick := iq_astAutoUnitP[u];
+		IF g >= 1 AND g <= GVL_PARAM.GROUP_COUNT THEN stGrpPick := iq_astAutoGrpP[g]; END_IF
+	END_IF
+	stView.nUnit	:= u;
+	stView.eOpMode	:= iq_aeOpMode[u];
+	stView.eRunState	:= iq_astUnit[u].eRunState;
+	stView.fPRated	:= iq_astUnitCfg[u].fPRated;
+	stView.bCmdP	:= stUnitPick.bActive OR stGrpPick.bActive;
+	IF stUnitPick.bActive THEN
+		stView.fCmdP := stUnitPick.fValue;
+	ELSIF stGrpPick.bActive THEN
+		stView.fCmdP := stGrpPick.fValue;
+	ELSE
+		stView.fCmdP := 0;
+	END_IF
+	stView.nBatGroup	:= b;
+	IF b >= 1 AND b <= GVL_PARAM.BAT_COUNT THEN
+		stView.stSocMin	:= iq_astBatGroup[b].stSocMin;
+		stView.stSocMax	:= iq_astBatGroup[b].stSocMax;
+		stView.fPDisMax	:= iq_astBatEnv[b].stP.fMax;
+		stView.fPChgMax	:= -iq_astBatEnv[b].stP.fMin;
+	ELSE
+		stView.stSocMin	:= stNoVal;
+		stView.stSocMax	:= stNoVal;
+		stView.fPDisMax	:= GVL_CORE.NO_LIMIT;
+		stView.fPChgMax	:= GVL_CORE.NO_LIMIT;
+	END_IF
+
+	(* 3) 등록된 규칙마다: Standby 판단, 재개 판단 *)
+	nSent := 0;
+	FOR i := 1 TO GVL_PARAM.STANDBY_RULE_COUNT DO
+		IF iq_aipStandby[i] <> 0 AND_THEN (iq_astStandbyReg[i].nTarget = 0 OR iq_astStandbyReg[i].nTarget = u) THEN
+			stView.bInScope := iq_astStandbyReg[i].bEnable AND ((bManual AND iq_astStandbyReg[i].bManual) OR (NOT bManual AND iq_astStandbyReg[i].bAuto));
+			IF _anWaitRule[u] = i AND NOT stView.bInScope THEN
+				_anWaitRule[u] := 0;		// 등록을 끔·운전 모드가 대상이 아님 → 재개 대기 취소
+			END_IF
+			stView.bResumeWait := _anWaitRule[u] = i;
+			bReq := iq_aipStandby[i].M_Evaluate(stView);
+			IF bReq AND stView.bInScope AND NOT q_abStandbyReq[u] THEN
+				q_abStandbyReq[u]	:= TRUE;
+				q_anStandbyModule[u]	:= iq_aipStandby[i].ModuleId;
+				q_anStandbyReason[u]	:= iq_aipStandby[i].Reason;
+				nSent	:= i;
+			END_IF
+			bResume := iq_aipStandby[i].M_CheckResume(stView);
+			IF bResume AND stView.bResumeWait THEN
+				q_abResumeReq[u]	:= TRUE;
+				q_anResumeModule[u]	:= iq_aipStandby[i].ModuleId;
+			END_IF
+		END_IF
+	END_FOR
+	IF _anWaitRule[u] <> 0 AND_THEN (_anWaitRule[u] > GVL_PARAM.STANDBY_RULE_COUNT OR_ELSE iq_aipStandby[_anWaitRule[u]] = 0) THEN
+		_anWaitRule[u] := 0;		// 등록 칸이 비었음
+	END_IF
+	IF q_abStandbyReq[u] THEN
+		q_abResumeReq[u] := FALSE;		// 같은 스캔에 Standby와 재개를 같이 내지 않음
+	END_IF
+
+	(* 4) 결과·다음 스캔용 기억 *)
+	q_abResumeWait[u] := _anWaitRule[u] <> 0;
+	IF q_abResumeWait[u] THEN
+		q_anResumeWaitModule[u] := iq_aipStandby[_anWaitRule[u]].ModuleId;
+	ELSE
+		q_anResumeWaitModule[u] := 0;
+	END_IF
+	_anSentRule[u]	:= nSent;
+	_aePrevTarget[u]	:= iq_aeTarget[u];
+	_aePrevOpMode[u]	:= iq_aeOpMode[u];
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

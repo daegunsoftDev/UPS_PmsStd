@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <Itf Name="I_Gate" Id="{e1796de7-10e1-497d-b312-91de602dbf99}">
+    <Declaration><![CDATA[INTERFACE I_Gate EXTENDS I_Module	// 지령 거르기 (접수·보류·무시·새 지령 대기). 경로마다 한 칸 (GVL_SITE.g_ipAutoGate·g_ipManualGate), 비우면 코어 기본]]></Declaration>
+    <Method Name="M_Filter" Id="{5dc19088-2258-4c21-9e02-5b5443f588a0}">
+      <Declaration><![CDATA[METHOD M_Filter		// 매 스캔 한 번 (경로마다). 상태(보류 등)를 가져도 됨
+VAR_INPUT
+	i_stView	: ST_GateView;
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astUnitP		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;		// 이 경로 FB_Select 결과 (다른 경로 유닛은 비활성)
+	iq_astUnitQ		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_Pick;
+	iq_astGrpP		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_astGrpQ		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_Pick;
+	iq_aeOpMode		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF E_OpMode;		// 유닛 실제 운전 모드
+	iq_astUnit		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitState;	// 유닛 상태 (실제 출력 방향·운전 상태)
+	iq_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;
+END_VAR
+VAR_IN_OUT
+	iq_stOut		: ST_GateOut;		// 거른 결과 (Gate가 채움. 지난 스캔 값이 남아 있음)
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

@@ -1,0 +1,220 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_SrcEms" Id="{a6f2eace-4b9a-42e4-99c4-c3769b6a0bb7}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_SrcEms EXTENDS FB_SourceBase		// 지령원: EMS (상위 플랫폼, MQTT command). 명령 핸들러(FB_EmsCommand)가 해석한 명령을 요청으로 냄
+(* - 입력 i_stCmd는 MAIN(A_PassEmsCmd)이 GVL_IF에서 일관되게 복사해 넘긴다. 이 FB는 GVL을 보지 않는다
+   - 상태 명령(PCS Run·Standby·Stop·EStop·Reset, 배터리 Close·Open): 번호가 바뀌면 새 명령. 큐에 넣고 스캔마다 1개씩 요청으로 낸다.
+     받는 운전 모드는 등록표 stStateMode가 정한다. 배터리 Reset은 운전자 리셋(PCS Reset, 전체)으로 낸다
+   - 충전·방전 P 지령: PCS 한 대의 kW를 그 PCS의 유닛들에 정격 비율로 나눠 유닛 지령(astUnit)으로 낸다.
+     i_bPEnable이 TRUE일 때만 낸다 (기본 FALSE). 제어 모드(FB_CtrlModeMgr)와 어떻게 묶을지는 정해지면 여기서 연결 (상태 명령은 이 값과 무관하게 받음)
+   - 새 메시지(nRxCount)나 새 명령이 만료 시간(등록 tExpire) 안에 오면 살아 있음. 끊기면 P 지령·요청 큐를 버린다 (돌아와도 옛 지령이 되살아나지 않음)
+   - PMS가 켜진 뒤 처음 복사본은 번호만 맞춘다 (재기동 때 지난 명령을 실행하지 않음)
+   - 배터리 비상정지(EStop)는 지령원 요청 종류에 없어 받지 않고 q_nUnsupported로 센다 *)
+VAR_INPUT
+	i_stCmd			: ST_IfEmsCmd;	// MAIN이 GVL_IF에서 복사한 명령 칸
+	i_bValid		: BOOL;			// i_stCmd가 한 번이라도 일관되게 복사됨
+	i_astUnitCfg	: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF ST_UnitCfg;	// 유닛 ← PCS 번호 (명령은 PCS 번호로 옴)
+	i_astBmsCfg		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BmsCfg;	// BMS → 배터리 그룹
+	i_bPEnable		: BOOL;			// 충전·방전 P 지령을 낼지 (기본 FALSE. 제어 모드와의 연결 방식이 정해질 때까지 끔)
+END_VAR
+VAR_OUTPUT
+	q_nUnsupported	: UDINT;		// 받을 수 없는 명령 수 (배터리 비상정지)
+	q_nQueueDrop	: UDINT;		// 큐가 가득 차 버린 요청 수
+END_VAR
+VAR CONSTANT
+	QUEUE_PCS		: UINT := 16;
+	QUEUE_BAT		: UINT := 8;
+END_VAR
+VAR
+	_bSynced		: BOOL;
+	_nRxCount		: UDINT;
+	_anPcsSeq		: ARRAY[1..GVL_PARAM.PCS_COUNT] OF UDINT;
+	_anPSeq			: ARRAY[1..GVL_PARAM.PCS_COUNT] OF UDINT;
+	_anBatSeq		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF UDINT;
+	_abUnitP		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF BOOL;	// 이 유닛에 받아 둔 P 지령 있음
+	_afUnitP		: ARRAY[1..GVL_PARAM.UNIT_COUNT] OF REAL;	// kW, 유닛 출력 (방전 +)
+	_astPcsQ		: ARRAY[1..QUEUE_PCS] OF ST_PcsReq;
+	_nPcsHead		: UINT := 1;
+	_nPcsCount		: UINT;
+	_astBatQ		: ARRAY[1..QUEUE_BAT] OF ST_BatReq;
+	_nBatHead		: UINT := 1;
+	_nBatCount		: UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="M_PushBat" Id="{d81ad7b6-85eb-46cf-8fd2-f3c1fe0dd9b8}">
+      <Declaration><![CDATA[METHOD PRIVATE M_PushBat
+VAR_INPUT
+	i_eCmd		: E_BatCmd;
+	i_nBatGroup	: UINT;
+END_VAR
+VAR
+	nTail		: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF _nBatCount >= QUEUE_BAT THEN
+	q_nQueueDrop := q_nQueueDrop + 1;
+	RETURN;
+END_IF
+nTail := ((_nBatHead + _nBatCount - 1) MOD QUEUE_BAT) + 1;
+_astBatQ[nTail].eCmd		:= i_eCmd;
+_astBatQ[nTail].nBatGroup	:= i_nBatGroup;
+_nBatCount := _nBatCount + 1;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_PushPcs" Id="{7b126feb-1de8-461f-b4ce-91bb9b3ade85}">
+      <Declaration><![CDATA[METHOD PRIVATE M_PushPcs
+VAR_INPUT
+	i_eCmd		: E_PcsCmd;
+	i_nUnit		: UINT;		// 0 = 그룹 전체
+END_VAR
+VAR
+	nTail		: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF _nPcsCount >= QUEUE_PCS THEN
+	q_nQueueDrop := q_nQueueDrop + 1;
+	RETURN;
+END_IF
+nTail := ((_nPcsHead + _nPcsCount - 1) MOD QUEUE_PCS) + 1;
+_astPcsQ[nTail].eCmd	:= i_eCmd;
+_astPcsQ[nTail].nUnit	:= i_nUnit;
+_nPcsCount := _nPcsCount + 1;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_ReasonText" Id="{a9f08c48-e580-447e-9627-63ebbd73e315}">
+      <Declaration><![CDATA[METHOD M_ReasonText : WSTRING(63)
+VAR_INPUT
+	i_nReason	: UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_ReasonText := "EMS 지령";]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="M_UpdateOutput" Id="{393a5555-d489-4da0-8304-7619931fb70c}">
+      <Declaration><![CDATA[METHOD M_UpdateOutput : BOOL
+VAR
+	p			: UINT;
+	u			: UINT;
+	b			: UINT;
+	bFresh		: BOOL;
+	bNewP		: BOOL;
+	bAlgoOn		: BOOL;
+	fSum		: REAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[M_UpdateOutput := FALSE;
+
+// 복사본이 아직 한 번도 없으면 기다림. 처음 받은 복사본은 번호만 맞춤 (지난 명령을 실행하지 않음)
+IF NOT i_bValid THEN
+	RETURN;
+END_IF
+IF NOT _bSynced THEN
+	_bSynced := TRUE;
+	_nRxCount := i_stCmd.nRxCount;
+	FOR p := 1 TO GVL_PARAM.PCS_COUNT DO
+		_anPcsSeq[p]	:= i_stCmd.astPcs[p].nSeq;
+		_anPSeq[p]		:= i_stCmd.anPcsPSeq[p];
+	END_FOR
+	FOR b := 1 TO GVL_PARAM.BMS_COUNT DO
+		_anBatSeq[b]	:= i_stCmd.astBat[b].nSeq;
+	END_FOR
+	RETURN;
+END_IF
+
+// 끊긴 상태(지난 스캔 기준)면 받아 둔 P 지령과 큐를 버림
+IF _tonExpire.Q THEN
+	FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+		_abUnitP[u] := FALSE;
+	END_FOR
+	_nPcsCount := 0;
+	_nBatCount := 0;
+END_IF
+
+bFresh := FALSE;
+bNewP := FALSE;
+IF i_stCmd.nRxCount <> _nRxCount THEN
+	_nRxCount := i_stCmd.nRxCount;
+	bFresh := TRUE;
+END_IF
+
+// PCS: 상태 명령 → 그 PCS의 유닛마다 요청 (리셋은 전체 한 번), P 지령 → 유닛에 정격 비율로 나눔
+FOR p := 1 TO GVL_PARAM.PCS_COUNT DO
+	IF i_stCmd.astPcs[p].nSeq <> _anPcsSeq[p] THEN
+		_anPcsSeq[p] := i_stCmd.astPcs[p].nSeq;
+		bFresh := TRUE;
+		IF i_stCmd.astPcs[p].eCmd = E_PcsCmd.Reset THEN
+			M_PushPcs(E_PcsCmd.Reset, 0);
+		ELSIF i_stCmd.astPcs[p].eCmd <> E_PcsCmd.None THEN
+			FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+				IF i_astUnitCfg[u].nPcs = p THEN
+					M_PushPcs(i_stCmd.astPcs[p].eCmd, u);
+				END_IF
+			END_FOR
+		END_IF
+	END_IF
+	IF i_stCmd.anPcsPSeq[p] <> _anPSeq[p] THEN
+		_anPSeq[p] := i_stCmd.anPcsPSeq[p];
+		bFresh := TRUE;
+		bNewP := TRUE;
+		fSum := 0.0;
+		FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+			IF i_astUnitCfg[u].nPcs = p THEN
+				fSum := fSum + i_astUnitCfg[u].fPRated;
+			END_IF
+		END_FOR
+		FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+			IF i_astUnitCfg[u].nPcs = p THEN
+				_abUnitP[u] := TRUE;
+				IF fSum > 0.0 THEN
+					_afUnitP[u] := i_stCmd.afPcsP[p] * i_astUnitCfg[u].fPRated / fSum;
+				ELSE
+					_afUnitP[u] := 0.0;
+				END_IF
+			END_IF
+		END_FOR
+	END_IF
+END_FOR
+
+// BMS: 투입·개방은 배터리 그룹 요청, 리셋은 운전자 리셋
+FOR b := 1 TO GVL_PARAM.BMS_COUNT DO
+	IF i_stCmd.astBat[b].nSeq <> _anBatSeq[b] THEN
+		_anBatSeq[b] := i_stCmd.astBat[b].nSeq;
+		bFresh := TRUE;
+		IF i_stCmd.astBat[b].eCmd = E_BatCmd.Close OR i_stCmd.astBat[b].eCmd = E_BatCmd.Open THEN
+			M_PushBat(i_stCmd.astBat[b].eCmd, i_astBmsCfg[b].nBatGroup);
+		ELSIF i_stCmd.astBat[b].eCmd = E_BatCmd.Reset THEN
+			M_PushPcs(E_PcsCmd.Reset, 0);
+		ELSE
+			q_nUnsupported := q_nUnsupported + 1;
+		END_IF
+	END_IF
+END_FOR
+
+// 큐에서 한 스캔에 하나씩 요청으로 냄
+IF _nPcsCount > 0 THEN
+	_stOut.stPcsReq := _astPcsQ[_nPcsHead];
+	_nPcsHead := (_nPcsHead MOD QUEUE_PCS) + 1;
+	_nPcsCount := _nPcsCount - 1;
+END_IF
+IF _nBatCount > 0 THEN
+	_stOut.stBatReq := _astBatQ[_nBatHead];
+	_nBatHead := (_nBatHead MOD QUEUE_BAT) + 1;
+	_nBatCount := _nBatCount - 1;
+END_IF
+
+// P 지령: 알고리즘이 선택된 그룹에서만. 받은 값은 새 명령이 올 때까지 유지 (만료되면 위에서 버림)
+bAlgoOn := i_bPEnable;		// 등록 사용 여부(bEnable)는 FB_SourceBase가 처리 (꺼져 있으면 전부 지움)
+FOR u := 1 TO GVL_PARAM.UNIT_COUNT DO
+	_stOut.astUnit[u].bPSetActive	:= _abUnitP[u] AND bAlgoOn;
+	_stOut.astUnit[u].fPSet			:= _afUnitP[u];
+	_stOut.astUnit[u].bQSetActive	:= FALSE;
+END_FOR
+_stOut.bNewSet := bNewP AND bAlgoOn;
+
+M_UpdateOutput := bFresh;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

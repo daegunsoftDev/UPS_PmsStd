@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_CmSchedPeakSet" Id="{e294233f-5ac7-47f9-acff-d70db6675051}">
+    <Declaration><![CDATA[TYPE ST_CmSchedPeakSet :	// 통합 모드(스케줄 + 피크컷) 설정. 시간표는 스케줄 모드와 같은 표 (ST_CmScheduleSet)
+STRUCT
+	stPeak		: ST_CmPeakCalcSet;
+	stRemain	: ST_CmWindowSet := (fSoc := 10.0);		// 잔량 방전 시간. fSoc = 남길 하한
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

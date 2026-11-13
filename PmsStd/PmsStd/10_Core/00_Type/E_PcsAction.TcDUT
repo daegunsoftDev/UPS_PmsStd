@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="E_PcsAction" Id="{7397beb3-7e9a-4d89-89d1-81bef6a8e169}">
+    <Declaration><![CDATA[{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_PcsAction :		// 보호 조치 (PCS)
+(
+	None		:= 0,	// 조치 없음 (알람만), 자동 해제
+	Standby		:= 1,	// 대기 = 출력 0 (명령 없음: 가용 아님으로 출력에서 빠짐). 조건이 있는 동안만, 풀리면 다시 출력
+	Stop		:= 2,	// 정지 명령. 조건이 풀려도 정지 유지 (다시 운전하려면 Run)
+	EStop		:= 3	// 비상정지. 위와 같음
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

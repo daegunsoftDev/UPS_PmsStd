@@ -1,0 +1,92 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <POU Name="FB_Measure" Id="{6d9b2b46-91b6-4f3b-88d9-5f319f3b956b}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_Measure		// 계측점 계산 + 제어 그룹마다 접속점 값·가상신호
+VAR_INPUT
+	i_bTestMode		: BOOL;			// 시험 모드에서만 가상신호를 씀 (GVL_SITE.TEST_MODE)
+END_VAR
+VAR_IN_OUT CONSTANT
+	iq_astMeter		: ARRAY[1..GVL_PARAM.METER_COUNT] OF ST_MeterState;
+	iq_astPointCfg	: ARRAY[1..GVL_PARAM.POINT_COUNT] OF ST_PointCfg;
+	iq_astGroupCfg	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_GroupCfg;
+	iq_astVirtual	: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_VirtualSet;
+END_VAR
+VAR_OUTPUT
+	q_astPoint		: ARRAY[1..GVL_PARAM.POINT_COUNT] OF ST_MeterState;	// 계측점 (실측, 가상신호 적용 전)
+	q_astPcc		: ARRAY[1..GVL_PARAM.GROUP_COUNT] OF ST_PccMeas;		// 그룹 접속점 (가상신호 적용 후)
+END_VAR
+VAR_TEMP
+	nPointNo				: UINT;
+	nTermNo				: UINT;
+	g				: UINT;
+	k				: UINT;
+	nMeterNo				: UINT;
+	bFirst			: BOOL;		// 아직 묶인 계측기를 못 만남
+	bComm			: BOOL;
+	bPValid			: BOOL;
+	bQValid			: BOOL;
+	stPoint			: ST_MeterState;
+	stNone			: ST_MeterState;	// 빈 값: 통신 없음, 값 무효
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(* 1) 계측점: 계측기 P·Q를 부호와 함께 더함. 전압·주파수는 첫 계측기 값 *)
+FOR nPointNo := 1 TO GVL_PARAM.POINT_COUNT DO
+	stPoint	:= stNone;
+	bFirst	:= TRUE;
+	bComm	:= TRUE;
+	bPValid	:= TRUE;
+	bQValid	:= TRUE;
+	FOR nTermNo := 1 TO GVL_PARAM.POINT_TERM_MAX DO
+		nMeterNo := iq_astPointCfg[nPointNo].astTerm[nTermNo].nMeter;
+		IF nMeterNo > GVL_PARAM.METER_COUNT THEN
+			bComm := FALSE;		// 설정 오류: 없는 계측기
+		ELSIF nMeterNo >= 1 THEN
+			IF bFirst THEN
+				stPoint.stV	:= iq_astMeter[nMeterNo].stV;
+				stPoint.astV	:= iq_astMeter[nMeterNo].astV;
+				stPoint.stF	:= iq_astMeter[nMeterNo].stF;
+				bFirst		:= FALSE;
+			END_IF
+			bComm			:= bComm AND iq_astMeter[nMeterNo].bComm;
+			bPValid			:= bPValid AND iq_astMeter[nMeterNo].stP.bValid;
+			bQValid			:= bQValid AND iq_astMeter[nMeterNo].stQ.bValid;
+			stPoint.stP.fValue	:= stPoint.stP.fValue + iq_astPointCfg[nPointNo].astTerm[nTermNo].fSign * iq_astMeter[nMeterNo].stP.fValue;
+			stPoint.stQ.fValue	:= stPoint.stQ.fValue + iq_astPointCfg[nPointNo].astTerm[nTermNo].fSign * iq_astMeter[nMeterNo].stQ.fValue;
+		END_IF
+	END_FOR
+	// 묶인 계측기가 없거나 하나라도 끊기면 무효
+	stPoint.bComm		:= bComm AND NOT bFirst;
+	stPoint.stP.bValid	:= stPoint.bComm AND bPValid;
+	stPoint.stQ.bValid	:= stPoint.bComm AND bQValid;
+	q_astPoint[nPointNo]	:= stPoint;
+END_FOR
+
+(* 2) 그룹 접속점 + 가상신호 *)
+FOR g := 1 TO GVL_PARAM.GROUP_COUNT DO
+	nPointNo := iq_astGroupCfg[g].nPccPoint;
+	q_astPcc[g].bNoPoint := nPointNo = 0;	// [결함 7 수정 2026-11-03: 추가. 접속점 무효 보호가 '없음'을 무효로 보지 않게]
+	IF nPointNo >= 1 AND nPointNo <= GVL_PARAM.POINT_COUNT THEN
+		q_astPcc[g].stMeas := q_astPoint[nPointNo];
+	ELSE
+		q_astPcc[g].stMeas := stNone;
+	END_IF
+
+	// 가상 전압: 평균·상전압 모두 같은 값
+	IF i_bTestMode AND iq_astVirtual[g].bVEna THEN
+		q_astPcc[g].stMeas.stV.fValue	:= iq_astVirtual[g].fV;
+		q_astPcc[g].stMeas.stV.bValid	:= TRUE;
+		FOR k := 1 TO 3 DO
+			q_astPcc[g].stMeas.astV[k].fValue	:= iq_astVirtual[g].fV;
+			q_astPcc[g].stMeas.astV[k].bValid	:= TRUE;
+		END_FOR
+	END_IF
+
+	// 가상 유효전력
+	IF i_bTestMode AND iq_astVirtual[g].bPEna THEN
+		q_astPcc[g].stMeas.stP.fValue	:= iq_astVirtual[g].fP;
+		q_astPcc[g].stMeas.stP.bValid	:= TRUE;
+	END_IF
+END_FOR]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

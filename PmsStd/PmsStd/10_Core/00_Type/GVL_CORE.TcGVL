@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <GVL Name="GVL_CORE" Id="{000b1f36-ce50-4797-9113-04d48f314b34}">
+    <Declaration><![CDATA[VAR_GLOBAL CONSTANT
+	(* 코어 내부 상수 (현장에서 바꾸지 않음. 현장 대수·크기는 GVL_PARAM) *)
+	NO_LIMIT		: REAL := 1.0E9;	// 정격·배터리가 없어 한도를 걸 수 없는 유닛·버스의 대용 한도 (kW·kvar). 열린 범위·무한대 판정(F_RangeOpen·F_CmdOk)의 1E30과는 뜻이 다름
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

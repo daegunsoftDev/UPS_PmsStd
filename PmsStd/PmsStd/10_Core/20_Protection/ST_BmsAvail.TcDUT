@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_BmsAvail" Id="{dfb5e885-55c5-40dc-9f2b-f57bea730b86}">
+    <Declaration><![CDATA[TYPE ST_BmsAvail :
+STRUCT
+	bUsable		: BOOL;		// 쓸 수 있음 (아래 이유가 하나도 없음)
+	bNotInstalled	: BOOL;		// 미설치: BMS 칸이 비어 있음. 배터리 그룹 집계·보호에서 뺌
+	bNoComm		: BOOL;
+	bFault		: BOOL;
+	bSysStop	: BOOL;		// BMS가 스스로 정지
+	bProt		: BOOL;		// 배터리 보호 조치 중
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

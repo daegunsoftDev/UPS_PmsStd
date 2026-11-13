@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.15">
+  <DUT Name="ST_RuleValueSet" Id="{07be1d82-3c4c-4a4a-b009-494716fcdd28}">
+    <Declaration><![CDATA[TYPE ST_RuleValueSet :	// FB_RuleValue 설정 (운전 중 HMI로 바꿈. 임계값은 등록 설정 fThreshold. GVL_PERSIST.g_stModuleSet 칸 → MAIN이 매 스캔 넘김)
+STRUCT
+	bBelow	: BOOL;	// FALSE = 임계값 이상이면 조건, TRUE = 이하면 조건
+	fHyst	: REAL;	// 해소 폭: 임계값에서 이만큼 돌아와야 풀림
+	bOnCommLoss	: BOOL;	// 통신이 끊기거나 값이 무효면 조건 있음으로 봄
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

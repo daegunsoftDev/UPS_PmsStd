@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_RptTempHum" Id="{4a7a56a3-d108-4afd-bfc0-ad7da61fd8a7}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_RptTempHum		// 온습도계 읽은 값 → 온도 보고값 (인터페이스\07.Temperature Sensor.xlsx, 토픽 temperature_sensor)
+(* 2026-11-09. status b0 통신에러(통신 이상·값 무효면 1, 온도·습도 0). location은 설치 위치 번호
+   (1 PCS실, 2 BAT실, 3 UPS실, 4 FC 컨테이너실, 5 외부) *)
+VAR_INPUT
+	i_stState		: ST_TempHumState;		// 장비 상태 (드라이버 q_stState)
+	i_nDeviceIndex	: UDINT;				// 장치 번호 (0부터, 기존 temperature_sensor 시험 데이터와 같음)
+	i_nLocation		: UDINT;				// 설치 위치
+END_VAR
+VAR_OUTPUT
+	q_stTemp		: ST_TempPublish_V1;	// 보고값
+	q_bValid		: BOOL;					// 유효한 장비 데이터
+END_VAR
+VAR
+	_stEmpty		: ST_TempPublish_V1;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[q_stTemp := _stEmpty;
+q_stTemp.DeviceIndex := i_nDeviceIndex;
+q_stTemp.location := i_nLocation;
+q_stTemp.status := 1;	// b0 통신에러
+q_bValid := i_stState.bValid;
+IF NOT q_bValid THEN
+	RETURN;
+END_IF
+q_stTemp.status := 0;
+q_stTemp.temperature := i_stState.fTemp;
+q_stTemp.humidity := i_stState.fHum;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>
