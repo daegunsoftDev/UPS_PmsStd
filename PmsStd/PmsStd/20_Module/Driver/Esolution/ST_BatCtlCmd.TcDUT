@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <DUT Name="ST_BatCtlCmd" Id="{e3a29e23-7852-49c0-a136-2cb944f5ecc5}">
+    <Declaration><![CDATA[(* EMS 컨택터 하나씩 명령 (command/bat CommandType 5~10). 2026-11-13.
+   5 시스템(랙 전체 40013) 연결, 6 차단, 7 충전 컨택터(40014) 닫기, 8 열기, 9 방전 컨택터(40015) 닫기, 10 열기
+   쓰는 곳: FB_EmsCommand, 읽는 곳: MAIN → FB_BmsContactorCommand. 인터페이스 100.Command BAT *)
+TYPE ST_BatCtlCmd :
+STRUCT
+	nSeq		: UDINT;	// 명령 번호. 바뀌면 새 명령 (0 = 한 번도 못 받음)
+	nType		: UINT;		// CommandType 5~10 (그 밖은 거절)
+END_STRUCT
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

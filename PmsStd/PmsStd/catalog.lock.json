@@ -153,6 +153,27 @@
       "item": "20_Module\\Driver\\Esolution\\FB_BmsRackCommand.TcPOU",
       "pulled_from": "generated:../UPS/src/BatRack/FB_BmsRackCommand.st",
       "guid_reissued": false
+    },
+    "FB_EmsCmdGate": {
+      "variant": "f1b3e154",
+      "code_hash": "f1b3e1543862339ed386b062663ce39972638f69",
+      "item": "20_Module\\Mqtt\\FB_EmsCmdGate.TcPOU",
+      "pulled_from": "generated:../UPS/src/EmsCommand/FB_EmsCmdGate.st",
+      "guid_reissued": false
+    },
+    "ST_BatCtlCmd": {
+      "variant": "56598dce",
+      "code_hash": "56598dcea13a8f993e386e7914c90438af17e3be",
+      "item": "20_Module\\Driver\\Esolution\\ST_BatCtlCmd.TcDUT",
+      "pulled_from": "generated:../UPS/src/BatRack/ST_BatCtlCmd.st",
+      "guid_reissued": false
+    },
+    "FB_BmsContactorCommand": {
+      "variant": "e9859ad6",
+      "code_hash": "e9859ad6cac091061882abf5f67b731b1e752f54",
+      "item": "20_Module\\Driver\\Esolution\\FB_BmsContactorCommand.TcPOU",
+      "pulled_from": "generated:../UPS/src/BatRack/FB_BmsContactorCommand.st",
+      "guid_reissued": false
     }
   }
 }

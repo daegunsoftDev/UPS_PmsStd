@@ -4,7 +4,7 @@
 >
 > `FB_RptSebangUps`로 UPS 계측값 41개를 연결했다. 경로는 `MAIN.A_Report → GVL_IF.g_stReport.astUps → PRG_Mqtt → g_stUpsPublish.Devices`다. `UPS_REPORT_ENABLED=TRUE`, 브로커는 `stLocal`(192.168.0.194:1883)만 사용한다. `g_fbUps1`은 UPS 시뮬레이터 보드(192.0.0.98:23, Unit 1)에 접속한다.
 >
-> Status는 b0 통신에러, b1 run(인버터 운전), b2 stop, b3 bypass, b4 inverter, b7 e-stop을 채운다. b5·b6과 Warning·Fault는 비트 배치 확정 전이라 0이며 고장 없음을 뜻하지 않는다. `FB_UpsModbusJob`의 타임아웃이 0으로 고정되던 오류도 고쳤다. 쓰기 차단은 유지한다. TwinCAT 빌드·보드 통신·브로커 시험은 이 갱신 시점에 하지 않았다.
+> (2026-11-12 인터페이스 08.UPS 반영) UPS 레코드 앞부분은 DeviceIndex, SystemOperationMode, OperationMode, Status(b0 통신에러 b1 warning b2 fault b3 e-stop b4 충전 중), UPS_ModeStatus(b0~b12 운전 모드), MCCB_Status(STATUS1 b1~b6), RectStatus, BBCStatus, InverterStatus, BypassStatus 10칸(UDINT)이다. SystemOperationMode·OperationMode는 출처가 정해지지 않아 0이다. Warning1~3·Fault1~3은 세방 맵 Alarm Flag 경고장·중고장 마스크로 채운다. `FB_UpsModbusJob`의 타임아웃이 0으로 고정되던 오류도 고쳤다. 쓰기 차단은 유지한다. TwinCAT 빌드·보드 통신·브로커 시험은 이 갱신 시점에 하지 않았다.
 
 > 2026-10-30 BAT 보고 매핑 추가: 아래의 기존 미연결 설명 중 BAT 계측값 부분은 이 갱신 내용을 우선한다.
 >
@@ -39,7 +39,7 @@
 
 | 방향 | 토픽 | 수량 | 크기 |
 | --- | --- | --- | --- |
-| PMS → EMS | dgspms/ups/3/ups | UPS3개 | 40 + 3×196 = 628바이트 |
+| PMS → EMS | dgspms/ups/3/ups | UPS3개 | 40 + 3×228 = 724바이트 (2026-11-12 상태 칸 8개 추가, 196 → 228) |
 | PMS → EMS | dgspms/ups/3/bat | BAT3개 | 40 + 3×200 = 640바이트 |
 | PMS → EMS | dgspms/ups/3/rack | 랙30개 | 40 + 30×184 = 5560바이트 |
 | PMS → EMS | dgspms/ups/3/module | 모듈300개 | 40 + 300×104 = 31240바이트 |
@@ -79,6 +79,8 @@ Config는 필드 단위 패치라고 확정하지 않았다. 현재 분배기는
 - 발행: UPS DeviceIndex 1, BAT DeviceIndex 1, Rack DeviceIndex 1~8 + BatIndex 1, Module BatIndex 1·RackIndex 1~8·DeviceIndex(랙 안 모듈 번호) 1~9. pms·pv_meter·ess_meter·temperature_sensor·airconditioner DeviceIndex도 1.
 - 랙의 최고·최저 셀전압·모듈 온도 위치(모듈·셀 번호)도 1부터.
 - 수신: command(pcs·bat·ups)와 config(pcs·bat·ups)의 DeviceIndex/DeviceId는 1부터 보내야 한다 (`F_MqttDistribute.DEVICE_ID_BASE = 1`). 0은 범위 밖으로 버린다.
+- command 레코드 (2026-11-12, 인터페이스 100.Command): SequenceNumber, DeviceIndex, CommandType, Value(REAL), Delay(ms) = 20바이트. 같은 SequenceNumber는 버리고(0은 거르지 않음), Delay만큼 기다렸다가 실행한다 (`FB_EmsCmdGate`). UPS CommandType은 번호 1~26 = 세방 맵 H100~H125.
+- BAT (2026-11-13, BMS 맵 v1.4): command/bat 1 닫기·2 열기 = 40013~40015 FC16 한 번에 [1,1,1]·[0,0,0], 5·6 = 40013(랙 전체), 7·8 = 40014(충전), 9·10 = 40015(방전) 하나씩, 11·12 = 40001 랙 비트(Value = 랙 번호, 실제 상태 30027 바탕). 보고: BAT Status b11 충전 컨택터 붙음, b12 방전 컨택터 붙음, RACK Status b10 랙 컨택터 붙음 (Input 30026·30027). 레코드 크기는 그대로.
 - config echo의 DeviceId도 1부터.
 
 ## 확인할 문서 항목

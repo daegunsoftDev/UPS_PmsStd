@@ -12,6 +12,9 @@ VAR
 	sInstance		: STRING(4);			// ClientId 꼬리표 (이중화일 때 역할로 정함)
 	bRoleReady		: BOOL;				// 이중화 역할이 정해짐 (안 쓰면 항상 TRUE)
 	fbEmsCommand	: FB_EmsCommand;		// 명령 핸들러
+	fbGatePcs		: FB_EmsCmdGate;		// command/pcs 중복 거르기·Delay 대기 [2026-11-12]
+	fbGateBat		: FB_EmsCmdGate;		// command/bat
+	fbGateUps		: FB_EmsCmdGate;		// command/ups
 	stRptCopy		: ST_IfReport;		// 보고 칸의 마지막 일관된 복사본
  stRptCandidate : ST_IfReport; // 복사 중인 보고값
 	nRptSeq			: UDINT;
@@ -143,6 +146,11 @@ END_IF
 IF GVL_SITE.TEST_MODE THEN
 	PRG_MqttTestData.A_HandleRx();
 END_IF
+
+(* 3-1. 명령 앞단 (인터페이스 100.Command 2026-11-12): 같은 SequenceNumber 버리기, Delay(ms)만큼 기다렸다가 핸들러에 넘김 *)
+fbGatePcs(iq_astRec := g_astPcsCommand);
+fbGateBat(iq_astRec := g_astBatCommand);
+fbGateUps(iq_astRec := g_astUpsCommand);
 
 (* 4. 명령 핸들러: command 레코드 → Std 명령. 바뀌었으면 GVL_IF에 올림 (쓰기 전 번호 홀수, 끝나면 짝수) *)
 nRxTotal := 0;

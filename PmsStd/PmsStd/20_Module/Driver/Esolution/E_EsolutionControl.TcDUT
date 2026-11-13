@@ -4,7 +4,7 @@
 {attribute 'strict'}
 TYPE E_EsolutionControl : (
 	EmergencyShutdown := 11,
-	SystemContactor := 12,
+	SystemContactor := 12,	// 40013 Rack Contactor Control (맵 v1.4 이름): 1이면 랙 8개가 40001과 상관없이 한꺼번에 붙음
 	ChargeContactor := 13,
 	DischargeContactor := 14
 ) INT;

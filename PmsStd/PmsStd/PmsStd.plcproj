@@ -1267,5 +1267,14 @@
     <Compile Include="20_Module\Driver\Esolution\FB_BmsRackCommand.TcPOU">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="20_Module\Mqtt\FB_EmsCmdGate.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\Esolution\ST_BatCtlCmd.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="20_Module\Driver\Esolution\FB_BmsContactorCommand.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
   </ItemGroup>
 </Project>

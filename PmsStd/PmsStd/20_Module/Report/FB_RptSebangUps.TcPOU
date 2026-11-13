@@ -46,25 +46,47 @@ q_stUps.Fault1 := WORD_TO_UDINT(_awFault[0]) OR SHL(WORD_TO_UDINT(_awFault[1]), 
 q_stUps.Fault2 := WORD_TO_UDINT(_awFault[2]) OR SHL(WORD_TO_UDINT(_awFault[3]), 16);
 q_stUps.Fault3 := WORD_TO_UDINT(_awFault[4]) OR SHL(WORD_TO_UDINT(_awFault[6] OR _awFault[7]), 16);
 
-// 명세 RD-UPS-01: Status
+// 명세 RD-UPS-01: 상태 칸 (인터페이스 08.UPS 2026-11-12). 맵 워드: I45 정류부, I46 BBC, I48 인버터, I50 STATUS1, I51 STATUS2
+// SystemOperationMode·OperationMode는 출처가 정해지지 않아 0 (빈 값으로 둠)
 q_stUps.Status := 0;
-q_stUps.Status.1 := i_stState.bInverterOn; // run
-q_stUps.Status.2 := NOT i_stState.bInverterOn; // stop
-q_stUps.Status.3 := i_stState.bOnBypass; // bypass 운전
-q_stUps.Status.4 := i_stState.bOnInverter; // inverter 운전
-q_stUps.Status.5 := (q_stUps.Warning1 OR q_stUps.Warning2 OR q_stUps.Warning3) <> 0; // 경고 있음
-q_stUps.Status.6 := (q_stUps.Fault1 OR q_stUps.Fault2 OR q_stUps.Fault3) <> 0; // 고장 있음
-q_stUps.Status.7 := i_stState.bEmergencyStop; // e-stop
-q_stUps.Status.8 := i_stState.wStatus1.5; // 수동 바이패스(MBS C/B close)
-q_stUps.Status.9 := i_stState.wStatus1.6; // 출력 차단기 개방(Out C/B Open)
-q_stUps.Status.10 := i_stState.bBbcOn; // BBC 기동 (I46 b12)
-q_stUps.Status.11 := i_stState.nBatMode = 0; // 부동충전 (BAT Mode 값을 비트로 나눔)
-q_stUps.Status.12 := i_stState.nBatMode = 1; // 균등충전
-q_stUps.Status.13 := i_stState.nBatMode = 2; // 대기
-q_stUps.Status.14 := i_stState.nBatMode = 3; // 주기적 방전
-q_stUps.Status.15 := i_stState.nBatMode = 4; // 펄스 방전
-q_stUps.Status.16 := i_stState.nBatMode = 5; // 간헐충전
-q_stUps.Status.17 := i_stState.bTemperatureEnabled; // 온도보상충전 (I51 b2, 다른 모드와 동시 가능)
+q_stUps.Status.1 := (q_stUps.Warning1 OR q_stUps.Warning2 OR q_stUps.Warning3) <> 0; // 경고 있음
+q_stUps.Status.2 := (q_stUps.Fault1 OR q_stUps.Fault2 OR q_stUps.Fault3) <> 0; // 고장 있음
+q_stUps.Status.3 := i_stState.bEmergencyStop; // e-stop (I50 b0)
+q_stUps.Status.4 := i_stState.wStatus1.13; // 충전 중 (I50 b13 Batt charg Flag)
+
+q_stUps.UPS_ModeStatus := 0;
+q_stUps.UPS_ModeStatus.0 := i_stState.nBatMode = 0; // 부동충전 (BAT Mode 값을 비트로 나눔)
+q_stUps.UPS_ModeStatus.1 := i_stState.nBatMode = 1; // 균등충전
+q_stUps.UPS_ModeStatus.2 := i_stState.nBatMode = 2; // 대기
+q_stUps.UPS_ModeStatus.3 := i_stState.nBatMode = 3; // 주기적 방전
+q_stUps.UPS_ModeStatus.4 := i_stState.nBatMode = 4; // 펄스 방전
+q_stUps.UPS_ModeStatus.5 := i_stState.nBatMode = 5; // 간헐충전
+q_stUps.UPS_ModeStatus.6 := i_stState.wRectAlarm.8; // 비상 방전 (I45 b8 Regen mode)
+q_stUps.UPS_ModeStatus.7 := i_stState.bTemperatureEnabled; // 온도보상충전 (I51 b2, 다른 모드와 동시 가능)
+q_stUps.UPS_ModeStatus.8 := i_stState.wInverterAlarm.7; // ECO 모드 (I48 b7)
+q_stUps.UPS_ModeStatus.9 := i_stState.wStatus1.12; // PRLT 모드 (I50 b12)
+q_stUps.UPS_ModeStatus.10 := i_stState.wStatus1.11; // Droop 모드 (I50 b11)
+q_stUps.UPS_ModeStatus.11 := i_stState.wRectAlarm.15; // VSM 모드 (I45 b15)
+q_stUps.UPS_ModeStatus.12 := i_stState.wRectAlarm.8; // Regen 모드 (I45 b8, b6과 같은 비트)
+
+q_stUps.MCCB_Status := SHR(WORD_TO_UDINT(i_stState.wStatus1), 1) AND 16#3F; // I50 b1~b6 → b0~b5 (b5 Out C/B는 1이 개방)
+
+q_stUps.RectStatus := 0;
+q_stUps.RectStatus.0 := i_stState.bRectOn; // 정류부 기동 (I45 b11)
+q_stUps.RectStatus.1 := i_stState.bRectNormal; // 정류부 정상 (I45 b12)
+q_stUps.RectStatus.2 := i_stState.wRectAlarm.8; // Regen (I45 b8, 비상 방전)
+
+q_stUps.BBCStatus := 0;
+q_stUps.BBCStatus.0 := i_stState.bBbcOn; // 배터리 컨버터 기동 (I46 b12)
+q_stUps.BBCStatus.1 := i_stState.bBbcNormal; // 배터리 컨버터 정상 (I46 b13)
+
+q_stUps.InverterStatus := 0;
+q_stUps.InverterStatus.0 := i_stState.bInverterOn; // 인버터 기동 (I48 b6)
+q_stUps.InverterStatus.1 := i_stState.bInverterNormal; // 인버터 정상 (I48 b14)
+q_stUps.InverterStatus.2 := i_stState.bOnInverter; // 인버터 출력 (I48 b13)
+
+q_stUps.BypassStatus := 0;
+q_stUps.BypassStatus.0 := i_stState.bOnBypass; // 바이패스 출력 (I48 b12)
 
 q_stUps.LineInputVoltage_R := i_stState.fInputVoltageRV;
 q_stUps.LineInputVoltage_S := i_stState.fInputVoltageSV;

@@ -26,6 +26,8 @@ VAR
  _bPendingWrite : BOOL;
  _nPendingAddress : WORD;
  _wPendingValue : WORD;
+ _nPendingQty : WORD; // 1 = FC06, 2~3 = FC16 같은 값 여러 칸 [2026-11-13]
+ _awValues : ARRAY[0..2] OF WORD;
  _nPoll : UINT;
  _nCopy : UINT;
  _bReadDue : BOOL;
@@ -72,7 +74,7 @@ IF NOT i_bEnable OR NOT i_bWritePermit OR NOT GVL_PARAM.UPS_CONTROL_ENABLED THEN
 END_IF
 _fbJob(i_sIpAddr:=i_sIpAddr,i_nPort:=i_nPort,i_nUnitId:=i_nUnitId,i_tTimeout:=i_tTimeout,
  i_bExecute:=_bLaunch,i_bWritePermit:=i_bWritePermit AND i_bEnable,
- i_nFunction:=_nFunction,i_nAddress:=_nAddress,i_nQuantity:=_nQuantity,i_wValue:=_wValue);
+ i_nFunction:=_nFunction,i_nAddress:=_nAddress,i_nQuantity:=_nQuantity,i_wValue:=_wValue,i_awValues:=_awValues);
 _bLaunch := FALSE;
 IF _fbJob.q_bDone THEN
  q_nTransportError := _fbJob.q_nErrorId;
@@ -98,7 +100,7 @@ ELSIF _fbJob.q_bDone AND NOT _bCurrentWrite THEN
   _nPoll:=0;
  ELSE
   CASE _nPoll OF
-   0: FOR _nCopy:=0 TO 24 DO _stWork.awSystem[_nCopy]:=_fbJob.q_awData[_nCopy]; END_FOR
+   0: FOR _nCopy:=0 TO 26 DO _stWork.awSystem[_nCopy]:=_fbJob.q_awData[_nCopy]; END_FOR
    1: FOR _nCopy:=0 TO 39 DO _stWork.awRackAnalog[_nCopy]:=_fbJob.q_awData[_nCopy]; END_FOR
    2:
     FOR _nCopy:=0 TO 89 DO _stWork.awRackStatus[_nCopy]:=_fbJob.q_awData[_nCopy]; END_FOR
@@ -125,7 +127,7 @@ ELSIF _fbJob.q_bDone AND NOT _bCurrentWrite THEN
 END_IF
 M_UpdateComm();
 _tonHeartbeat(IN:=NOT _bHeartbeatChanged,PT:=i_tHeartbeatTimeout);
-// System Data 1~25
+// System Data 1~27
 q_stState.nHeartbeat:=q_stRaw.awSystem[0]; // 1. 하트비트
 q_stState.fVoltageV:=WORD_TO_REAL(q_stRaw.awSystem[1])*0.1; // 2. 전체 전압 (V)
 q_stState.fCurrentA:=F_UpsSignedWord(q_stRaw.awSystem[2])*0.1; // 3. 전체 전류 (A)
@@ -151,6 +153,10 @@ q_stState.fChargeLimitKw:=WORD_TO_REAL(q_stRaw.awSystem[21]); // 22. 충전 허�
 q_stState.fDischargeLimitKw:=WORD_TO_REAL(q_stRaw.awSystem[22]); // 23. 방전 허용 전력 (kW)
 q_stState.fChargeCurrentLimitA:=WORD_TO_REAL(q_stRaw.awSystem[23]); // 24. 충전 허용 전류 (A)
 q_stState.fDischargeCurrentLimitA:=WORD_TO_REAL(q_stRaw.awSystem[24]); // 25. 방전 허용 전류 (A)
+q_stState.wSystemContactor:=q_stRaw.awSystem[25]; // 26. 시스템 컨택터 상태 (맵 v1.4)
+q_stState.wRackContactor:=q_stRaw.awSystem[26]; // 27. 랙 컨택터 상태 (맵 v1.4)
+q_stState.bChargeContactorClosed:=q_stRaw.awSystem[25].0;
+q_stState.bDischargeContactorClosed:=q_stRaw.awSystem[25].1;
 
 q_stState.bComm:=_bComm AND i_bEnable;
 q_stState.bFresh:=q_stState.bComm AND NOT _tonHeartbeat.Q;
@@ -175,9 +181,14 @@ FOR _nRack:=1 TO 10 DO
   q_stState.bSystemLock:=q_stState.bSystemLock OR q_stRaw.awRackStatus[_nOffset].8 OR q_stRaw.awRackStatus[_nOffset+3].13;
  END_IF
 END_FOR
-// Physical contactor feedback is NOT inferred from a command or a generic operating mode.
-q_stState.bContactorFeedbackKnown:=FALSE;
-_stBat.bComm:=q_stState.bValid; _stBat.bContactorClosed:=FALSE;
+// 컨택터 상태는 맵 v1.4 Input 26·27로 판단 (명령이나 운전 모드로 추정하지 않음) [2026-11-13]
+// 붙음 = 설치 랙 중 하나라도 붙음 AND 충전·방전 중 하나라도 붙음 (배터리가 버스에 이어짐).
+// 그래서 하나라도 붙어 있으면 코어 개방(Open)이 나가고, 개방 확인은 다 떨어져야 됨.
+q_stState.bContactorFeedbackKnown:=q_stState.bValid;
+_wInstalledMask:=SHL(WORD#1,i_nRackCount)-1;
+_stBat.bComm:=q_stState.bValid;
+_stBat.bContactorClosed:=q_stState.bValid AND (q_stState.wRackContactor AND _wInstalledMask)<>0
+ AND (q_stState.bChargeContactorClosed OR q_stState.bDischargeContactorClosed);
 _stBat.bWarn:=q_stState.bWarn; _stBat.bFault:=q_stState.bFault; _stBat.bSysStop:=q_stState.bSystemLock;
 _stBat.stSoc.fValue:=q_stState.fSocPct;
 _stBat.stSoc.bValid:=q_stState.bValid AND q_stState.fSocPct>=0 AND q_stState.fSocPct<=100;
@@ -188,18 +199,20 @@ _stBat.fPDisMax:=SEL(q_stState.bValid,0.0,q_stState.fDischargeLimitKw);
 _stBat.bWriteFail:=_bWriteFail;
 IF NOT _fbJob.q_bBusy AND NOT _fbJob.q_bDone AND i_bEnable AND i_sIpAddr<>'' THEN
 IF _bPendingWrite THEN
- _nFunction:=6; _nAddress:=_nPendingAddress; _nQuantity:=1; _wValue:=_wPendingValue;
+ _nAddress:=_nPendingAddress; _nQuantity:=_nPendingQty; _wValue:=_wPendingValue;
+ _awValues[0]:=_wPendingValue; _awValues[1]:=_wPendingValue; _awValues[2]:=_wPendingValue;
+ IF _nPendingQty>1 THEN _nFunction:=16; ELSE _nFunction:=6; END_IF
  _bCurrentWrite:=TRUE; _bPendingWrite:=FALSE; _bLaunch:=TRUE;
 ELSIF _bReadDue THEN
  _bCurrentWrite:=FALSE;
 
  _nFunction:=4;
  CASE _nPoll OF
-  0: _nAddress:=0; _nQuantity:=25;
+  0: _nAddress:=0; _nQuantity:=27; // 맵 v1.4: 30001~30027
   1: _nAddress:=50; _nQuantity:=40;
   2: _nAddress:=90; _nQuantity:=90;
   3:
-   IF NOT i_bReadDetails THEN _nPoll:=0; _nAddress:=0; _nQuantity:=25;
+   IF NOT i_bReadDetails THEN _nPoll:=0; _nAddress:=0; _nQuantity:=27;
    ELSE
     _nDetailChunk:=MIN(125,406-_nDetailOffset);
     _nAddress:=UINT_TO_WORD(500+500*(_nDetailRack-1)+_nDetailOffset);
@@ -210,40 +223,44 @@ ELSIF _bReadDue THEN
  END_IF
 END_IF
 IF NOT i_bEnable THEN _nSampleSeq:=0; _nPoll:=0; _nDetailOffset:=0; _bLaunch:=FALSE; END_IF]]></ST></Implementation></Method><Property Name="BatState" Id="{a30686f7-6582-4fb1-bba9-3b001644fe4f}"><Declaration><![CDATA[PROPERTY BatState : ST_BatState]]></Declaration><Get Name="Get" Id="{a421f7e3-3c40-44d4-bd16-0d17360e283f}"><Declaration><![CDATA[]]></Declaration><Implementation><ST><![CDATA[BatState:=_stBat;]]></ST></Implementation></Get></Property><Method Name="M_QueueWrite" Id="{5424d895-20c6-40c8-8757-6010d2507221}"><Declaration><![CDATA[METHOD PRIVATE M_QueueWrite : BOOL
-VAR_INPUT i_nAddress : WORD; i_wValue : WORD; END_VAR]]></Declaration><Implementation><ST><![CDATA[q_eRequestResult := E_UpsResult.Disabled;
+VAR_INPUT i_nAddress : WORD; i_wValue : WORD;
+ i_nQuantity : WORD; // 1 = FC06. 2~3 = FC16로 i_nAddress부터 같은 값 i_wValue를 여러 칸에 [2026-11-13]
+END_VAR]]></Declaration><Implementation><ST><![CDATA[q_eRequestResult := E_UpsResult.Disabled;
 IF NOT GVL_PARAM.UPS_CONTROL_ENABLED OR NOT i_bWritePermit OR NOT i_bEnable THEN RETURN; END_IF
+IF i_nQuantity<1 OR i_nQuantity>3 THEN q_eRequestResult := E_UpsResult.BadRequest; RETURN; END_IF
 q_eRequestResult := E_UpsResult.CommUnavailable;
 IF NOT q_stState.bValid THEN RETURN; END_IF
 q_eRequestResult := E_UpsResult.Busy;
 IF _bPendingWrite OR _bCurrentWrite AND (_fbJob.q_bBusy OR _bLaunch) THEN RETURN; END_IF
-_nPendingAddress := i_nAddress; _wPendingValue := i_wValue; _bPendingWrite := TRUE;
+_nPendingAddress := i_nAddress; _wPendingValue := i_wValue; _nPendingQty := i_nQuantity; _bPendingWrite := TRUE;
 q_eRequestResult := E_UpsResult.Accepted;
 M_QueueWrite := TRUE;]]></ST></Implementation></Method><Method Name="M_SetRackMask" Id="{21aa261b-0519-4503-8b0c-678b38aa124a}"><Declaration><![CDATA[METHOD M_SetRackMask : BOOL
 // Whole installed-rack bitmap, not an individual-rack pulse. 0 disables ALL installed racks.
 VAR_INPUT i_wMask : WORD; END_VAR]]></Declaration><Implementation><ST><![CDATA[IF i_nRackCount<1 OR i_nRackCount>10 THEN q_eRequestResult:=E_UpsResult.BadConfig; RETURN; END_IF
 _wInstalledMask:=SHL(WORD#1,i_nRackCount)-1;
 IF (i_wMask AND NOT _wInstalledMask)<>0 THEN q_eRequestResult:=E_UpsResult.BadConfig; RETURN; END_IF
-M_SetRackMask:=M_QueueWrite(0,i_wMask);]]></ST></Implementation></Method><Method Name="M_RequestOperation" Id="{f9143782-cef1-4fce-b683-55ff1db3fe56}"><Declaration><![CDATA[METHOD M_RequestOperation : BOOL
+M_SetRackMask:=M_QueueWrite(i_nAddress:=0,i_wValue:=i_wMask,i_nQuantity:=1);]]></ST></Implementation></Method><Method Name="M_RequestOperation" Id="{f9143782-cef1-4fce-b683-55ff1db3fe56}"><Declaration><![CDATA[METHOD M_RequestOperation : BOOL
 VAR_INPUT i_eOperation : E_EsolutionOperation; END_VAR]]></Declaration><Implementation><ST><![CDATA[IF TO_INT(i_eOperation)<0 OR TO_INT(i_eOperation)>9 THEN q_eRequestResult:=E_UpsResult.Unsupported; RETURN; END_IF
-M_RequestOperation:=M_QueueWrite(10,SHL(WORD#1,INT_TO_UINT(TO_INT(i_eOperation))));]]></ST></Implementation></Method><Method Name="M_SetStateCmd" Id="{128312a1-9dee-439b-a215-2688fcdb32ff}"><Declaration><![CDATA[METHOD M_SetStateCmd : BOOL
+M_RequestOperation:=M_QueueWrite(i_nAddress:=10,i_wValue:=SHL(WORD#1,INT_TO_UINT(TO_INT(i_eOperation))),i_nQuantity:=1);]]></ST></Implementation></Method><Method Name="M_SetStateCmd" Id="{128312a1-9dee-439b-a215-2688fcdb32ff}"><Declaration><![CDATA[METHOD M_SetStateCmd : BOOL
 VAR_INPUT i_stCmd : ST_BatCmd; END_VAR]]></Declaration><Implementation><ST><![CDATA[IF _bHaveCoreCmd AND _nLastCoreCmdSeq=i_stCmd.nSeq THEN
  q_eRequestResult:=E_UpsResult.Duplicate; RETURN;
 END_IF
 CASE i_stCmd.eCmd OF
- E_BatCmd.Close: M_SetStateCmd:=M_SetControl(E_EsolutionControl.SystemContactor,TRUE);
- E_BatCmd.Open: M_SetStateCmd:=M_SetControl(E_EsolutionControl.SystemContactor,FALSE);
+ // 투입·개방은 40013(랙 전체)·40014(충전)·40015(방전)를 FC16 한 번에 [1,1,1] / [0,0,0] (2026-11-12 이솔루션 답: 순서 무관, 2026-11-13 사용자 결정 2안)
+ E_BatCmd.Close: M_SetStateCmd:=M_QueueWrite(i_nAddress:=INT_TO_WORD(TO_INT(E_EsolutionControl.SystemContactor)),i_wValue:=1,i_nQuantity:=3);
+ E_BatCmd.Open: M_SetStateCmd:=M_QueueWrite(i_nAddress:=INT_TO_WORD(TO_INT(E_EsolutionControl.SystemContactor)),i_wValue:=0,i_nQuantity:=3);
  E_BatCmd.EStop: M_SetStateCmd:=M_SetControl(E_EsolutionControl.EmergencyShutdown,TRUE);
- E_BatCmd.Reset: M_SetStateCmd:=M_QueueWrite(30,1);
+ E_BatCmd.Reset: M_SetStateCmd:=M_QueueWrite(i_nAddress:=30,i_wValue:=1,i_nQuantity:=1);
 ELSE q_eRequestResult:=E_UpsResult.Unsupported;
 END_CASE
 IF M_SetStateCmd THEN _bHaveCoreCmd:=TRUE; _nLastCoreCmdSeq:=i_stCmd.nSeq; END_IF]]></ST></Implementation></Method><Method Name="M_SetControl" Id="{f742f337-89b4-4786-a96f-77c44f7a8888}"><Declaration><![CDATA[METHOD M_SetControl : BOOL
-// System protocol v1.3: 0-based holding addresses, uint16 values (NOT 0x55).
+// System protocol v1.4: 0-based holding addresses, uint16 values (NOT 0x55). 하나씩 제어 (EMS command/bat 5~10)
 VAR_INPUT i_eControl : E_EsolutionControl; i_bOn : BOOL; END_VAR]]></Declaration><Implementation><ST><![CDATA[CASE i_eControl OF
  E_EsolutionControl.EmergencyShutdown:
   IF NOT i_bOn THEN q_eRequestResult:=E_UpsResult.Unsupported; RETURN; END_IF;
-  M_SetControl:=M_QueueWrite(11,1);
+  M_SetControl:=M_QueueWrite(i_nAddress:=11,i_wValue:=1,i_nQuantity:=1);
  E_EsolutionControl.SystemContactor, E_EsolutionControl.ChargeContactor, E_EsolutionControl.DischargeContactor:
-  M_SetControl:=M_QueueWrite(INT_TO_WORD(TO_INT(i_eControl)),BOOL_TO_WORD(i_bOn));
+  M_SetControl:=M_QueueWrite(i_nAddress:=INT_TO_WORD(TO_INT(i_eControl)),i_wValue:=BOOL_TO_WORD(i_bOn),i_nQuantity:=1);
 ELSE q_eRequestResult:=E_UpsResult.Unsupported;
 END_CASE]]></ST></Implementation></Method><Method Name="M_CheckSet" Id="{93efe8f1-323e-444f-9b2e-5602b27ebc47}"><Declaration><![CDATA[METHOD M_CheckSet : WSTRING(63)]]></Declaration><Implementation><ST><![CDATA[M_CheckSet:="";
 IF i_bEnable THEN

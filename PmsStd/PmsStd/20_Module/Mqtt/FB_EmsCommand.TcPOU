@@ -9,7 +9,8 @@
    - 이상한 값(NaN·무한대·절댓값이 MAX_VALUE 초과)의 P 지령은 버리고 센다. NaN은 비교하면 PLC가 멈추므로 F_IsFinite(비트)로 먼저 거른다. 정격 대비 상한은 코어 명령 필터(g_stCmdFilter)가 다시 거른다
    PCS CommandType: 1 Run, 2 Stop, 3 Standby, 4 충전(Value kW), 5 방전(Value kW), 6 비상정지, 7 리셋
    BAT CommandType: 1 접촉기 투입(Close), 2 개방(Open), 3 비상정지, 4 리셋, 11 랙 컨택터 닫기, 12 랙 컨택터 열기 (Value = 랙 번호 1~)
-   (인터페이스 100.Command. 5~10은 아직 처리하지 않음 → 모르는 명령으로 셈) *)
+   5 시스템(랙 전체 40013) 연결, 6 차단, 7 충전 컨택터(40014) 닫기, 8 열기, 9 방전 컨택터(40015) 닫기, 10 열기 → astBatCtl [2026-11-13]
+   (인터페이스 100.Command) *)
 VAR_INPUT
 	i_nRxCount			: UDINT;	// command 메시지 수신 누계 (브로커 3개 합)
 END_VAR
@@ -96,6 +97,10 @@ FOR _i := 0 TO GVL_PARAM.BMS_COUNT - 1 DO
 			2:	_eBatCmd := E_BatCmd.Open;
 			3:	_eBatCmd := E_BatCmd.EStop;
 			4:	_eBatCmd := E_BatCmd.Reset;
+			5..10:	// 컨택터 하나씩 (FB_BmsContactorCommand가 번호를 해석) [2026-11-13]
+				q_stCmd.astBatCtl[_n].nSeq := q_stCmd.astBatCtl[_n].nSeq + 1;
+				q_stCmd.astBatCtl[_n].nType := UDINT_TO_UINT(iq_astBatCommand[_i].CommandType);
+				q_bChanged := TRUE;
 			11, 12:	// 랙 컨택터 닫기·열기. Value = 랙 번호 (정수가 아니거나 범위 밖이면 0 → FB_BmsRackCommand가 거절)
 				q_stCmd.astBatRack[_n].nSeq := q_stCmd.astBatRack[_n].nSeq + 1;
 				q_stCmd.astBatRack[_n].bClose := iq_astBatCommand[_i].CommandType = 11;

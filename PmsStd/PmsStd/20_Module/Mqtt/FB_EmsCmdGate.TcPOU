@@ -1,0 +1,80 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_EmsCmdGate" Id="{5f94382c-e185-4e4a-8fb1-a6c5bf5441a8}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_EmsCmdGate		// EMS command 레코드 앞단: 같은 SequenceNumber 버리기 + Delay(ms)만큼 기다렸다가 내보내기
+(* EMS command 레코드 중복 방지·지연 실행 (⑤출력 앞단 / 장치: PCS·BAT·UPS 명령 공통). 2026-11-12.
+   기반 없음(신규).
+   변경: 없음
+   부호·단위: Delay ms. 명세: C:\gil\UPS\명세서\UPS_명세서.md WR-CMD-01, 인터페이스 100.Command (SequenceNumber·Delay)
+   - 수신 배열(GVL_MQTT.g_ast*Command, 칸 = DeviceIndex-1)을 그대로 받아, 명령 핸들러(FB_EmsCommand, PRG_Mqtt UPS 칸)보다 먼저 부른다
+   - 새 레코드(CommandType<>0)의 SequenceNumber가 그 칸에서 마지막으로 받은 번호와 같으면 버린다 (0은 거르지 않음)
+   - Delay = 0이면 그대로 두어 이번 스캔에 처리된다. Delay > 0이면 레코드를 빼서 보관하고, 시간이 되면 그 칸에 다시 넣는다
+   - 보관 중에 같은 칸에 새 명령이 오면 보관한 명령은 버리고 새 명령을 따른다 (마지막 명령이 우선)
+   - Delay가 MAX_DELAY_MS를 넘으면 버린다
+   - 재시작하면 마지막 번호와 보관 명령은 없어진다 (보관 중이던 명령은 실행하지 않음) *)
+VAR_IN_OUT
+	iq_astRec			: ARRAY[*] OF ST_MqttCommand_Rx;	// 수신 배열 (0부터, 칸 = DeviceIndex-1)
+END_VAR
+VAR_OUTPUT
+	q_nDupCount			: UDINT;	// 같은 SequenceNumber라 버린 수
+	q_nDelayedCount		: UDINT;	// Delay 때문에 보관한 수
+	q_nReplacedCount	: UDINT;	// 보관 중 새 명령이 와서 버린 보관 명령 수
+	q_nBadDelayCount	: UDINT;	// Delay가 너무 커서 버린 수
+	q_nPendingCount		: UDINT;	// 지금 보관 중인 명령 수
+END_VAR
+VAR CONSTANT
+	MAX_SLOTS			: DINT := 16;			// 다룰 수 있는 칸 수 (PCS·BMS·UPS 대수보다 커야 함)
+	MAX_DELAY_MS		: UDINT := 3600000;		// 1시간
+END_VAR
+VAR
+	_anLastSeq			: ARRAY[0..15] OF UDINT;
+	_astPend			: ARRAY[0..15] OF ST_MqttCommand_Rx;
+	_abPend				: ARRAY[0..15] OF BOOL;
+	_atStart			: ARRAY[0..15] OF TIME;
+	_tNow				: TIME;
+	_i					: DINT;
+	_s					: DINT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[_tNow := TIME();
+q_nPendingCount := 0;
+FOR _i := LOWER_BOUND(iq_astRec, 1) TO UPPER_BOUND(iq_astRec, 1) DO
+	_s := _i - LOWER_BOUND(iq_astRec, 1);
+	IF _s >= MAX_SLOTS THEN
+		EXIT;
+	END_IF
+	IF iq_astRec[_i].CommandType <> 0 THEN
+		IF iq_astRec[_i].SequenceNumber <> 0 AND iq_astRec[_i].SequenceNumber = _anLastSeq[_s] THEN
+			iq_astRec[_i].CommandType := 0;		// 같은 명령이 다시 옴
+			q_nDupCount := q_nDupCount + 1;
+		ELSE
+			_anLastSeq[_s] := iq_astRec[_i].SequenceNumber;
+			IF _abPend[_s] THEN
+				_abPend[_s] := FALSE;			// 새 명령이 기다리던 명령을 대신함
+				q_nReplacedCount := q_nReplacedCount + 1;
+			END_IF
+			IF iq_astRec[_i].Delay > MAX_DELAY_MS THEN
+				iq_astRec[_i].CommandType := 0;
+				q_nBadDelayCount := q_nBadDelayCount + 1;
+			ELSIF iq_astRec[_i].Delay > 0 THEN
+				_astPend[_s] := iq_astRec[_i];
+				_abPend[_s] := TRUE;
+				_atStart[_s] := _tNow;
+				iq_astRec[_i].CommandType := 0;	// 시간이 될 때까지 핸들러가 못 보게 함
+				q_nDelayedCount := q_nDelayedCount + 1;
+			END_IF
+		END_IF
+	ELSIF _abPend[_s] AND (_tNow - _atStart[_s]) >= UDINT_TO_TIME(_astPend[_s].Delay) THEN
+		iq_astRec[_i] := _astPend[_s];			// 시간이 됨: 이번 스캔에 핸들러가 처리
+		iq_astRec[_i].Delay := 0;
+		_abPend[_s] := FALSE;
+	END_IF
+	IF _abPend[_s] THEN
+		q_nPendingCount := q_nPendingCount + 1;
+	END_IF
+END_FOR
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

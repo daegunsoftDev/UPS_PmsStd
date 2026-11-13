@@ -9,13 +9,17 @@
    - 선택표는 PERSISTENT (i_wRestore로 시작 때 한 번 읽고, q_wMask를 MAIN이 저장). 저장값이 없으면(0) 설치된 랙 전부
    - 거절: 랙 번호 범위 밖(BadRequest), 마지막 남은 랙 열기(BadRequest: 0이면 BMS가 전 랙 사용 안 함 → 전체는 일괄 2 열기로)
    - 드라이버가 바쁘면(Busy) WRITE_TIMEOUT 동안 다시 시도. 그 밖의 거절(쓰기 막힘, 통신 불가 등)은 바로 그 결과로 끝
-   - 같은 상태로 바꾸는 명령도 표 전체를 다시 씀 (BMS가 다시 켜져 표가 달라졌을 때 맞춤) *)
+   - 같은 상태로 바꾸는 명령도 표 전체를 다시 씀 (BMS가 다시 켜져 표가 달라졌을 때 맞춤)
+   - [2026-11-13] BMS 맵 v1.4 랙 컨택터 상태(Input 30027)를 받으면 그 실제 상태를 바탕으로 비트를 바꿈.
+     40013(랙 전체 연결)으로 다 붙은 뒤 옛 선택표로 써서 다른 랙을 떼는 일을 막음. 상태가 없으면 기억한 선택표 *)
 VAR_INPUT
 	i_stCmd			: ST_BatRackCmd;	// EMS 랙 명령 (번호가 바뀌면 새 명령)
 	i_nRackCount	: UINT;				// 설치된 랙 수 (GVL_PARAM.RACKS_PER_BMS)
 	i_wRestore		: WORD;				// 처음 호출 때 한 번 읽는 저장된 선택표 (GVL_PERSIST.g_awBmsRackMask[n])
 	i_bAccepted		: BOOL;				// 지난 스캔의 쓰기 요청을 드라이버가 받음 (M_SetRackMask 반환값)
 	i_eDriverResult	: E_UpsResult;		// 지난 스캔 드라이버 결과 (q_eRequestResult). 요청하지 않은 스캔은 None
+	i_wActual		: WORD;				// BMS 랙 컨택터 실제 상태 (q_stState.wRackContactor, 30027) [2026-11-13]
+	i_bActualValid	: BOOL;				// i_wActual을 믿을 수 있음 (q_stState.bContactorFeedbackKnown)
 END_VAR
 VAR_OUTPUT
 	q_wMask			: WORD;				// 지금 선택표 (드라이버가 받은 값). MAIN이 GVL_PERSIST에 씀
@@ -30,6 +34,7 @@ VAR
 	_wInstalled		: WORD;
 	_wNew			: WORD;
 	_wOld			: WORD;
+	_wBase			: WORD;				// 바꿀 바탕 (실제 상태 또는 기억한 선택표)
 	_tonWait		: TON;
 END_VAR
 VAR CONSTANT
@@ -75,10 +80,15 @@ IF i_stCmd.nSeq <> q_nLastSeq AND i_stCmd.nSeq <> 0 THEN
 	IF i_stCmd.nRack < 1 OR i_stCmd.nRack > i_nRackCount OR i_stCmd.nRack > 16 THEN
 		q_eResult := E_UpsResult.BadRequest;
 	ELSE
-		IF i_stCmd.bClose THEN
-			_wNew := q_wMask OR SHL(WORD#1, i_stCmd.nRack - 1);
+		IF i_bActualValid THEN
+			_wBase := i_wActual AND _wInstalled;	// 실제 상태 바탕
 		ELSE
-			_wNew := q_wMask AND NOT SHL(WORD#1, i_stCmd.nRack - 1);
+			_wBase := q_wMask;
+		END_IF
+		IF i_stCmd.bClose THEN
+			_wNew := _wBase OR SHL(WORD#1, i_stCmd.nRack - 1);
+		ELSE
+			_wNew := _wBase AND NOT SHL(WORD#1, i_stCmd.nRack - 1);
 		END_IF
 		IF _wNew = 0 THEN
 			q_eResult := E_UpsResult.BadRequest;	// 마지막 랙: 전체 열기는 일괄 명령(2)으로

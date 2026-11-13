@@ -3,7 +3,7 @@
 <DUT Name="ST_EsolutionRaw" Id="{9826777e-47d0-436e-a863-3737331e3296}"><Declaration><![CDATA[TYPE ST_EsolutionRaw :
 STRUCT
 
- awSystem : ARRAY[0..24] OF WORD;
+ awSystem : ARRAY[0..26] OF WORD; // Input 30001~30027 (맵 v1.4: 26 System Contactor State, 27 Rack Contactor State) [2026-11-13]
  awRackAnalog : ARRAY[0..39] OF WORD;
  awRackStatus : ARRAY[0..89] OF WORD;
  aawDetail : ARRAY[1..10,0..405] OF WORD;

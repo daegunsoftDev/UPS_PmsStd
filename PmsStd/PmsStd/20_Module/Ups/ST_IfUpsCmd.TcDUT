@@ -5,7 +5,7 @@
 TYPE ST_IfUpsCmd :
 STRUCT
 	nSeq	: UDINT;	// 새 명령마다 1씩 오름. 받는 쪽은 번호 변화로 새 명령을 안다
-	nType	: UDINT;	// 명령 비트 (EMS CommandType 그대로. 명세 WR-UPS-01 비트 표)
+	nType	: UDINT;	// 명령 번호 1~26 (EMS CommandType 그대로. 인터페이스 100.Command, 명세 WR-UPS-01)
 END_STRUCT
 END_TYPE
 ]]></Declaration>

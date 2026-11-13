@@ -8,6 +8,7 @@ STRUCT
 	afPcsP			: ARRAY[1..GVL_PARAM.PCS_COUNT] OF REAL;		// 충전·방전 P 지령 kW (방전 +, 충전 −). PCS 한 대 몫
 	anPcsPSeq		: ARRAY[1..GVL_PARAM.PCS_COUNT] OF UDINT;		// P 지령 번호. 바뀌면 새 지령 (0 = 한 번도 못 받음)
 	astBatRack		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatRackCmd;	// 랙 컨택터 명령 (CommandType 11·12). MAIN → FB_BmsRackCommand
+	astBatCtl		: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatCtlCmd;	// 컨택터 하나씩 명령 (CommandType 5~10). MAIN → FB_BmsContactorCommand [2026-11-13]
 	astBat			: ARRAY[1..GVL_PARAM.BMS_COUNT] OF ST_BatCmd;	// BMS 명령 + 번호 (칸 = BMS 번호 = DeviceIndex + 1)
 END_STRUCT
 END_TYPE]]></Declaration>

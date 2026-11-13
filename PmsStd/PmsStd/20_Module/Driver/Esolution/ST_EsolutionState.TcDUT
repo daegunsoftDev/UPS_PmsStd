@@ -29,13 +29,18 @@ STRUCT
  fDischargeLimitKw : REAL; // 23. 방전 허용 전력 (kW)
  fChargeCurrentLimitA : REAL; // 24. 충전 허용 전류 (A)
  fDischargeCurrentLimitA : REAL; // 25. 방전 허용 전류 (A)
+// System Data 26~27 (맵 v1.4, 읽기 전용) [2026-11-13]
+ wSystemContactor : WORD; // 26. 시스템 컨택터 상태 (b0 충전, b1 방전. 1 = 붙음)
+ wRackContactor : WORD; // 27. 랙 컨택터 상태 (b0~b9 = 랙 1~10. 1 = 붙음)
+ bChargeContactorClosed : BOOL; // 충전 컨택터 붙음 (26 b0)
+ bDischargeContactorClosed : BOOL; // 방전 컨택터 붙음 (26 b1)
 
 // 프로그램 상태
  bComm : BOOL; // 통신 정상
  bFresh : BOOL; // 데이터 갱신 정상
  bValid : BOOL; // 데이터 유효
  bWriteFail : BOOL; // 쓰기 실패
- bContactorFeedbackKnown : BOOL; // 접촉기 피드백 의미 확인 여부
+ bContactorFeedbackKnown : BOOL; // 컨택터 상태를 믿을 수 있음 (데이터 유효 = 맵 v1.4 26·27을 읽음)
  bWarn : BOOL; // 경보 발생
  bFault : BOOL; // 고장 발생
  bSystemLock : BOOL; // 시스템 잠금

@@ -50,7 +50,7 @@ FOR k := 1 TO nRecords DO
 	pRecord := pRecord + SIZEOF(ST_MqttCommandHeader) + (k - 1) * iq_stEntry.nElementSize;
 
 	IF iq_stEntry.bIndexed THEN
-		pIndex := pRecord;					// 레코드 맨 앞 UDINT = DeviceIndex
+		pIndex := pRecord + iq_stEntry.nIndexOffset;	// DeviceIndex 위치 (command는 SequenceNumber 뒤 4 B, config는 맨 앞) [2026-11-12]
 		IF pIndex^ >= DEVICE_ID_BASE + iq_stEntry.nDeviceIdBase THEN
 			nDev := pIndex^ - DEVICE_ID_BASE - iq_stEntry.nDeviceIdBase;
 		ELSE

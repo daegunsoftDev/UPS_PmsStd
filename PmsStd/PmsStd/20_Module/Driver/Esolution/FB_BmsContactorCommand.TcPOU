@@ -1,0 +1,71 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="FB_BmsContactorCommand" Id="{aa6fe42b-b1d5-4880-9870-44ad1d9f9f0c}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_BmsContactorCommand		// BMS 컨택터 하나씩 제어: EMS 명령 번호 5~10 → 드라이버 M_SetControl 요청
+(* 2026-11-13. 인터페이스 100.Command BAT CommandType 5~10, BMS 맵 v1.4 Holding 40013~40015
+   5 시스템(랙 전체 40013) 연결   6 시스템 차단
+   7 충전 컨택터(40014) 닫기      8 충전 컨택터 열기
+   9 방전 컨택터(40015) 닫기      10 방전 컨택터 열기
+   - 장비 쓰기는 하지 않는다. q_bWriteReq·q_eControl·q_bOn을 MAIN이 보고 드라이버 M_SetControl을 부르고 결과를 돌려준다
+   - 5~10 밖이면 BadRequest. 드라이버가 바쁘면(Busy) WRITE_TIMEOUT 동안 다시 시도. 그 밖의 거절(쓰기 막힘, 통신 불가 등)은 바로 그 결과로 끝
+   - 코어 순서(유닛 정지 확인)는 거치지 않는다 (랙 개별 11·12와 같음). 일괄 투입·개방은 1·2 (코어 경로) *)
+VAR_INPUT
+	i_stCmd			: ST_BatCtlCmd;		// EMS 명령 (번호가 바뀌면 새 명령)
+	i_bAccepted		: BOOL;				// 지난 스캔의 쓰기 요청을 드라이버가 받음 (M_SetControl 반환값)
+	i_eDriverResult	: E_UpsResult;		// 지난 스캔 드라이버 결과 (q_eRequestResult). 요청하지 않은 스캔은 None
+END_VAR
+VAR_OUTPUT
+	q_bWriteReq		: BOOL;				// 드라이버에 쓰기 요청 중
+	q_eControl		: E_EsolutionControl;	// 쓸 컨택터
+	q_bOn			: BOOL;				// TRUE = 닫기(붙이기), FALSE = 열기(떼기)
+	q_eResult		: E_UpsResult;		// 마지막 명령 결과
+	q_nLastSeq		: UDINT;			// 마지막으로 처리한 명령 번호
+END_VAR
+VAR
+	_tonWait		: TON;
+END_VAR
+VAR CONSTANT
+	WRITE_TIMEOUT	: TIME := T#5S;		// 드라이버가 바쁠 때 다시 시도하는 시간
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// 1) 지난 스캔 쓰기 요청의 결과
+IF q_bWriteReq THEN
+	_tonWait(IN := TRUE, PT := WRITE_TIMEOUT);
+	IF i_bAccepted THEN
+		q_eResult := E_UpsResult.Accepted;
+		q_bWriteReq := FALSE;
+	ELSIF i_eDriverResult <> E_UpsResult.None AND i_eDriverResult <> E_UpsResult.Busy THEN
+		q_eResult := i_eDriverResult;	// 쓰기 막힘, 통신 불가 등
+		q_bWriteReq := FALSE;
+	ELSIF _tonWait.Q THEN
+		q_eResult := E_UpsResult.Busy;	// 계속 바빠서 포기
+		q_bWriteReq := FALSE;
+	END_IF
+	IF NOT q_bWriteReq THEN
+		_tonWait(IN := FALSE);
+	END_IF
+END_IF
+
+// 2) 새 명령 (처리 중인 요청이 있으면 그것을 버리고 새 명령으로)
+IF i_stCmd.nSeq <> q_nLastSeq AND i_stCmd.nSeq <> 0 THEN
+	q_nLastSeq := i_stCmd.nSeq;
+	q_bWriteReq := FALSE;
+	_tonWait(IN := FALSE);
+	q_eResult := E_UpsResult.None;	// 처리 중
+	CASE i_stCmd.nType OF
+		5, 6:	q_eControl := E_EsolutionControl.SystemContactor;
+		7, 8:	q_eControl := E_EsolutionControl.ChargeContactor;
+		9, 10:	q_eControl := E_EsolutionControl.DischargeContactor;
+	ELSE
+		q_eResult := E_UpsResult.BadRequest;
+	END_CASE
+	IF q_eResult = E_UpsResult.None THEN
+		q_bOn := (i_stCmd.nType MOD 2) = 1;	// 5·7·9 = 닫기
+		q_bWriteReq := TRUE;
+	END_IF
+END_IF
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

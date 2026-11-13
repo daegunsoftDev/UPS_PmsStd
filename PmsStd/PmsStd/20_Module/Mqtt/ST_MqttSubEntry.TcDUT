@@ -18,6 +18,7 @@ STRUCT
 	nMaxRecords      : UDINT;   // (nRxBufferSize - SIZEOF(Header)) / nElementSize, 빌드 시 1회 계산
 	
 	nDeviceIdBase	: UDINT;		// DEVICE_ID_BASE(1)에 더하는 토픽별 추가 시작 번호. 지금은 모두 0 [1부터 2026-11-10]
+	nIndexOffset	: UDINT;		// 레코드 시작에서 DeviceIndex/DeviceId까지 바이트. command 토픽 4 (앞에 SequenceNumber), config 0 [2026-11-12]
 END_STRUCT
 END_TYPE
 //dgsems/{solution}/{site_id}/{category}/{device_name}]]></Declaration>

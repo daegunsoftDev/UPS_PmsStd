@@ -241,6 +241,7 @@ astSubCommandTable[1].nDeviceCapacity    := UINT_TO_UDINT(GVL_PARAM.PCS_COUNT);
 astSubCommandTable[1].pRxBuffer      := ADR(anRxPcsCommand);
 astSubCommandTable[1].nRxBufferSize  := SIZEOF(anRxPcsCommand);
 astSubCommandTable[1].nMaxRecords     := (SIZEOF(anRxPcsCommand) - SIZEOF(ST_MqttCommandHeader)) / SIZEOF(ST_MqttCommand_Rx);
+astSubCommandTable[1].nIndexOffset    := 4;	// SequenceNumber 뒤 DeviceIndex [2026-11-12]
 
 astSubCommandTable[2].sCategory   := 'command';
 astSubCommandTable[2].sTopic      := 'bat';
@@ -251,6 +252,7 @@ astSubCommandTable[2].nDeviceCapacity    := UINT_TO_UDINT(GVL_PARAM.BMS_COUNT);
 astSubCommandTable[2].pRxBuffer      := ADR(anRxBatCommand);
 astSubCommandTable[2].nRxBufferSize  := SIZEOF(anRxBatCommand);
 astSubCommandTable[2].nMaxRecords     := (SIZEOF(anRxBatCommand) - SIZEOF(ST_MqttCommandHeader)) / SIZEOF(ST_MqttCommand_Rx);
+astSubCommandTable[2].nIndexOffset    := 4;
 
 astSubCommandTable[3].sCategory   := 'command';
 astSubCommandTable[3].sTopic      := 'ups';
@@ -261,6 +263,7 @@ astSubCommandTable[3].nDeviceCapacity    := UINT_TO_UDINT(GVL_PARAM.UPS_COUNT);
 astSubCommandTable[3].pRxBuffer      := ADR(anRxUpsCommand);
 astSubCommandTable[3].nRxBufferSize  := SIZEOF(anRxUpsCommand);
 astSubCommandTable[3].nMaxRecords     := (SIZEOF(anRxUpsCommand) - SIZEOF(ST_MqttCommandHeader)) / SIZEOF(ST_MqttCommand_Rx);
+astSubCommandTable[3].nIndexOffset    := 4;
 // UPS 번호도 1부터: F_MqttDistribute.DEVICE_ID_BASE가 모든 토픽에 적용 (원래 여기서 nDeviceIdBase := 1) [1부터 2026-11-10]
 
 astSubConfigTable[4].sCategory := 'config';

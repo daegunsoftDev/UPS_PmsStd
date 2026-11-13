@@ -71,6 +71,9 @@ VAR
  fbBmsRack : ARRAY[1..GVL_PARAM.BMS_COUNT] OF FB_BmsRackCommand; // 랙 컨택터 개별 제어 (EMS CommandType 11·12)
  abBmsRackAcc : ARRAY[1..GVL_PARAM.BMS_COUNT] OF BOOL; // 지난 스캔 랙 쓰기 요청을 드라이버가 받음
  aeBmsRackRes : ARRAY[1..GVL_PARAM.BMS_COUNT] OF E_UpsResult; // 지난 스캔 드라이버 결과
+ fbBmsCtl : ARRAY[1..GVL_PARAM.BMS_COUNT] OF FB_BmsContactorCommand; // 컨택터 하나씩 제어 (EMS CommandType 5~10) [2026-11-13]
+ abBmsCtlAcc : ARRAY[1..GVL_PARAM.BMS_COUNT] OF BOOL; // 지난 스캔 컨택터 쓰기 요청을 드라이버가 받음
+ aeBmsCtlRes : ARRAY[1..GVL_PARAM.BMS_COUNT] OF E_UpsResult; // 지난 스캔 드라이버 결과
  fbUpsSafety : ARRAY[1..GVL_PARAM.UPS_COUNT] OF FB_UpsSafetyStage; // 사고·고장 단계 판정 (UPS n ↔ BMS n). 표시만, 장비에 쓰지 않음
  // BMS 쓰기 시험 (시뮬레이터 전용). 값을 넣고 nBmsTestCmd를 쓰면 1회 실행 후 0으로 돌아감
  // 1 랙 비트(wBmsTestValue), 2 충전 접촉기, 3 방전 접촉기, 4 시스템 접촉기(bBmsTestOn), 5 비상차단, 6 리셋, 7 주기적 방전 시작, 8 방전 취소
@@ -215,7 +218,7 @@ FOR i:=1 TO GVL_PARAM.UPS_COUNT DO
 END_FOR
 fbUpsConfigApply[1](i_bEnable:=bWriteEnable AND GVL_PARAM.UPS_CONTROL_ENABLED, i_nRxCount:=stUpsConfigReceived.nRxCount,
  i_stConfig:=stUpsConfigReceived.astConfig[0], i_stState:=GVL_SITE.g_fbUps1.q_stState, i_stRaw:=GVL_SITE.g_fbUps1.q_stRaw, i_ipUps:=GVL_SITE.g_aipUps[1],
- i_bUpsFault:=fbRptUps[1].q_stUps.Status.6, iq_stDesired:=GVL_PERSIST.g_astUpsDesired[1]);
+ i_bUpsFault:=fbRptUps[1].q_stUps.Status.2, iq_stDesired:=GVL_PERSIST.g_astUpsDesired[1]);
 FOR i:=1 TO GVL_PARAM.UPS_COUNT DO
  fbUpsCommand[i](i_stCmd:=astUpsCmdReceived[i], i_bEnable:=bWriteEnable AND GVL_PARAM.UPS_CONTROL_ENABLED,
   i_stUps:=fbRptUps[i].q_stUps, i_bUpsValid:=fbRptUps[i].q_bValid, i_ipUps:=GVL_SITE.g_aipUps[i],
@@ -637,13 +640,23 @@ fbReport(		iq_astUnit		:= fbSnapshot.q_astUnit,
 
 // BMS 랙 컨택터 개별 제어 (EMS command/bat 11·12). 일괄(1·2)은 코어 경로. 쓰기 막힘·허가·통신은 드라이버가 판단
 fbBmsRack[1](i_stCmd:=GVL_SITE.g_fbSrcEms.i_stCmd.astBatRack[1], i_nRackCount:=GVL_PARAM.RACKS_PER_BMS,
- i_wRestore:=GVL_PERSIST.g_awBmsRackMask[1], i_bAccepted:=abBmsRackAcc[1], i_eDriverResult:=aeBmsRackRes[1]);
+ i_wRestore:=GVL_PERSIST.g_awBmsRackMask[1], i_bAccepted:=abBmsRackAcc[1], i_eDriverResult:=aeBmsRackRes[1],
+ i_wActual:=GVL_SITE.g_fbBms1.q_stState.wRackContactor, i_bActualValid:=GVL_SITE.g_fbBms1.q_stState.bContactorFeedbackKnown);
 abBmsRackAcc[1]:=FALSE; aeBmsRackRes[1]:=E_UpsResult.None;
 IF fbBmsRack[1].q_bWriteReq THEN
  abBmsRackAcc[1]:=GVL_SITE.g_fbBms1.M_SetRackMask(i_wMask:=fbBmsRack[1].q_wWriteMask);
  aeBmsRackRes[1]:=GVL_SITE.g_fbBms1.q_eRequestResult;
 END_IF
 GVL_PERSIST.g_awBmsRackMask[1]:=fbBmsRack[1].q_wMask;
+
+// BMS 컨택터 하나씩 제어 (EMS command/bat 5~10: 40013 랙 전체, 40014 충전, 40015 방전) [2026-11-13]
+// 11·12처럼 코어 순서(유닛 정지 확인)를 거치지 않음. 쓰기 막힘·허가·통신은 드라이버가 판단
+fbBmsCtl[1](i_stCmd:=GVL_SITE.g_fbSrcEms.i_stCmd.astBatCtl[1], i_bAccepted:=abBmsCtlAcc[1], i_eDriverResult:=aeBmsCtlRes[1]);
+abBmsCtlAcc[1]:=FALSE; aeBmsCtlRes[1]:=E_UpsResult.None;
+IF fbBmsCtl[1].q_bWriteReq THEN
+ abBmsCtlAcc[1]:=GVL_SITE.g_fbBms1.M_SetControl(i_eControl:=fbBmsCtl[1].q_eControl, i_bOn:=fbBmsCtl[1].q_bOn);
+ aeBmsCtlRes[1]:=GVL_SITE.g_fbBms1.q_eRequestResult;
+END_IF
 
 // BMS 쓰기 시험: 코어 경로와 별개인 시험 명령. 접수 뒤 전송은 드라이버 M_Cycle이 함
 IF nBmsTestCmd <> 0 THEN

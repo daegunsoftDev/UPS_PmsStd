@@ -5,20 +5,21 @@
    기반 없음(신규).
    변경: 없음
    부호·단위: 해당 없음. 명세: C:\gil\UPS\명세서\UPS_명세서.md WR-UPS-01, WR-SQ-01, CF-UPS-03(켜짐 상태)
-   - CommandType은 비트이고 b1부터 쓴다 (b0 비움): b1 간헐충전 시작(H118), b2 주기적 방전 시작(H115), b3 펄스 방전 시작(H116),
-     b4 온도보상충전 시작(H120), b5 부동충전(H110), b6 방전 정지(H117), b7 간헐충전 정지(H119),
-     b8 온도보상충전 정지(H121), b9 알람 리셋(H100), b10 Fault 단계 확인(장비에 쓰지 않음, q_bAck)
-   - 여러 비트가 함께 오면 정지·리셋(b6~b9)을 먼저, 시작(b1~b5)을 나중에 한 스캔에 하나씩 보낸다.
-     같은 기능의 시작과 정지가 함께 오면 둘 다 거부한다 (b1+b7, b4+b8, b2·b3+b6)
-   - 거부: UPS 통신이상이면 b1~b9 모두. UPS 고장(Status b6)이나 e-stop(b7) 중이면 시작 b1~b5
-   - 쓰기 허용(i_bEnable)이 꺼져 있으면 b1~b9는 실행하지 않고 Disabled
+   - 2026-11-12 인터페이스 100.Command: CommandType은 번호 1~26. 번호 n → 세방 맵 명령 주소 99+n (H100~H125)에 0x55
+     1 리셋 2 버저 정지 3·4 정류부 ON·OFF 5·6 인버터 ON·OFF 7·8 BBC ON·OFF 9 인버터로 절체 10 바이패스로 절체
+     11 부동충전 12 균등충전 13·14 Auto ON·OFF 15 비상 방전 16 주기적 방전 17 펄스 방전 18 방전 취소
+     19·20 간헐충전 시작·취소 21·22 온도보상 시작·취소 23·24 ECO 시작·취소 25·26 PRLT 시작·취소
+   - 레코드 하나 = 명령 하나. 중복 거르기(SequenceNumber)와 Delay 대기는 앞에서 FB_EmsCmdGate가 한다
+   - 거부: UPS 통신이상이면 모두. UPS 고장(Status b2)이나 e-stop(b3) 중이면 켜기·시작 명령(START_TYPES). 끄기·취소·리셋은 보냄
+   - 쓰기 허용(i_bEnable)이 꺼져 있으면 실행하지 않고 Disabled. 1~26 밖은 BadRequest
+   - Fault 단계 확인은 EMS가 한다 (명세 v2.4). q_bAck는 늘 FALSE
    - 온도보상: 켜 둬야 하는데(iq_stDesired.bTempCompOn) UPS가 꺼져 있으면 i_tRecheck마다 시작 명령을 다시 보낸다.
-     i_nMaxFail회 연속으로 켜지지 않으면 q_bEnableMismatch를 켜고 멈춘다. b4·b8을 받으면 풀린다 *)
+     i_nMaxFail회 연속으로 켜지지 않으면 q_bEnableMismatch를 켜고 멈춘다. 21·22를 받으면 풀린다 *)
 FUNCTION_BLOCK FB_UpsCommand
 VAR_INPUT
 	i_stCmd			: ST_IfUpsCmd;			// 받은 명령 (번호가 바뀌면 새 명령)
 	i_bEnable		: BOOL;					// 장비 쓰기 허용
-	i_stUps			: ST_UpsPublish_V1;		// UPS 보고값 (Status b6 고장, b7 e-stop, b17 온도보상)
+	i_stUps			: ST_UpsPublish_V1;		// UPS 보고값 (Status b2 고장, b3 e-stop, UPS_ModeStatus b7 온도보상)
 	i_bUpsValid		: BOOL;					// UPS 통신 정상
 	i_ipUps			: I_Ups;				// 명령 대상
 	i_tRequestTimeout : TIME := T#5S;		// 드라이버가 요청을 받지 못하면 실패로 보는 시간
@@ -29,11 +30,11 @@ VAR_IN_OUT
 	iq_stDesired	: ST_UpsDesiredSet;		// 켜짐 상태 보관값 (GVL_PERSIST.g_astUpsDesired[n])
 END_VAR
 VAR_OUTPUT
-	q_bAck				: BOOL;				// Fault 단계 확인 (b10을 받은 스캔에 TRUE)
-	q_nLastType			: UDINT;			// 마지막으로 받은 명령 비트
+	q_bAck				: BOOL;				// Fault 단계 확인. EMS가 하므로 늘 FALSE (v2.4, MAIN 연결 유지용)
+	q_nLastType			: UDINT;			// 마지막으로 받은 명령 번호
 	q_eLastResult		: E_UpsResult;		// 마지막 명령 결과
 	q_nRejectCount		: UDINT;			// 상태 때문에 거부한 명령 수
-	q_nUnknownCount		: UDINT;			// 모르는 비트(b0, b11 이상)나 0을 받은 수
+	q_nUnknownCount		: UDINT;			// 1~26 밖의 번호를 받은 수
 	q_bDesiredChanged	: BOOL;				// 이 스캔에 켜짐 상태 보관값을 바꿈 (바로 저장 요청)
 	q_bEnableMismatch	: BOOL;				// 온도보상 복구 연속 실패 알람
 	q_nRestoreCount		: UDINT;			// 온도보상 복구로 시작 명령을 보낸 횟수
@@ -41,7 +42,7 @@ END_VAR
 VAR
 	_nLastSeq		: UDINT;
 	_bInit			: BOOL;
-	_dwPending		: DWORD;				// 드라이버에 넘길 명령 비트 (b1~b9)
+	_nPending		: UDINT;				// 드라이버에 넘길 명령 번호 (0 = 없음)
 	_tonRequest		: TON;
 	_tonRecheck		: TON;
 	_nFail			: UINT;
@@ -49,23 +50,21 @@ VAR
 	_bFault			: BOOL;
 	_bEStop			: BOOL;
 	_eCmd			: E_UpsCommand;
-	_dwNew			: DWORD;
-	_nBit			: INT;
-	_nOrder			: INT;
+	_nNew			: UDINT;
 	_bAccepted		: BOOL;
 END_VAR
 VAR CONSTANT
-	START_BITS		: DWORD := 16#003E;	// b1~b5 시작 명령
-	DEVICE_BITS		: DWORD := 16#03FE;	// b1~b9 장비에 쓰는 명령
-	ACK_BIT			: DWORD := 16#0400;	// b10 Fault 단계 확인
-	SEND_ORDER		: ARRAY[0..8] OF INT := [6, 7, 8, 9, 1, 2, 3, 4, 5];	// 정지·리셋 먼저, 시작 나중
+	MAX_TYPE		: UDINT := 26;		// 번호 1~26 (H100~H125)
+	// 고장·e-stop 중 거부하는 켜기·시작 번호: 3 정류부 ON, 5 인버터 ON, 7 BBC ON, 9 인버터로 절체, 11 부동, 12 균등, 13 Auto ON,
+	// 15 비상 방전, 16 주기적 방전, 17 펄스 방전, 19 간헐충전, 21 온도보상, 23 ECO, 25 PRLT (비트 n = 번호 n)
+	START_TYPES		: DWORD := 16#02ABBAA8;
 END_VAR
 ]]></Declaration>
     <Implementation>
       <ST><![CDATA[q_bAck := FALSE;
 q_bDesiredChanged := FALSE;
-_bFault := i_stUps.Status.6;
-_bEStop := i_stUps.Status.7;
+_bFault := i_stUps.Status.2;	// b2 fault
+_bEStop := i_stUps.Status.3;	// b3 e-stop
 
 // 처음 스캔: 재시작 전에 받은 명령 번호를 다시 실행하지 않음
 IF NOT _bInit THEN
@@ -73,89 +72,81 @@ IF NOT _bInit THEN
 	_nLastSeq := i_stCmd.nSeq;
 END_IF
 
-// 1) 새 명령 (CommandType 비트)
+// 1) 새 명령 (CommandType 번호 1~26)
 IF i_stCmd.nSeq <> _nLastSeq THEN
 	_nLastSeq := i_stCmd.nSeq;
 	q_nLastType := i_stCmd.nType;
-	_dwNew := UDINT_TO_DWORD(i_stCmd.nType);
-	IF _dwNew = 0 OR (_dwNew AND NOT (DEVICE_BITS OR ACK_BIT)) <> 0 THEN
-		q_nUnknownCount := q_nUnknownCount + 1;	// 0이거나 정의되지 않은 비트. 정의된 비트는 계속 처리
+	_nNew := i_stCmd.nType;
+	IF _nNew = 0 OR _nNew > MAX_TYPE THEN
+		q_nUnknownCount := q_nUnknownCount + 1;
 		q_eLastResult := E_UpsResult.BadRequest;
-	END_IF
-	IF (_dwNew AND ACK_BIT) <> 0 THEN
-		q_bAck := TRUE;	// Fault 단계 확인: PMS 안에서만 처리
-		q_eLastResult := E_UpsResult.Accepted;
-	END_IF
-	_dwNew := _dwNew AND DEVICE_BITS;
-	// 같은 기능의 시작과 정지가 함께 오면 둘 다 버림
-	IF _dwNew.1 AND _dwNew.7 THEN _dwNew.1 := FALSE; _dwNew.7 := FALSE; q_nRejectCount := q_nRejectCount + 1; END_IF
-	IF _dwNew.4 AND _dwNew.8 THEN _dwNew.4 := FALSE; _dwNew.8 := FALSE; q_nRejectCount := q_nRejectCount + 1; END_IF
-	IF (_dwNew.2 OR _dwNew.3) AND _dwNew.6 THEN _dwNew.2 := FALSE; _dwNew.3 := FALSE; _dwNew.6 := FALSE; q_nRejectCount := q_nRejectCount + 1; END_IF
-	IF _dwNew <> 0 THEN
-		IF NOT i_bUpsValid THEN
-			_dwNew := 0;
-			q_nRejectCount := q_nRejectCount + 1;
-			q_eLastResult := E_UpsResult.CommUnavailable;
-		ELSE
-			IF (_bFault OR _bEStop) AND (_dwNew AND START_BITS) <> 0 THEN
-				_dwNew := _dwNew AND NOT START_BITS;	// 고장·e-stop 중 시작 명령 거부, 정지·리셋은 남김
-				q_nRejectCount := q_nRejectCount + 1;
-				q_eLastResult := E_UpsResult.BadRequest;
-			END_IF
-			IF _dwNew <> 0 THEN
-				IF NOT i_bEnable OR i_ipUps = 0 THEN
-					q_eLastResult := E_UpsResult.Disabled;
-				ELSE
-					_dwPending := _dwNew;	// 앞의 요청이 남아 있으면 새 명령으로 바꿈 (마지막 명령이 우선)
-					q_eLastResult := E_UpsResult.Busy;
-				END_IF
-			END_IF
-		END_IF
+	ELSIF NOT i_bUpsValid THEN
+		q_nRejectCount := q_nRejectCount + 1;
+		q_eLastResult := E_UpsResult.CommUnavailable;
+	ELSIF (_bFault OR _bEStop) AND (START_TYPES AND SHL(DWORD#1, UDINT_TO_INT(_nNew))) <> 0 THEN
+		q_nRejectCount := q_nRejectCount + 1;	// 고장·e-stop 중 켜기·시작 거부
+		q_eLastResult := E_UpsResult.BadRequest;
+	ELSIF NOT i_bEnable OR i_ipUps = 0 THEN
+		q_eLastResult := E_UpsResult.Disabled;
+	ELSE
+		_nPending := _nNew;	// 앞의 요청이 남아 있으면 새 명령으로 바꿈 (마지막 명령이 우선)
+		q_eLastResult := E_UpsResult.Busy;
 	END_IF
 END_IF
 
-// 2) 드라이버에 한 스캔에 하나씩 요청. 받아들이면 켜짐 상태 보관값 갱신
+// 2) 드라이버에 요청. 받아들이면 켜짐 상태 보관값 갱신
 _bAccepted := FALSE;
-_tonRequest(IN := _dwPending <> 0, PT := i_tRequestTimeout);
-IF _dwPending <> 0 THEN
-	_nBit := -1;
-	FOR _nOrder := 0 TO 8 DO
-		IF _nBit < 0 AND (_dwPending AND SHL(DWORD#1, SEND_ORDER[_nOrder])) <> 0 THEN
-			_nBit := SEND_ORDER[_nOrder];
-		END_IF
-	END_FOR
-	CASE _nBit OF
-		1:	_eCmd := E_UpsCommand.TrickleOn;
-		2:	_eCmd := E_UpsCommand.PeriodicDischarge;
-		3:	_eCmd := E_UpsCommand.PulseDischarge;
-		4:	_eCmd := E_UpsCommand.TemperatureOn;
-		5:	_eCmd := E_UpsCommand.FloatCharge;
-		6:	_eCmd := E_UpsCommand.CancelDischarge;
-		7:	_eCmd := E_UpsCommand.TrickleOff;
-		8:	_eCmd := E_UpsCommand.TemperatureOff;
-		9:	_eCmd := E_UpsCommand.Reset;
+_tonRequest(IN := _nPending <> 0, PT := i_tRequestTimeout);
+IF _nPending <> 0 THEN
+	CASE _nPending OF	// 번호 n → 맵 주소 99+n (E_UpsCommand 값 = 주소)
+		1:	_eCmd := E_UpsCommand.Reset;
+		2:	_eCmd := E_UpsCommand.BuzzerStop;
+		3:	_eCmd := E_UpsCommand.RectifierOn;
+		4:	_eCmd := E_UpsCommand.RectifierOff;
+		5:	_eCmd := E_UpsCommand.InverterOn;
+		6:	_eCmd := E_UpsCommand.InverterOff;
+		7:	_eCmd := E_UpsCommand.BbcOn;
+		8:	_eCmd := E_UpsCommand.BbcOff;
+		9:	_eCmd := E_UpsCommand.ToInverter;
+		10:	_eCmd := E_UpsCommand.ToBypass;
+		11:	_eCmd := E_UpsCommand.FloatCharge;
+		12:	_eCmd := E_UpsCommand.EqualCharge;
+		13:	_eCmd := E_UpsCommand.AutoOn;
+		14:	_eCmd := E_UpsCommand.AutoOff;
+		15:	_eCmd := E_UpsCommand.EmergencyDischarge;
+		16:	_eCmd := E_UpsCommand.PeriodicDischarge;
+		17:	_eCmd := E_UpsCommand.PulseDischarge;
+		18:	_eCmd := E_UpsCommand.CancelDischarge;
+		19:	_eCmd := E_UpsCommand.TrickleOn;
+		20:	_eCmd := E_UpsCommand.TrickleOff;
+		21:	_eCmd := E_UpsCommand.TemperatureOn;
+		22:	_eCmd := E_UpsCommand.TemperatureOff;
+		23:	_eCmd := E_UpsCommand.EcoOn;
+		24:	_eCmd := E_UpsCommand.EcoOff;
+		25:	_eCmd := E_UpsCommand.PrltOn;
+		26:	_eCmd := E_UpsCommand.PrltOff;
 	END_CASE
 	IF i_ipUps.M_RequestCommand(_eCmd) THEN
 		_bAccepted := TRUE;
-		_dwPending := _dwPending AND NOT SHL(DWORD#1, _nBit);
 		q_eLastResult := E_UpsResult.Accepted;
-		CASE _nBit OF
-			1:	iq_stDesired.bTrickleOn := TRUE;	q_bDesiredChanged := TRUE;
-			7:	iq_stDesired.bTrickleOn := FALSE;	q_bDesiredChanged := TRUE;
-			4:	iq_stDesired.bTempCompOn := TRUE;	q_bDesiredChanged := TRUE;	q_bEnableMismatch := FALSE;	_nFail := 0;	_bRestoreSent := FALSE;
-			8:	iq_stDesired.bTempCompOn := FALSE;	q_bDesiredChanged := TRUE;	q_bEnableMismatch := FALSE;	_nFail := 0;	_bRestoreSent := FALSE;
+		CASE _nPending OF
+			19:	iq_stDesired.bTrickleOn := TRUE;	q_bDesiredChanged := TRUE;
+			20:	iq_stDesired.bTrickleOn := FALSE;	q_bDesiredChanged := TRUE;
+			21:	iq_stDesired.bTempCompOn := TRUE;	q_bDesiredChanged := TRUE;	q_bEnableMismatch := FALSE;	_nFail := 0;	_bRestoreSent := FALSE;
+			22:	iq_stDesired.bTempCompOn := FALSE;	q_bDesiredChanged := TRUE;	q_bEnableMismatch := FALSE;	_nFail := 0;	_bRestoreSent := FALSE;
 		END_CASE
-		_tonRequest(IN := FALSE);	// 다음 비트는 시간을 새로 잼
+		_nPending := 0;
+		_tonRequest(IN := FALSE);
 	ELSIF _tonRequest.Q THEN
-		_dwPending := 0;	// 드라이버가 받지 못함. 남은 비트도 버림
+		_nPending := 0;	// 드라이버가 받지 못함
 		q_eLastResult := E_UpsResult.CommUnavailable;
 	END_IF
 END_IF
 
 // 3) 온도보상 켜짐 상태 복구 (CF-UPS-03)
 _tonRecheck(IN := NOT _tonRecheck.Q, PT := i_tRecheck);
-IF _tonRecheck.Q AND _dwPending = 0 AND NOT _bAccepted THEN
-	IF i_stUps.Status.17 OR NOT iq_stDesired.bTempCompOn THEN
+IF _tonRecheck.Q AND _nPending = 0 AND NOT _bAccepted THEN
+	IF i_stUps.UPS_ModeStatus.7 OR NOT iq_stDesired.bTempCompOn THEN
 		_nFail := 0;					// 켜져 있거나 켤 필요 없음
 		_bRestoreSent := FALSE;
 	ELSIF i_bUpsValid AND i_bEnable AND i_ipUps <> 0 AND NOT _bFault AND NOT _bEStop AND NOT q_bEnableMismatch THEN

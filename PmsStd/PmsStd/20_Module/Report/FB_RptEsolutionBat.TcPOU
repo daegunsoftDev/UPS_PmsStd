@@ -153,6 +153,7 @@ IF NOT _bCalculated OR i_stState.nSampleSeq <> _nLastSeq OR q_bValid <> _bLastVa
    q_astRack[_nRack].Status.5 := _bRackWarn; // Warning 칸 중 하나라도 0이 아님
    q_astRack[_nRack].Status.6 := _bRackFault; // Fault 칸 중 하나라도 0이 아님
    q_astRack[_nRack].Status.7 := _wOperation.1 OR _wOperation.2 OR _wOperation.3; // Online
+   q_astRack[_nRack].Status.10 := (SHR(i_stState.wRackContactor, _nRack - 1) AND 1) <> 0; // 랙 컨택터 붙음 (맵 v1.4 Input 27) [2026-11-13]
    q_astRack[_nRack].DcVoltage := WORD_TO_REAL(i_stRaw.awRackAnalog[_nAnalog]) * 0.1;
    q_astRack[_nRack].DcCurrent := F_UpsSignedWord(i_stRaw.awRackAnalog[_nAnalog + 1]) * 0.1;
    q_astRack[_nRack].Soc := WORD_TO_REAL(i_stRaw.awRackAnalog[_nAnalog + 2]) * 0.1;
@@ -231,6 +232,8 @@ IF q_bValid THEN
  q_stBat.Status.7 := (_anBatFault[1] OR _anBatFault[2] OR _anBatFault[3] OR _anBatFault[4]
   OR _anBatFault[5] OR _anBatFault[6] OR _anBatFault[7] OR _anBatFault[8]) <> 0;
  q_stBat.Status.9 := i_stState.bSystemLock; // Emergency = 어느 랙이든 System Lock (Level 3, 현장 해제 필요)
+ q_stBat.Status.11 := i_stState.bChargeContactorClosed; // 충전 컨택터 붙음 (맵 v1.4 Input 26 b0) [2026-11-13]
+ q_stBat.Status.12 := i_stState.bDischargeContactorClosed; // 방전 컨택터 붙음 (맵 v1.4 Input 26 b1) [2026-11-13]
  // b8 Balancing, b10 E-stop은 맵에 정보가 없어 항상 0 (미지원)
 END_IF
 // Eol, 랙 충·방전 제한, 온도 셀 위치는 맵에 없어 0. RACK b8 Precharge·b9 Balancing은 미지원이라 0.
